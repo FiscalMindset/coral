@@ -24,6 +24,7 @@ test_queries:
   - SELECT * FROM groq_ai.models LIMIT 5
   - "SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1"
   - "SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1"
+  - "SELECT id, owned_by, active FROM groq_ai.model WHERE model_id = 'groq/compound-mini' LIMIT 1"
 tables:
   - name: models
     description: Active GroqCloud models available through the Models API.
@@ -56,6 +57,14 @@ tables:
         type: Int64
         nullable: true
         description: Context window size when returned by the API.
+      - name: max_completion_tokens
+        type: Int64
+        nullable: true
+        description: Maximum completion tokens when returned by the API.
+      - name: public_apps
+        type: Json
+        nullable: true
+        description: Public app metadata when returned by the API.
   - name: chat_completions
     description: Run one Groq chat completion using required SQL filters for model and prompt.
     filters:
@@ -63,7 +72,7 @@ tables:
         required: true
       - name: prompt
         required: true
-      - name: max_tokens
+      - name: max_completion_tokens
         required: false
     request:
       method: POST
@@ -90,9 +99,9 @@ tables:
           from: filter
           key: prompt
         - path:
-            - max_tokens
+            - max_completion_tokens
           from: filter_int
-          key: max_tokens
+          key: max_completion_tokens
     response:
       rows_path:
         - choices
@@ -115,6 +124,14 @@ tables:
         expr:
           kind: from_filter
           key: prompt
+      - name: max_completion_tokens
+        type: Int64
+        nullable: true
+        virtual: true
+        description: Maximum completion tokens supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: max_completion_tokens
       - name: index
         type: Int64
         nullable: true
@@ -141,14 +158,6 @@ tables:
           path:
             - message
             - role
-      - name: public_apps
-        type: Json
-        nullable: true
-        description: Public app metadata when returned by the API.
-        expr:
-          kind: path
-          path:
-            - public_apps
   - name: model
     description: Metadata for a specific Groq model ID.
     filters:
@@ -190,3 +199,11 @@ tables:
         type: Int64
         nullable: true
         description: Context window size when returned by the API.
+      - name: max_completion_tokens
+        type: Int64
+        nullable: true
+        description: Maximum completion tokens when returned by the API.
+      - name: public_apps
+        type: Json
+        nullable: true
+        description: Public app metadata when returned by the API.

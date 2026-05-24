@@ -57,6 +57,14 @@ Interactive install also works:
 coral source add --interactive --file sources/community/groq_ai/manifest.yaml
 ```
 
+## Provider docs
+
+- Groq API reference: https://console.groq.com/docs/api-reference
+- Groq models: https://console.groq.com/docs/models
+- Groq text/chat guide: https://console.groq.com/docs/text-chat
+- Groq rate limits: https://console.groq.com/docs/rate-limits
+- Groq model permissions: https://console.groq.com/docs/model-permissions
+
 ## Tables
 
 | Table | Description | Required filters |
@@ -70,32 +78,34 @@ coral source add --interactive --file sources/community/groq_ai/manifest.yaml
 Lists models available from `GET /models`.
 
 ```sql
-SELECT id, object, owned_by, active, context_window
+SELECT id, object, owned_by, active, context_window, max_completion_tokens
 FROM groq_ai.models
 LIMIT 20;
 ```
 
 ### `groq_ai.model`
 
-Fetches metadata for one model from `GET /models/{model_id}`.
+Fetches metadata for one model from `GET /models/{model_id}`. Slash-containing
+model IDs such as `groq/compound-mini` are supported by Coral's HTTP request
+builder and are covered by the validation output below.
 
 ```sql
-SELECT id, object, owned_by, active, context_window
+SELECT id, object, owned_by, active, context_window, max_completion_tokens
 FROM groq_ai.model
-WHERE model_id = 'llama-3.3-70b-versatile';
+WHERE model_id = 'groq/compound-mini';
 ```
 
 ### `groq_ai.chat_completions`
 
 Runs a single user-message chat completion through `POST /chat/completions`.
-Use `max_tokens` when you want to keep validation output small.
+Use `max_completion_tokens` when you want to keep validation output small.
 
 ```sql
-SELECT content, finish_reason
+SELECT content, finish_reason, max_completion_tokens
 FROM groq_ai.chat_completions
 WHERE model = 'llama-3.3-70b-versatile'
   AND prompt = 'What is Python? Reply in one short line under 15 words.'
-  AND max_tokens = 40
+  AND max_completion_tokens = 40
 LIMIT 1;
 ```
 
@@ -113,8 +123,8 @@ coral source add --file sources/community/groq_ai/manifest.yaml
 coral source test groq_ai
 ```
 
-The declared test queries cover model discovery and two chat-completion smoke
-tests:
+The declared test queries cover model discovery, two chat-completion smoke
+tests, and a detail lookup for a slash-containing model ID:
 
 ```sql
 SELECT * FROM groq_ai.models LIMIT 5;
@@ -129,6 +139,11 @@ SELECT content
 FROM groq_ai.chat_completions
 WHERE model = 'llama-3.3-70b-versatile'
   AND prompt = 'What is Python?'
+LIMIT 1;
+
+SELECT id, owned_by, active
+FROM groq_ai.model
+WHERE model_id = 'groq/compound-mini'
 LIMIT 1;
 ```
 
@@ -164,22 +179,25 @@ Output:
 ```text
 Added source groq_ai
 
-  ✓ groq_ai connected successfully
+  PASS groq_ai connected successfully
 
     groq_ai (3 tables)
-    ├─ chat_completions
-    ├─ model
-    └─ models
+    - chat_completions
+    - model
+    - models
     Query tests
-    3 declared · 3 passed · 0 failed
+    4 declared - 4 passed - 0 failed
 
-    ✓ SELECT * FROM groq_ai.models LIMIT 5
+    PASS SELECT * FROM groq_ai.models LIMIT 5
       5 rows
 
-    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
+    PASS SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
       1 row
 
-    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+    PASS SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+      1 row
+
+    PASS SELECT id, owned_by, active FROM groq_ai.model WHERE model_id = 'groq/compound-mini' LIMIT 1
       1 row
 ```
 
@@ -194,22 +212,25 @@ coral source test groq_ai
 Output:
 
 ```text
-  ✓ groq_ai connected successfully
+  PASS groq_ai connected successfully
 
     groq_ai (3 tables)
-    ├─ chat_completions
-    ├─ model
-    └─ models
+    - chat_completions
+    - model
+    - models
     Query tests
-    3 declared · 3 passed · 0 failed
+    4 declared - 4 passed - 0 failed
 
-    ✓ SELECT * FROM groq_ai.models LIMIT 5
+    PASS SELECT * FROM groq_ai.models LIMIT 5
       5 rows
 
-    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
+    PASS SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
       1 row
 
-    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+    PASS SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+      1 row
+
+    PASS SELECT id, owned_by, active FROM groq_ai.model WHERE model_id = 'groq/compound-mini' LIMIT 1
       1 row
 ```
 
@@ -231,6 +252,45 @@ Output:
 | model            |
 | models           |
 +------------------+
+```
+
+#### Confirm column discovery
+
+Command:
+
+```bash
+coral sql "SELECT table_name, column_name, data_type FROM coral.columns WHERE schema_name = 'groq_ai' ORDER BY table_name, ordinal_position"
+```
+
+Output:
+
+```text
++------------------+-----------------------+-----------+
+| table_name       | column_name           | data_type |
++------------------+-----------------------+-----------+
+| chat_completions | model                 | Utf8      |
+| chat_completions | prompt                | Utf8      |
+| chat_completions | max_completion_tokens | Int64     |
+| chat_completions | index                 | Int64     |
+| chat_completions | finish_reason         | Utf8      |
+| chat_completions | content               | Utf8      |
+| chat_completions | message_role          | Utf8      |
+| model            | model_id              | Utf8      |
+| model            | id                    | Utf8      |
+| model            | object                | Utf8      |
+| model            | owned_by              | Utf8      |
+| model            | active                | Boolean   |
+| model            | context_window        | Int64     |
+| model            | max_completion_tokens | Int64     |
+| model            | public_apps           | Json      |
+| models           | id                    | Utf8      |
+| models           | object                | Utf8      |
+| models           | owned_by              | Utf8      |
+| models           | active                | Boolean   |
+| models           | context_window        | Int64     |
+| models           | max_completion_tokens | Int64     |
+| models           | public_apps           | Json      |
++------------------+-----------------------+-----------+
 ```
 
 #### Confirm input discovery
@@ -256,17 +316,17 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python? Reply in one short line under 15 words.' LIMIT 1"
+coral sql "SELECT content, max_completion_tokens FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python? Reply in one short line under 15 words.' AND max_completion_tokens = 40 LIMIT 1"
 ```
 
 Output:
 
 ```text
-+----------------------------------------------+
-| content                                      |
-+----------------------------------------------+
-| Python is a high-level programming language. |
-+----------------------------------------------+
++----------------------------------------------+-----------------------+
+| content                                      | max_completion_tokens |
++----------------------------------------------+-----------------------+
+| Python is a high-level programming language. | 40                    |
++----------------------------------------------+-----------------------+
 ```
 
 #### Query Groq model metadata
@@ -291,13 +351,34 @@ Output:
 +-------------------------------------------+--------+-------------+
 ```
 
+#### Query one slash-containing model ID
+
+Command:
+
+```bash
+coral sql "SELECT id, object, owned_by, active, context_window, max_completion_tokens FROM groq_ai.model WHERE model_id = 'groq/compound-mini' LIMIT 1"
+```
+
+Output:
+
+```text
++--------------------+--------+----------+--------+----------------+-----------------------+
+| id                 | object | owned_by | active | context_window | max_completion_tokens |
++--------------------+--------+----------+--------+----------------+-----------------------+
+| groq/compound-mini | model  | Groq     | true   | 131072         | 8192                  |
++--------------------+--------+----------+--------+----------------+-----------------------+
+```
+
 ## Implementation notes
 
 - Uses Coral source-spec DSL v3 with the HTTP backend.
 - Uses `HeaderAuth` with `Authorization: Bearer {{input.GROQ_API_KEY}}`.
 - Maps Groq's `data` array from `GET /models` into `groq_ai.models`.
+- Maps Groq model metadata, including `public_apps` and
+  `max_completion_tokens`, onto `groq_ai.models` and `groq_ai.model`.
 - Maps `choices[*].message.content` from `POST /chat/completions` into
   `groq_ai.chat_completions.content`.
+- Sends the current Groq chat parameter `max_completion_tokens`.
 - Echoes required SQL filters such as `model`, `prompt`, and `model_id` back as
   virtual columns so query results keep their request context.
 - Does not require runtime, CLI, MCP, or UI changes.
@@ -308,8 +389,9 @@ Output:
 - `chat_completions` performs a live API call for each query.
 - The chat table supports one user message per query. It is intended for
   validation and lightweight SQL workflows, not as a full chat client.
-- Responses, available models, rate limits, and errors depend on the Groq
-  account, API key permissions, and the selected model.
+- Responses, available models, permissions, rate limits, and errors depend on
+  the Groq account, API key permissions, selected model, and current provider
+  limits.
 
 ## Contributing
 
