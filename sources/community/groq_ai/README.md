@@ -101,7 +101,9 @@ LIMIT 1;
 
 ## Validation
 
-Run the source-level checks before opening or updating a PR:
+Run the source-level checks with a valid `GROQ_API_KEY` before opening or
+updating a PR. The API key is required for `source add`, `source test`, and live
+SQL queries, but it should never be printed or committed.
 
 ```bash
 coral source lint sources/community/groq_ai/manifest.yaml
@@ -130,16 +132,163 @@ WHERE model = 'llama-3.3-70b-versatile'
 LIMIT 1;
 ```
 
-For PR proof, the local verification script used for this contribution is:
+### Live validation output
 
-```powershell
-coral-forge-agent\scripts\groq_ai_pr_proof.ps1
+The following output was captured from a live validation run using a real
+GroqCloud API key.
+
+#### Manifest lint
+
+Command:
+
+```bash
+coral source lint sources/community/groq_ai/manifest.yaml
 ```
 
-Screenshots from that proof run are stored under:
+Output:
 
 ```text
-output_proof/groq_ai
+Manifest is valid
+```
+
+#### Add source and run declared tests
+
+Command:
+
+```bash
+coral source add --file sources/community/groq_ai/manifest.yaml
+```
+
+Output:
+
+```text
+Added source groq_ai
+
+  ✓ groq_ai connected successfully
+
+    groq_ai (3 tables)
+    ├─ chat_completions
+    ├─ model
+    └─ models
+    Query tests
+    3 declared · 3 passed · 0 failed
+
+    ✓ SELECT * FROM groq_ai.models LIMIT 5
+      5 rows
+
+    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
+      1 row
+
+    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+      1 row
+```
+
+#### Re-run source tests
+
+Command:
+
+```bash
+coral source test groq_ai
+```
+
+Output:
+
+```text
+  ✓ groq_ai connected successfully
+
+    groq_ai (3 tables)
+    ├─ chat_completions
+    ├─ model
+    └─ models
+    Query tests
+    3 declared · 3 passed · 0 failed
+
+    ✓ SELECT * FROM groq_ai.models LIMIT 5
+      5 rows
+
+    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'Reply with exactly: Coral Groq works' LIMIT 1
+      1 row
+
+    ✓ SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python?' LIMIT 1
+      1 row
+```
+
+#### Confirm table discovery
+
+Command:
+
+```bash
+coral sql "SELECT table_name FROM coral.tables WHERE schema_name = 'groq_ai' ORDER BY table_name"
+```
+
+Output:
+
+```text
++------------------+
+| table_name       |
++------------------+
+| chat_completions |
+| model            |
+| models           |
++------------------+
+```
+
+#### Confirm input discovery
+
+Command:
+
+```bash
+coral sql "SELECT key, kind, required FROM coral.inputs WHERE schema_name = 'groq_ai' ORDER BY key"
+```
+
+Output:
+
+```text
++--------------+--------+----------+
+| key          | kind   | required |
++--------------+--------+----------+
+| GROQ_API_KEY | secret | true     |
++--------------+--------+----------+
+```
+
+#### Run a live chat completion query
+
+Command:
+
+```bash
+coral sql "SELECT content FROM groq_ai.chat_completions WHERE model = 'llama-3.3-70b-versatile' AND prompt = 'What is Python? Reply in one short line under 15 words.' LIMIT 1"
+```
+
+Output:
+
+```text
++----------------------------------------------+
+| content                                      |
++----------------------------------------------+
+| Python is a high-level programming language. |
++----------------------------------------------+
+```
+
+#### Query Groq model metadata
+
+Command:
+
+```bash
+coral sql "SELECT id, object, owned_by FROM groq_ai.models LIMIT 5"
+```
+
+Output:
+
+```text
++-------------------------------------------+--------+-------------+
+| id                                        | object | owned_by    |
++-------------------------------------------+--------+-------------+
+| canopylabs/orpheus-arabic-saudi           | model  | Canopy Labs |
+| meta-llama/llama-4-scout-17b-16e-instruct | model  | Meta        |
+| whisper-large-v3                          | model  | OpenAI      |
+| meta-llama/llama-prompt-guard-2-22m       | model  | Meta        |
+| groq/compound-mini                        | model  | Groq        |
++-------------------------------------------+--------+-------------+
 ```
 
 ## Implementation notes
