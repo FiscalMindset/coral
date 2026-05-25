@@ -2,7 +2,7 @@ name: ollama
 version: 0.1.0
 dsl_version: 3
 backend: http
-description: Query local or cloud Ollama model inventory and run bounded prompt/chat checks through SQL.
+description: Query local Ollama model inventory and run bounded prompt/chat checks through SQL.
 base_url: "{{input.OLLAMA_BASE_URL}}"
 inputs:
   OLLAMA_BASE_URL:
@@ -14,8 +14,8 @@ inputs:
       Local Ollama serves the API at:
       http://localhost:11434/api
 
-      Ollama Cloud-compatible deployments can use:
-      https://ollama.com/api
+      Direct https://ollama.com/api access requires API-key authentication and
+      is intentionally out of scope for this first local API version.
 test_queries:
   - SELECT version FROM ollama.version LIMIT 1
   - SELECT name, model, size FROM ollama.models LIMIT 5
@@ -330,7 +330,7 @@ tables:
       - name: system
         required: false
       - name: num_predict
-        required: false
+        required: true
       - name: keep_alive
         required: false
     request:
@@ -459,7 +459,7 @@ tables:
       - name: prompt
         required: true
       - name: num_predict
-        required: false
+        required: true
       - name: keep_alive
         required: false
     request:

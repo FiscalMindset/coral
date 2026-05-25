@@ -1,8 +1,8 @@
 # Ollama community source
 
-Query a local or cloud Ollama API through Coral SQL. This source exposes model
+Query a local Ollama API through Coral SQL. This source exposes model
 inventory, running model state, server version, model metadata, and bounded
-non-streaming generate/chat smoke checks.
+non-streaming generate/single-turn chat smoke checks.
 
 **Version:** 0.1.0
 **Backend:** HTTP
@@ -12,8 +12,10 @@ non-streaming generate/chat smoke checks.
 ## Provider docs
 
 - API introduction: https://docs.ollama.com/api/introduction
+- Authentication: https://docs.ollama.com/api/authentication
 - Generate: https://docs.ollama.com/api/generate
 - Chat: https://docs.ollama.com/api/chat
+- Embed: https://docs.ollama.com/api/embed
 - List models: https://docs.ollama.com/api/tags
 - Running models: https://docs.ollama.com/api/ps
 - Show model details: https://docs.ollama.com/api-reference/show-model-details
@@ -35,11 +37,10 @@ export OLLAMA_BASE_URL="http://localhost:11434/api"
 coral source add --file sources/community/ollama/manifest.yaml
 ```
 
-For Ollama Cloud-compatible deployments, use:
-
-```bash
-export OLLAMA_BASE_URL="https://ollama.com/api"
-```
+This first version targets local or self-hosted Ollama APIs that do not require
+an API key. Direct `https://ollama.com/api` access requires `Authorization:
+Bearer ...` authentication and is intentionally out of scope for this source
+version.
 
 If Coral runs inside WSL while Ollama runs on Windows, `localhost` points at
 WSL instead of the Windows host. Use the Windows host or WSL gateway address for
@@ -53,8 +54,8 @@ WSL instead of the Windows host. Use the Windows host or WSL gateway address for
 | `ollama.models` | Locally available models from `GET /tags`. | None |
 | `ollama.running_models` | Models currently loaded in memory from `GET /ps`. | None |
 | `ollama.model_details` | Metadata for one model from `POST /show`. | `model` |
-| `ollama.generate` | One non-streaming generation request from `POST /generate`. | `model`, `prompt` |
-| `ollama.chat` | One non-streaming chat request from `POST /chat`. | `model`, `prompt` |
+| `ollama.generate` | One bounded non-streaming generation request from `POST /generate`. | `model`, `prompt`, `num_predict` |
+| `ollama.chat` | One bounded non-streaming single-turn chat request from `POST /chat`. | `model`, `prompt`, `num_predict` |
 
 ## Example queries
 
@@ -85,7 +86,7 @@ WHERE model = '<installed-model>';
 Run a bounded generate query:
 
 ```sql
-SELECT response, done_reason, eval_count
+SELECT response, done_reason, eval_count, num_predict
 FROM ollama.generate
 WHERE model = '<installed-model>'
   AND prompt = 'Reply with exactly: Coral Ollama works'
@@ -93,10 +94,10 @@ WHERE model = '<installed-model>'
 LIMIT 1;
 ```
 
-Run a bounded chat query:
+Run a bounded single-turn chat query:
 
 ```sql
-SELECT content, done_reason, eval_count
+SELECT content, done_reason, eval_count, num_predict
 FROM ollama.chat
 WHERE model = '<installed-model>'
   AND prompt = 'What is Python? Reply in one short line.'
@@ -232,7 +233,7 @@ LIMIT 1;
 ```
 
 ```sql
-SELECT response, done_reason, eval_count
+SELECT response, done_reason, eval_count, num_predict
 FROM ollama.generate
 WHERE model = 'qwen2.5-coder:1.5b-base'
   AND prompt = 'Reply with exactly: Coral Ollama works'
@@ -241,15 +242,15 @@ LIMIT 1;
 ```
 
 ```text
-+--------------------------------------------------+-------------+------------+
-| response                                         | done_reason | eval_count |
-+--------------------------------------------------+-------------+------------+
-|  as a... A) Data Scientist B) Business Analyst C | length      | 12         |
-+--------------------------------------------------+-------------+------------+
++-----------------------------------------------------------------------------+-------------+------------+-------------+
+| response                                                                    | done_reason | eval_count | num_predict |
++-----------------------------------------------------------------------------+-------------+------------+-------------+
+|  for a multinational corporation that focuses on the production and sale of | length      | 12         | 12          |
++-----------------------------------------------------------------------------+-------------+------------+-------------+
 ```
 
 ```sql
-SELECT content, done_reason, eval_count
+SELECT content, done_reason, eval_count, num_predict
 FROM ollama.chat
 WHERE model = 'qwen2.5-coder:1.5b-base'
   AND prompt = 'What is Python? Reply in one short line.'
@@ -258,11 +259,11 @@ LIMIT 1;
 ```
 
 ```text
-+--------------------------------------------------------------------------------------------------------------------------+-------------+------------+
-| content                                                                                                                  | done_reason | eval_count |
-+--------------------------------------------------------------------------------------------------------------------------+-------------+------------+
-|  Python is an interpreted, high-level, general-purpose programming language that was designed and first released by Guid | length      | 20         |
-+--------------------------------------------------------------------------------------------------------------------------+-------------+------------+
++------------------------------------------------------------------+-------------+------------+-------------+
+| content                                                          | done_reason | eval_count | num_predict |
++------------------------------------------------------------------+-------------+------------+-------------+
+|  Python is an interpreted, object-oriented programming language. | stop        | 11         | 20          |
++------------------------------------------------------------------+-------------+------------+-------------+
 ```
 
 ## Implementation notes
@@ -272,8 +273,11 @@ LIMIT 1;
 - Does not require authentication for local Ollama.
 - Sets `stream = false` for `generate` and `chat` so Coral receives one JSON
   response instead of a streaming response.
-- Uses `options.num_predict` for bounded prompt/chat proof queries.
-- Does not include create, copy, pull, push, or delete operations.
+- Requires `num_predict` on `generate` and `chat`, then sends it as
+  `options.num_predict` so live inference queries are bounded.
+- Models `chat` as a single-turn user prompt. Chat history, tool calls, and
+  image-message inputs are not exposed in this first version.
+- Does not include create, copy, pull, push, delete, or embeddings operations.
 
 ## Limitations
 
@@ -283,5 +287,9 @@ LIMIT 1;
   the configured Ollama server.
 - The source is read/query oriented. It intentionally excludes model management
   endpoints that mutate local state or download/delete models.
+- The non-mutating `POST /embed` embeddings endpoint is intentionally omitted
+  from this first version.
+- Direct `https://ollama.com/api` access is not supported yet because Ollama
+  requires an API key and Authorization header for that mode.
 - Localhost access from WSL, Docker, or remote machines may require a different
   `OLLAMA_BASE_URL`, such as a LAN IP or `host.docker.internal`.
