@@ -302,8 +302,7 @@ tables:
           from: literal
           value: false
     response:
-      rows_path:
-        - choices
+      row_strategy: direct
     pagination:
       mode: none
     columns:
@@ -331,14 +330,90 @@ tables:
         expr:
           kind: from_filter
           key: max_tokens
+      - name: id
+        type: Utf8
+        nullable: true
+        description: OpenRouter response ID.
+      - name: object
+        type: Utf8
+        nullable: true
+        description: API object type.
+      - name: created
+        type: Int64
+        nullable: true
+        description: Response creation timestamp.
+      - name: returned_model
+        type: Utf8
+        nullable: true
+        description: Actual model returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - model
+      - name: usage
+        type: Json
+        nullable: true
+        description: Token usage and cost metadata returned by OpenRouter.
+      - name: prompt_tokens
+        type: Int64
+        nullable: true
+        description: Prompt token count when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - prompt_tokens
+      - name: completion_tokens
+        type: Int64
+        nullable: true
+        description: Completion token count when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - completion_tokens
+      - name: total_tokens
+        type: Int64
+        nullable: true
+        description: Total token count when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - total_tokens
+      - name: cost
+        type: Float64
+        nullable: true
+        description: Request cost when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - cost
+      - name: choices
+        type: Json
+        nullable: true
+        description: Raw choices array returned by OpenRouter.
       - name: index
         type: Int64
         nullable: true
         description: Choice index.
+        expr:
+          kind: path
+          path:
+            - choices
+            - "0"
+            - index
       - name: finish_reason
         type: Utf8
         nullable: true
         description: Why the model stopped.
+        expr:
+          kind: path
+          path:
+            - choices
+            - "0"
+            - finish_reason
       - name: content
         type: Utf8
         nullable: true
@@ -346,6 +421,8 @@ tables:
         expr:
           kind: path
           path:
+            - choices
+            - "0"
             - message
             - content
       - name: reasoning
@@ -355,6 +432,8 @@ tables:
         expr:
           kind: path
           path:
+            - choices
+            - "0"
             - message
             - reasoning
       - name: message_role
@@ -364,6 +443,8 @@ tables:
         expr:
           kind: path
           path:
+            - choices
+            - "0"
             - message
             - role
 
@@ -391,8 +472,7 @@ tables:
           from: filter
           key: input
     response:
-      rows_path:
-        - data
+      row_strategy: direct
     pagination:
       mode: none
     columns:
@@ -412,15 +492,70 @@ tables:
         expr:
           kind: from_filter
           key: input
+      - name: returned_model
+        type: Utf8
+        nullable: true
+        description: Actual embedding model returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - model
       - name: object
         type: Utf8
         nullable: true
         description: API object type.
+      - name: usage
+        type: Json
+        nullable: true
+        description: Token usage and cost metadata returned by OpenRouter.
+      - name: prompt_tokens
+        type: Int64
+        nullable: true
+        description: Prompt token count when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - prompt_tokens
+      - name: total_tokens
+        type: Int64
+        nullable: true
+        description: Total token count when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - total_tokens
+      - name: cost
+        type: Float64
+        nullable: true
+        description: Request cost when returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - usage
+            - cost
+      - name: data
+        type: Json
+        nullable: true
+        description: Raw embedding data array returned by OpenRouter.
       - name: index
         type: Int64
         nullable: true
         description: Embedding row index.
+        expr:
+          kind: path
+          path:
+            - data
+            - "0"
+            - index
       - name: embedding
         type: Json
         nullable: true
         description: Embedding vector returned by OpenRouter.
+        expr:
+          kind: path
+          path:
+            - data
+            - "0"
+            - embedding

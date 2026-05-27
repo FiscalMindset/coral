@@ -54,6 +54,14 @@ Interactive install also works:
 coral source add --interactive --file sources/community/openrouter/manifest.yaml
 ```
 
+## Live request costs
+
+`openrouter.models`, `openrouter.embedding_models`, and `openrouter.key` are
+metadata reads. `openrouter.chat_completions` and `openrouter.embeddings`
+perform live OpenRouter API calls whenever selected, so they can consume
+OpenRouter credits, model-provider quota, and rate limits. Keep validation
+queries bounded and small.
+
 ## Provider docs
 
 - OpenRouter API reference: https://openrouter.ai/docs/api-reference/overview
@@ -111,7 +119,7 @@ Runs a single user-message chat completion through `POST /chat/completions`.
 Always pass a positive `max_tokens` value so the request is bounded.
 
 ```sql
-SELECT content, reasoning, finish_reason, max_tokens
+SELECT content, reasoning, finish_reason, max_tokens, returned_model, total_tokens, cost
 FROM openrouter.chat_completions
 WHERE model = 'google/gemini-3.1-flash-lite'
   AND prompt = 'Reply with exactly: Coral OpenRouter works'
@@ -119,15 +127,19 @@ WHERE model = 'google/gemini-3.1-flash-lite'
 LIMIT 1;
 ```
 
-This table is single-turn only. It does not expose chat history, tool calls,
-structured-output payloads, provider routing options, transforms, or streaming
-in this first version.
+This table is single-turn only. It preserves top-level response metadata such
+as response ID, returned model, raw `choices`, and `usage` when OpenRouter
+returns it. It does not expose chat history, tool calls, structured-output
+payloads, provider routing options, transforms, or streaming in this first
+version.
 
 ### `openrouter.embeddings`
 
 Generates an embedding vector through `POST /embeddings`. Select `embedding`
 when you need the full vector; validation examples show a short vector preview
-so terminal output stays readable.
+so terminal output stays readable. This table preserves top-level response
+metadata such as returned model, raw `data`, and `usage` when OpenRouter
+returns it.
 
 ```sql
 SELECT model, index, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview
@@ -271,20 +283,23 @@ Output:
 
 #### Key metadata query
 
+The live output below omits `label` intentionally. The source exposes the
+mapped `label` column, but validation avoids printing key-like identifiers.
+
 Command:
 
 ```bash
-coral sql "SELECT 'sk-or-v1-***...***' AS label, usage, limit_remaining, is_free_tier FROM openrouter.key LIMIT 1"
+coral sql "SELECT usage, limit_remaining, is_free_tier FROM openrouter.key LIMIT 1"
 ```
 
 Output:
 
 ```text
-+--------------------+-------+-----------------+--------------+
-| label              | usage | limit_remaining | is_free_tier |
-+--------------------+-------+-----------------+--------------+
-| sk-or-v1-***...*** | 0.0   |                 | true         |
-+--------------------+-------+-----------------+--------------+
++-----------+-----------------+--------------+
+| usage     | limit_remaining | is_free_tier |
++-----------+-----------------+--------------+
+| 0.0000405 |                 | true         |
++-----------+-----------------+--------------+
 ```
 
 #### Embedding model inventory query
@@ -319,17 +334,17 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT content, reasoning, finish_reason, max_tokens FROM openrouter.chat_completions WHERE model = 'google/gemini-3.1-flash-lite' AND prompt = 'Reply with exactly: Coral OpenRouter works' AND max_tokens = 20 LIMIT 1"
+coral sql "SELECT content, reasoning, finish_reason, max_tokens, returned_model, total_tokens, cost FROM openrouter.chat_completions WHERE model = 'google/gemini-3.1-flash-lite' AND prompt = 'Reply with exactly: Coral OpenRouter works' AND max_tokens = 20 LIMIT 1"
 ```
 
 Output:
 
 ```text
-+------------------------+-----------+---------------+------------+
-| content                | reasoning | finish_reason | max_tokens |
-+------------------------+-----------+---------------+------------+
-| Coral OpenRouter works |           | stop          | 20         |
-+------------------------+-----------+---------------+------------+
++------------------------+-----------+---------------+------------+---------------------------------------+--------------+---------+
+| content                | reasoning | finish_reason | max_tokens | returned_model                        | total_tokens | cost    |
++------------------------+-----------+---------------+------------+---------------------------------------+--------------+---------+
+| Coral OpenRouter works |           | stop          | 20         | google/gemini-3.1-flash-lite-20260507 | 13           | 8.25e-6 |
++------------------------+-----------+---------------+------------+---------------------------------------+--------------+---------+
 ```
 
 #### Embedding query
@@ -337,17 +352,17 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT model, index, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM openrouter.embeddings WHERE model = 'nvidia/llama-nemotron-embed-vl-1b-v2:free' AND input = 'Coral OpenRouter source validation' LIMIT 1"
+coral sql "SELECT returned_model, index, total_tokens, cost, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM openrouter.embeddings WHERE model = 'nvidia/llama-nemotron-embed-vl-1b-v2:free' AND input = 'Coral OpenRouter source validation' LIMIT 1"
 ```
 
 Output:
 
 ```text
-+-------------------------------------------+-------+----------------------------------------------------------------------------------+
-| model                                     | index | embedding_preview                                                                |
-+-------------------------------------------+-------+----------------------------------------------------------------------------------+
-| nvidia/llama-nemotron-embed-vl-1b-v2:free | 0     | [0.0161285400390625,0.0282745361328125,0.006008148193359375,0.0091094970703125,0 |
-+-------------------------------------------+-------+----------------------------------------------------------------------------------+
++---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
+| returned_model                                          | index | total_tokens | cost | embedding_preview                                                                |
++---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
+| private/openrouter/nvidia/llama-nemotron-embed-vl-1b-v2 | 0     | 8            | 0.0  | [0.0161285400390625,0.0282745361328125,0.006008148193359375,0.0091094970703125,0 |
++---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
 ```
 
 ## Scope and limitations
@@ -356,6 +371,8 @@ Output:
 - Requires `OPENROUTER_API_KEY` bearer authentication.
 - `chat_completions` uses required positive `max_tokens`.
 - `chat_completions` is single-turn and non-streaming.
+- `chat_completions` and `embeddings` are live execution tables and may
+  consume OpenRouter credits or rate limits.
 - `embeddings` requires an embedding-capable model.
 - Does not expose streaming, provider routing preferences, transforms,
   structured outputs, tool calls, or multimodal message payloads in this first
