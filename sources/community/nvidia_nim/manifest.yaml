@@ -117,7 +117,7 @@ tables:
         type: Int64
         nullable: false
         virtual: true
-        description: Positive max_tokens value supplied in SQL filter.
+        description: Positive max_tokens value supplied in SQL filter; NVIDIA rejects non-positive values.
         expr:
           kind: from_filter
           key: max_tokens

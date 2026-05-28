@@ -59,6 +59,7 @@ LIMIT 10;
 
 Runs a single user-message chat completion through `POST /chat/completions`.
 Always pass a positive `max_tokens` value so the request is bounded.
+NVIDIA rejects non-positive `max_tokens` values.
 
 ```sql
 SELECT content, finish_reason, max_tokens, returned_model, total_tokens
@@ -275,7 +276,8 @@ Output:
 
 - Targets NVIDIA's hosted NIM API at `https://integrate.api.nvidia.com/v1`.
 - Requires `NVIDIA_API_KEY` bearer authentication.
-- `chat_completions` uses required positive `max_tokens`.
+- `chat_completions` uses required positive `max_tokens`; NVIDIA rejects
+  non-positive values.
 - `chat_completions` is single-turn and non-streaming.
 - `chat_completions` and `embeddings` are live execution tables and may consume
   NVIDIA API quota, credits, or rate limits.
