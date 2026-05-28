@@ -492,6 +492,10 @@ tables:
         expr:
           kind: from_filter
           key: input
+      - name: id
+        type: Utf8
+        nullable: true
+        description: OpenRouter embedding response ID.
       - name: returned_model
         type: Utf8
         nullable: true

@@ -138,7 +138,7 @@ version.
 Generates an embedding vector through `POST /embeddings`. Select `embedding`
 when you need the full vector; validation examples show a short vector preview
 so terminal output stays readable. This table preserves top-level response
-metadata such as returned model, raw `data`, and `usage` when OpenRouter
+metadata such as response ID, returned model, raw `data`, and `usage` when OpenRouter
 returns it.
 
 ```sql
@@ -352,17 +352,17 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT returned_model, index, total_tokens, cost, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM openrouter.embeddings WHERE model = 'nvidia/llama-nemotron-embed-vl-1b-v2:free' AND input = 'Coral OpenRouter source validation' LIMIT 1"
+coral sql "SELECT id, returned_model, index, total_tokens, cost, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM openrouter.embeddings WHERE model = 'nvidia/llama-nemotron-embed-vl-1b-v2:free' AND input = 'Coral OpenRouter source validation' LIMIT 1"
 ```
 
 Output:
 
 ```text
-+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
-| returned_model                                          | index | total_tokens | cost | embedding_preview                                                                |
-+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
-| private/openrouter/nvidia/llama-nemotron-embed-vl-1b-v2 | 0     | 8            | 0.0  | [0.0161285400390625,0.0282745361328125,0.006008148193359375,0.0091094970703125,0 |
-+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
++-----------------------------------------+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
+| id                                      | returned_model                                          | index | total_tokens | cost | embedding_preview                                                                |
++-----------------------------------------+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
+| gen-emb-1779968767-UB9SzA0JqjtCaZ9ynMMz | private/openrouter/nvidia/llama-nemotron-embed-vl-1b-v2 | 0     | 8            | 0.0  | [0.0161285400390625,0.0282745361328125,0.006008148193359375,0.0091094970703125,0 |
++-----------------------------------------+---------------------------------------------------------+-------+--------------+------+----------------------------------------------------------------------------------+
 ```
 
 ## Scope and limitations
