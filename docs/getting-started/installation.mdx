@@ -26,8 +26,22 @@ Coral ships as a single local CLI. Once installed, the same binary is used for s
     ```
   </Tab>
 
+  <Tab title="Windows">
+    ```powershell
+    powershell -ExecutionPolicy Bypass -c "irm https://withcoral.com/install.ps1 | iex"
+    ```
+
+    Verify the install:
+
+    ```powershell
+    coral --version
+    coral source discover
+    coral onboard
+    ```
+  </Tab>
+
   <Tab title="Windows ZIP">
-    Download and install the Windows x86_64 release ZIP:
+    To install manually, download and install the Windows x86_64 release ZIP:
 
     ```powershell
     Invoke-WebRequest `
@@ -148,9 +162,18 @@ Coral ships as a single local CLI. Once installed, the same binary is used for s
     ```
   </Tab>
 
+  <Tab title="Windows">
+    Re-run the installer to upgrade a direct install:
+
+    ```powershell
+    powershell -ExecutionPolicy Bypass -c "irm https://withcoral.com/install.ps1 | iex"
+    ```
+  </Tab>
+
   <Tab title="Windows ZIP">
-    Download the latest `coral-x86_64-pc-windows-msvc.zip`, expand it, and
-    overwrite the installed `coral.exe`:
+    For a manual upgrade, download the latest
+    `coral-x86_64-pc-windows-msvc.zip`, expand it, and overwrite the installed
+    `coral.exe`:
 
     ```powershell
     Invoke-WebRequest `
@@ -178,7 +201,7 @@ Coral ships as a single local CLI. Once installed, the same binary is used for s
     ```
   </Tab>
 
-  <Tab title="Windows ZIP">
+  <Tab title="Windows">
     ```powershell
     Remove-Item "$env:USERPROFILE\.local\bin\coral.exe" -ErrorAction SilentlyContinue
     Remove-Item "$env:APPDATA\withcoral\coral\config" -Recurse -Force -ErrorAction SilentlyContinue
