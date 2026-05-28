@@ -2,7 +2,7 @@ name: nvidia_nim
 version: 0.1.0
 dsl_version: 3
 backend: http
-description: Query NVIDIA NIM model catalogs and run bounded OpenAI-compatible chat and embedding checks through SQL.
+description: Query NVIDIA NIM model catalogs and run bounded synchronous OpenAI-compatible chat checks through SQL.
 base_url: https://integrate.api.nvidia.com/v1
 inputs:
   NVIDIA_API_KEY:
@@ -52,7 +52,7 @@ tables:
         description: Model owner or provider.
 
   - name: chat_completions
-    description: Run one non-streaming NVIDIA NIM chat completion with required bounded SQL filters.
+    description: Run one synchronous non-streaming NVIDIA NIM chat completion with required bounded SQL filters.
     filters:
       - name: model
         required: true
@@ -252,129 +252,3 @@ tables:
             - message
             - role
 
-  - name: embeddings
-    description: Generate one embedding vector through NVIDIA NIM POST /embeddings.
-    filters:
-      - name: model
-        required: true
-      - name: input
-        required: true
-      - name: input_type
-        required: true
-    request:
-      method: POST
-      path: /embeddings
-      headers:
-        - name: Content-Type
-          from: literal
-          value: application/json
-      body:
-        - path:
-            - model
-          from: filter
-          key: model
-        - path:
-            - input
-          from: filter
-          key: input
-        - path:
-            - input_type
-          from: filter
-          key: input_type
-    response:
-      row_strategy: direct
-    pagination:
-      mode: none
-    columns:
-      - name: model
-        type: Utf8
-        nullable: false
-        virtual: true
-        description: Embedding model supplied in SQL filter.
-        expr:
-          kind: from_filter
-          key: model
-      - name: input
-        type: Utf8
-        nullable: false
-        virtual: true
-        description: Input text supplied in SQL filter.
-        expr:
-          kind: from_filter
-          key: input
-      - name: input_type
-        type: Utf8
-        nullable: false
-        virtual: true
-        description: NVIDIA embedding input type supplied in SQL filter, such as query or passage.
-        expr:
-          kind: from_filter
-          key: input_type
-      - name: object
-        type: Utf8
-        nullable: true
-        description: API object type.
-      - name: returned_model
-        type: Utf8
-        nullable: true
-        description: Actual embedding model returned by NVIDIA NIM.
-        expr:
-          kind: path
-          path:
-            - model
-      - name: usage
-        type: Json
-        nullable: true
-        description: Token usage metadata returned by NVIDIA NIM.
-      - name: prompt_tokens
-        type: Int64
-        nullable: true
-        description: Prompt token count when returned by NVIDIA NIM.
-        expr:
-          kind: path
-          path:
-            - usage
-            - prompt_tokens
-      - name: total_tokens
-        type: Int64
-        nullable: true
-        description: Total token count when returned by NVIDIA NIM.
-        expr:
-          kind: path
-          path:
-            - usage
-            - total_tokens
-      - name: data
-        type: Json
-        nullable: true
-        description: Raw embedding data array returned by NVIDIA NIM.
-      - name: index
-        type: Int64
-        nullable: true
-        description: First embedding row index.
-        expr:
-          kind: path
-          path:
-            - data
-            - "0"
-            - index
-      - name: embedding_object
-        type: Utf8
-        nullable: true
-        description: First embedding object type.
-        expr:
-          kind: path
-          path:
-            - data
-            - "0"
-            - object
-      - name: embedding
-        type: Json
-        nullable: true
-        description: Embedding vector returned by NVIDIA NIM.
-        expr:
-          kind: path
-          path:
-            - data
-            - "0"
-            - embedding
