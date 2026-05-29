@@ -20,13 +20,13 @@ This source lets Coral query Mistral AI for available models, run one bounded no
 Create a Mistral AI API key in the Mistral console, then add the source:
 
 ```bash
-coral source add --interactive mistral_ai
+coral source add --interactive --file sources/community/mistral_ai/manifest.yaml
 ```
 
 For scripted setup, provide the key as an environment variable:
 
 ```bash
-MISTRAL_API_KEY=... coral source add mistral_ai
+MISTRAL_API_KEY=... coral source add --file sources/community/mistral_ai/manifest.yaml
 ```
 
 The key is stored locally by Coral and sent as a Bearer token to `https://api.mistral.ai/v1`.
@@ -124,7 +124,7 @@ LIMIT 1;
 ```
 
 This table keeps the top-level embedding response metadata and raw `data` array while also exposing the first vector as `embedding`.
-It also preserves Mistral usage details such as token counts, request count, token detail JSON fields, and prompt audio seconds when returned.
+It also preserves the documented shared `usage` object and token counts when returned.
 
 ## Validation checklist
 
