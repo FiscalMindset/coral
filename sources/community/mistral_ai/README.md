@@ -150,6 +150,65 @@ WHERE schema_name = 'mistral_ai'
 ORDER BY table_name, ordinal_position;
 ```
 
+```text
++------------------+-------------------------------+-----------+
+| table_name       | column_name                   | data_type |
++------------------+-------------------------------+-----------+
+| chat_completions | model                         | Utf8      |
+| chat_completions | prompt                        | Utf8      |
+| chat_completions | max_tokens                    | Int64     |
+| chat_completions | id                            | Utf8      |
+| chat_completions | object                        | Utf8      |
+| chat_completions | created                       | Int64     |
+| chat_completions | returned_model                | Utf8      |
+| chat_completions | usage                         | Json      |
+| chat_completions | prompt_tokens                 | Int64     |
+| chat_completions | completion_tokens             | Int64     |
+| chat_completions | total_tokens                  | Int64     |
+| chat_completions | prompt_tokens_details         | Json      |
+| chat_completions | choices                       | Json      |
+| chat_completions | index                         | Int64     |
+| chat_completions | finish_reason                 | Utf8      |
+| chat_completions | content                       | Utf8      |
+| chat_completions | message_role                  | Utf8      |
+| chat_completions | tool_calls                    | Json      |
+| embeddings       | model                         | Utf8      |
+| embeddings       | input                         | Utf8      |
+| embeddings       | id                            | Utf8      |
+| embeddings       | returned_model                | Utf8      |
+| embeddings       | object                        | Utf8      |
+| embeddings       | usage                         | Json      |
+| embeddings       | prompt_tokens                 | Int64     |
+| embeddings       | completion_tokens             | Int64     |
+| embeddings       | total_tokens                  | Int64     |
+| embeddings       | data                          | Json      |
+| embeddings       | index                         | Int64     |
+| embeddings       | embedding_object              | Utf8      |
+| embeddings       | embedding                     | Json      |
+| models           | id                            | Utf8      |
+| models           | object                        | Utf8      |
+| models           | created                       | Int64     |
+| models           | owned_by                      | Utf8      |
+| models           | name                          | Utf8      |
+| models           | description                   | Utf8      |
+| models           | root                          | Utf8      |
+| models           | max_context_length            | Int64     |
+| models           | aliases                       | Utf8      |
+| models           | deprecation                   | Utf8      |
+| models           | deprecation_replacement_model | Utf8      |
+| models           | default_model_temperature     | Float64   |
+| models           | type                          | Utf8      |
+| models           | archived                      | Boolean   |
+| models           | capabilities                  | Json      |
+| models           | completion_chat               | Boolean   |
+| models           | completion_fim                | Boolean   |
+| models           | function_calling              | Boolean   |
+| models           | fine_tuning                   | Boolean   |
+| models           | vision                        | Boolean   |
+| models           | classification                | Boolean   |
++------------------+-------------------------------+-----------+
+```
+
 ```sql
 SELECT key, kind, required
 FROM coral.inputs
