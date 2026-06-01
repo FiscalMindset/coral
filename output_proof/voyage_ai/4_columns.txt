@@ -1,0 +1,15 @@
++------------+------------------+-----------+--------------------+
+| table_name | column_name      | data_type | is_required_filter |
++------------+------------------+-----------+--------------------+
+| embeddings | model            | Utf8      | true               |
+| embeddings | input            | Utf8      | true               |
+| embeddings | input_type       | Utf8      | false              |
+| embeddings | output_dimension | Int64     | false              |
+| embeddings | object           | Utf8      | false              |
+| embeddings | returned_model   | Utf8      | false              |
+| embeddings | usage            | Json      | false              |
+| embeddings | total_tokens     | Int64     | false              |
+| embeddings | data             | Json      | false              |
+| embeddings | index            | Int64     | false              |
+| embeddings | embedding        | Json      | false              |
++------------+------------------+-----------+--------------------+

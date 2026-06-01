@@ -1,0 +1,14 @@
+
+  ✓ voyage_ai connected successfully
+
+    voyage_ai (1 table)
+    └─ embeddings
+    Query tests
+    2 declared · 2 passed · 0 failed
+
+    ✓ SELECT returned_model, object, total_tokens, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' LIMIT 1
+      1 row
+
+    ✓ SELECT returned_model, total_tokens, json_length(embedding) AS embedding_dim FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' AND output_dimension = 512 LIMIT 1
+      1 row
+
