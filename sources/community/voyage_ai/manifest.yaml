@@ -2,7 +2,7 @@ name: voyage_ai
 version: 0.1.0
 dsl_version: 3
 backend: http
-description: Query Voyage AI embedding vectors and token usage through SQL using the documented `POST /v1/embeddings` endpoint.
+description: Query Voyage AI embedding vectors and token usage through SQL.
 base_url: https://api.voyageai.com/v1
 inputs:
   VOYAGE_API_KEY:
