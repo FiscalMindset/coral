@@ -26,9 +26,19 @@ tables:
   - name: models
     description: Cohere models available to the API key from GET /v1/models.
     fetch_limit_default: 100
+    filters:
+      - name: endpoint
+      - name: default_only
     request:
       method: GET
       path: /v1/models
+      query:
+        - name: endpoint
+          from: filter
+          key: endpoint
+        - name: default_only
+          from: filter_bool
+          key: default_only
     response:
       rows_path:
         - models
@@ -42,6 +52,22 @@ tables:
         max: 1000
         query_param: page_size
     columns:
+      - name: endpoint
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional Cohere endpoint filter supplied in SQL, such as chat or embed.
+        expr:
+          kind: from_filter
+          key: endpoint
+      - name: default_only
+        type: Boolean
+        nullable: true
+        virtual: true
+        description: Optional Cohere default_only filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: default_only
       - name: name
         type: Utf8
         nullable: false
@@ -342,10 +368,6 @@ tables:
         type: Utf8
         nullable: true
         description: Cohere embedding response ID.
-      - name: response_type
-        type: Utf8
-        nullable: true
-        description: Embedding response type returned by Cohere.
       - name: texts
         type: Json
         nullable: true

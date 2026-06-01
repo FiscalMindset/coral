@@ -13,6 +13,7 @@ This source lets Coral query Cohere for model catalog metadata, run one bounded 
 - Chat: https://docs.cohere.com/v2/reference/chat
 - Embeddings: https://docs.cohere.com/v2/reference/embed
 - Model guide: https://docs.cohere.com/v2/docs/models
+- Rate limits: https://docs.cohere.com/v2/docs/rate-limits
 - API keys: https://dashboard.cohere.com/api-keys
 
 ## Authentication
@@ -70,6 +71,7 @@ Lists Cohere models visible to the API key.
 ```sql
 SELECT name, endpoints, context_length, features
 FROM cohere_ai.models
+WHERE endpoint = 'chat'
 LIMIT 10;
 ```
 
@@ -78,7 +80,7 @@ Useful columns:
 | Column | Notes |
 |---|---|
 | `name` | Model name to use in chat or embedding requests |
-| `endpoints` | Comma-separated supported endpoint names |
+| `endpoints` | Comma-separated supported endpoint names; use the optional `endpoint` filter to find chat or embed models |
 | `context_length` | Context length returned by Cohere |
 | `features` | Comma-separated feature flags when returned |
 
@@ -102,7 +104,7 @@ This table preserves the raw assistant `message`, `usage`, response `id`, and to
 Generates one text embedding vector.
 
 ```sql
-SELECT id, response_type, api_version, billed_input_tokens,
+SELECT id, api_version, billed_input_tokens,
        substr(CAST(float_embedding AS VARCHAR), 1, 80) AS embedding_preview
 FROM cohere_ai.embeddings
 WHERE model = 'embed-v4.0'
@@ -201,7 +203,6 @@ ORDER BY table_name, ordinal_position;
 | embeddings       | input                | Utf8      |
 | embeddings       | input_type           | Utf8      |
 | embeddings       | id                   | Utf8      |
-| embeddings       | response_type        | Utf8      |
 | embeddings       | texts                | Json      |
 | embeddings       | returned_text        | Utf8      |
 | embeddings       | embeddings           | Json      |
@@ -210,6 +211,8 @@ ORDER BY table_name, ordinal_position;
 | embeddings       | api_version          | Utf8      |
 | embeddings       | billed_input_tokens  | Int64     |
 | embeddings       | billed_image_tokens  | Int64     |
+| models           | endpoint             | Utf8      |
+| models           | default_only         | Boolean   |
 | models           | name                 | Utf8      |
 | models           | is_deprecated        | Boolean   |
 | models           | endpoints            | Utf8      |
@@ -240,19 +243,20 @@ ORDER BY key;
 ```sql
 SELECT name, endpoints, context_length, features
 FROM cohere_ai.models
+WHERE endpoint = 'chat'
 LIMIT 5;
 ```
 
 ```text
-+---------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
-| name                      | endpoints      | context_length | features                                                                                            |
-+---------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
-| c4ai-aya-expanse-32b      | generate, chat | 128000         |                                                                                                     |
-| c4ai-aya-vision-32b       | chat           | 16384          | logprobs, vision                                                                                    |
-| cohere-transcribe-03-2026 | transcriptions | 32768          |                                                                                                     |
-| command-a-03-2025         | chat           | 288000         | json_mode, json_schema, strict_tools, safety_modes, tools, tool_choice                              |
-| command-a-plus-05-2026    | generate, chat | 128000         | logprobs, json_mode, json_schema, strict_tools, safety_modes, tools, reasoning, vision, tool_images |
-+---------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
++-----------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
+| name                        | endpoints      | context_length | features                                                                                            |
++-----------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
+| c4ai-aya-expanse-32b        | generate, chat | 128000         |                                                                                                     |
+| c4ai-aya-vision-32b         | chat           | 16384          | logprobs, vision                                                                                    |
+| command-a-03-2025           | chat           | 288000         | json_mode, json_schema, strict_tools, safety_modes, tools, tool_choice                              |
+| command-a-plus-05-2026      | generate, chat | 128000         | logprobs, json_mode, json_schema, strict_tools, safety_modes, tools, reasoning, vision, tool_images |
+| command-a-reasoning-08-2025 | chat           | 288768         | json_mode, json_schema, strict_tools, safety_modes, tools, reasoning                                |
++-----------------------------+----------------+----------------+-----------------------------------------------------------------------------------------------------+
 ```
 
 ```sql
@@ -285,12 +289,12 @@ LIMIT 1;
 +--------------------------------------+--------------+--------------+--------------+---------------+---------------+
 | id                                   | message_role | content_type | input_tokens | output_tokens | cached_tokens |
 +--------------------------------------+--------------+--------------+--------------+---------------+---------------+
-| 82b54c19-22f9-45cf-96fb-6e9efd8c6286 | assistant    | text         | 503          | 7             | 0             |
+| 48463565-9a32-44e9-8ab9-2cad9ef98c51 | assistant    | text         | 503          | 7             | 0             |
 +--------------------------------------+--------------+--------------+--------------+---------------+---------------+
 ```
 
 ```sql
-SELECT id, response_type, api_version, billed_input_tokens,
+SELECT id, api_version, billed_input_tokens,
        substr(CAST(float_embedding AS VARCHAR), 1, 80) AS embedding_preview
 FROM cohere_ai.embeddings
 WHERE model = 'embed-v4.0'
@@ -300,11 +304,11 @@ LIMIT 1;
 ```
 
 ```text
-+--------------------------------------+--------------------+-------------+---------------------+----------------------------------------------------------------------------------+
-| id                                   | response_type      | api_version | billed_input_tokens | embedding_preview                                                                |
-+--------------------------------------+--------------------+-------------+---------------------+----------------------------------------------------------------------------------+
-| 24077dda-cc0a-4844-9beb-2cabf72347cc | embeddings_by_type | 2           | 6                   | [-0.006427452,0.01688568,-0.0004800163,-0.043575946,-0.04074351,-0.004929529,-0. |
-+--------------------------------------+--------------------+-------------+---------------------+----------------------------------------------------------------------------------+
++--------------------------------------+-------------+---------------------+----------------------------------------------------------------------------------+
+| id                                   | api_version | billed_input_tokens | embedding_preview                                                                |
++--------------------------------------+-------------+---------------------+----------------------------------------------------------------------------------+
+| 1a911b6d-e340-47f3-9b7c-b19a0867f72d | 2           | 6                   | [-0.0059665833,0.017109653,-0.0004938097,-0.043809433,-0.040975988,-0.0053672004 |
++--------------------------------------+-------------+---------------------+----------------------------------------------------------------------------------+
 ```
 
 ## Validation checklist
@@ -343,6 +347,7 @@ Run representative live queries:
 ```sql
 SELECT name, endpoints, context_length, features
 FROM cohere_ai.models
+WHERE endpoint = 'chat'
 LIMIT 10;
 ```
 
@@ -356,7 +361,7 @@ LIMIT 1;
 ```
 
 ```sql
-SELECT id, response_type, api_version, billed_input_tokens,
+SELECT id, api_version, billed_input_tokens,
        substr(CAST(float_embedding AS VARCHAR), 1, 80) AS embedding_preview
 FROM cohere_ai.embeddings
 WHERE model = 'embed-v4.0'
