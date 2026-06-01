@@ -99,9 +99,11 @@ shorten inputs or add `LIMIT 1` while validating.
   but the current source sends one at a time.
 - Streaming, batch embeddings, `encoding_format`, and other first-class
   Voyage features are intentionally not modeled.
-- `output_dtype` accepts the documented Voyage values. The current
-  source does not validate the value against the chosen model; Voyage
-  will return an error if the combination is unsupported.
+- `output_dtype` accepts the values documented at
+  <https://docs.voyageai.com/docs/embeddings> (`float` / `int8` /
+  `uint8` / `binary` / `ubinary`). The current source does not validate
+  the value against the chosen model; Voyage will return an error if
+  the combination is unsupported.
 - Voyage does not publish a public `GET /v1/models` listing endpoint, so
   the first version does not include a `models` table. The available
   model IDs are documented at
@@ -157,6 +159,21 @@ WHERE model = 'voyage-3.5-lite'
 LIMIT 1;
 ```
 
+Request a quantized embedding with `output_dtype = 'int8'` to reduce
+storage and bandwidth at the cost of precision. Voyage still returns a
+JSON array, but the values are signed 8-bit integers:
+
+```sql
+SELECT returned_model,
+       total_tokens,
+       json_length(embedding) AS embedding_dim
+FROM voyage_ai.embeddings
+WHERE model = 'voyage-3.5-lite'
+  AND input = 'Coral source validation'
+  AND output_dtype = 'int8'
+LIMIT 1;
+```
+
 Useful columns:
 
 | Column | Notes |
@@ -173,7 +190,7 @@ Useful columns:
 | `total_tokens` | Total tokens consumed by the request. |
 | `data` | Raw `data` array returned by Voyage. |
 | `index` | Embedding index inside the `data` array, normally `0` for a single-text request. |
-| `embedding` | Embedding vector as a JSON array. Use `substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview` for compact output, or `json_length(embedding)` to compute the dimension. |
+| `embedding` | Embedding vector as a JSON array. |
 
 ## Live validation output
 
@@ -320,3 +337,4 @@ LIMIT 1;
 ![Voyage proof 8 - bounded live embedding with output_dimension=256](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/8_embedding_dim_256.png)
 ![Voyage proof 9 - bounded live embedding with input_type=query and output_dimension=256](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/9_input_type_dim_256.png)
 ![Voyage proof 10 - bounded live embedding with truncation=false](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/10_truncation_false.png)
+![Voyage proof 11 - bounded live embedding with output_dtype=int8](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/11_output_dtype_int8.png)

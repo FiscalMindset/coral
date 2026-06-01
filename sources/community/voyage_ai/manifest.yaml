@@ -1,5 +1,5 @@
 name: voyage_ai
-version: 0.1.0
+version: 0.1.1
 dsl_version: 3
 backend: http
 description: Query Voyage AI embedding vectors and token usage through SQL.
@@ -23,12 +23,17 @@ auth:
     - name: Authorization
       from: template
       template: "Bearer {{input.VOYAGE_API_KEY}}"
+rate_limit:
+  extra_statuses:
+    - 429
+  retry_after_header: Retry-After
 test_queries:
   - "SELECT returned_model, object, total_tokens, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' LIMIT 1"
   - "SELECT returned_model, total_tokens, json_length(embedding) AS embedding_dim FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' AND output_dimension = 256 LIMIT 1"
 tables:
   - name: embeddings
     description: Generate one Voyage AI embedding vector through `POST /v1/embeddings`. One SQL row per call; preserves top-level response metadata.
+    fetch_limit_default: 1
     filters:
       - name: model
         required: true
@@ -76,6 +81,8 @@ tables:
           key: output_dtype
     response:
       row_strategy: direct
+      error_path:
+        - detail
     pagination:
       mode: none
     columns:
