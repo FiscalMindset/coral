@@ -193,6 +193,130 @@ Added source voyage_ai
     voyage_ai (1 table)
     └─ embeddings
     Query tests
+    2 declared · 2 passed - 0 failed
+```
+
+**Tables introspection:**
+
+```sql
+SELECT schema_name, table_name, description, required_filters
+FROM coral.tables
+WHERE schema_name = 'voyage_ai'
+ORDER BY table_name;
+```
+
+```text
++-------------+------------+-------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| schema_name | table_name | description                                                                                                                         | required_filters |
++-------------+------------+-------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| voyage_ai   | embeddings | Generate one Voyage AI embedding vector through `POST /v1/embeddings`. One SQL row per call; preserves top-level response metadata. | model,input      |
++-------------+------------+-------------------------------------------------------------------------------------------------------------------------------------+------------------+
+```
+
+**Columns introspection:**
+
+```sql
+SELECT table_name, column_name, data_type, is_required_filter
+FROM coral.columns
+WHERE schema_name = 'voyage_ai'
+ORDER BY table_name, ordinal_position;
+```
+
+```text
++------------+------------------+-----------+--------------------+
+| table_name | column_name      | data_type | is_required_filter |
++------------+------------------+-----------+--------------------+
+| embeddings | model            | Utf8      | true               |
+| embeddings | input            | Utf8      | true               |
+| embeddings | input_type       | Utf8      | false              |
+| embeddings | output_dimension | Int64     | false              |
+| embeddings | truncation       | Boolean   | false              |
+| embeddings | output_dtype     | Utf8      | false              |
+| embeddings | object           | Utf8      | false              |
+| embeddings | returned_model   | Utf8      | false              |
+| embeddings | usage            | Json      | false              |
+| embeddings | total_tokens     | Int64     | false              |
+| embeddings | data             | Json      | false              |
+| embeddings | index            | Int64     | false              |
+| embeddings | embedding        | Json      | false              |
++------------+------------------+-----------+--------------------+
+```
+
+**Inputs introspection:**
+
+```sql
+SELECT key, kind, required, is_set
+FROM coral.inputs
+WHERE schema_name = 'voyage_ai'
+ORDER BY key;
+```
+
+```text
++----------------+--------+----------+--------+
+| key            | kind   | required | is_set |
++----------------+--------+----------+--------+
+| VOYAGE_API_KEY | secret | true     | true   |
++----------------+--------+----------+--------+
+```
+
+```bash
+$ coral source test voyage_ai
+  ✓ voyage_ai connected successfully
+
+    voyage_ai (1 table)
+    └─ embeddings
+    Query tests
+    2 declared · 2 passed - 0 failed
+```
+
+**Live bounded embedding proof:**
+
+```sql
+SELECT returned_model, object, total_tokens,
+       substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview
+FROM voyage_ai.embeddings
+WHERE model = 'voyage-3.5-lite'
+  AND input = 'Coral source validation'
+LIMIT 1;
+```
+
+```text
++-----------------+--------+--------------+----------------------------------------------------------------------------------+
+| returned_model  | object | total_tokens | embedding_preview                                                                |
++-----------------+--------+--------------+----------------------------------------------------------------------------------+
+| voyage-3.5-lite | list   | 4            | [-0.044563316,0.032666322,-0.020567684,0.019256998,-0.010485485,0.038513996,0.00 |
++-----------------+--------+--------------+----------------------------------------------------------------------------------+
+```
+
+**Live bounded embedding proof with non-default output dimension:**
+
+```sql
+SELECT returned_model, total_tokens,
+       json_length(embedding) AS embedding_dim
+FROM voyage_ai.embeddings
+WHERE model = 'voyage-3.5-lite'
+  AND input = 'Coral source validation'
+  AND output_dimension = 256
+LIMIT 1;
+```
+
+```text
++-----------------+--------------+---------------+
+| returned_model  | total_tokens | embedding_dim |
++-----------------+--------------+---------------+
+| voyage-3.5-lite | 4            | 256           |
++-----------------+--------------+---------------+
+```
+
+```bash
+$ coral source add --file sources/community/voyage_ai/manifest.yaml
+Added source voyage_ai
+
+  ✓ voyage_ai connected successfully
+
+    voyage_ai (1 table)
+    └─ embeddings
+    Query tests
     2 declared · 2 passed · 0 failed
 ```
 
