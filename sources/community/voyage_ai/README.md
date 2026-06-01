@@ -298,3 +298,5 @@ LIMIT 1;
 ![Voyage proof 6 - source test](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/6_source_test.png)
 ![Voyage proof 7 - bounded live embedding](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/7_embedding_main.png)
 ![Voyage proof 8 - bounded live embedding with output_dimension=256](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/8_embedding_dim_256.png)
+![Voyage proof 9 - bounded live embedding with input_type=query and output_dimension=256](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/9_input_type_dim_256.png)
+![Voyage proof 10 - bounded live embedding with truncation=false](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/10_truncation_false.png)
