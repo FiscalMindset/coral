@@ -175,21 +175,35 @@ Useful columns:
 | `index` | Embedding index inside the `data` array, normally `0` for a single-text request. |
 | `embedding` | Embedding vector as a JSON array. Use `substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview` for compact output, or `json_length(embedding)` to compute the dimension. |
 
-## Validation
+## Live validation output
 
 Validated against a live Voyage AI account with a valid `VOYAGE_API_KEY`.
 
 ```bash
 $ coral source lint sources/community/voyage_ai/manifest.yaml
 Manifest is valid
+```
 
+```bash
 $ coral source add --file sources/community/voyage_ai/manifest.yaml
 Added source voyage_ai
 
-  voyage_ai (1 table)
-  └─ embeddings
-  Query tests
-  2 declared - 2 passed - 0 failed
+  ✓ voyage_ai connected successfully
+
+    voyage_ai (1 table)
+    └─ embeddings
+    Query tests
+    2 declared · 2 passed · 0 failed
+```
+
+```bash
+$ coral source test voyage_ai
+  ✓ voyage_ai connected successfully
+
+    voyage_ai (1 table)
+    └─ embeddings
+    Query tests
+    2 declared · 2 passed · 0 failed
 ```
 
 ```sql
@@ -208,7 +222,7 @@ ORDER BY table_name;
 ```
 
 ```sql
-SELECT table_name, column_name, data_type
+SELECT table_name, column_name, data_type, is_required_filter
 FROM coral.columns
 WHERE schema_name = 'voyage_ai'
 ORDER BY table_name, ordinal_position;
@@ -222,6 +236,8 @@ ORDER BY table_name, ordinal_position;
 | embeddings | input            | Utf8      | true               |
 | embeddings | input_type       | Utf8      | false              |
 | embeddings | output_dimension | Int64     | false              |
+| embeddings | truncation       | Boolean   | false              |
+| embeddings | output_dtype     | Utf8      | false              |
 | embeddings | object           | Utf8      | false              |
 | embeddings | returned_model   | Utf8      | false              |
 | embeddings | usage            | Json      | false              |
@@ -245,12 +261,6 @@ ORDER BY key;
 +----------------+--------+----------+
 | VOYAGE_API_KEY | secret | true     |
 +----------------+--------+----------+
-```
-
-```bash
-$ coral source test voyage_ai
-Query tests
-2 declared - 2 passed - 0 failed
 ```
 
 ```sql
