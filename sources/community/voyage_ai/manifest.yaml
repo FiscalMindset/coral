@@ -111,6 +111,22 @@ tables:
         expr:
           kind: from_filter
           key: output_dimension
+      - name: truncation
+        type: Boolean
+        nullable: true
+        virtual: true
+        description: Truncation behaviour supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: truncation
+      - name: output_dtype
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Output dtype supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: output_dtype
       - name: object
         type: Utf8
         nullable: true

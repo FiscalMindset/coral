@@ -165,6 +165,8 @@ Useful columns:
 | `input` | Text supplied in the SQL filter. |
 | `input_type` | Retrieval hint supplied in the SQL filter, when set. |
 | `output_dimension` | Output dimension supplied in the SQL filter, when set. |
+| `truncation` | Truncation behaviour supplied in the SQL filter, when set. |
+| `output_dtype` | Output dtype supplied in the SQL filter, when set. |
 | `object` | Voyage response object type, typically `list`. |
 | `returned_model` | Model identifier returned by Voyage. |
 | `usage` | Raw `usage` object returned by Voyage. |
