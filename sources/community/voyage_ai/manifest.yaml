@@ -28,8 +28,19 @@ rate_limit:
     - 429
   retry_after_header: Retry-After
 test_queries:
-  - "SELECT returned_model, object, total_tokens, substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' LIMIT 1"
-  - "SELECT returned_model, total_tokens, json_length(embedding) AS embedding_dim FROM voyage_ai.embeddings WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation' AND output_dimension = 512 LIMIT 1"
+  - >-
+    SELECT returned_model, object, total_tokens,
+    substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview
+    FROM voyage_ai.embeddings
+    WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation'
+    LIMIT 1
+  - >-
+    SELECT returned_model, total_tokens,
+    json_length(embedding) AS embedding_dim
+    FROM voyage_ai.embeddings
+    WHERE model = 'voyage-3.5-lite' AND input = 'Coral source validation'
+    AND output_dimension = 512
+    LIMIT 1
 tables:
   - name: embeddings
     description: Generate one Voyage AI embedding vector through `POST /v1/embeddings`. One SQL row per call; preserves top-level response metadata.
@@ -188,7 +199,10 @@ tables:
       - name: embedding
         type: Json
         nullable: true
-        description: Embedding vector returned by Voyage. Use `substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview` for compact output, or `json_length(embedding)` to compute the dimension.
+        description: >-
+          Embedding vector returned by Voyage. Use
+          `substr(CAST(embedding AS VARCHAR), 1, 80) AS embedding_preview` for
+          compact output, or `json_length(embedding)` to compute the dimension.
         expr:
           kind: path
           path:
