@@ -154,6 +154,10 @@ tables:
         type: Json
         nullable: true
         description: Token usage metadata returned by Voyage.
+        expr:
+          kind: path
+          path:
+            - usage
       - name: total_tokens
         type: Int64
         nullable: true
@@ -167,6 +171,10 @@ tables:
         type: Json
         nullable: true
         description: Raw `data` array returned by Voyage, including the per-index payload.
+        expr:
+          kind: path
+          path:
+            - data
       - name: index
         type: Int64
         nullable: true
