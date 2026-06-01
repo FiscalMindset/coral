@@ -210,7 +210,7 @@ Added source voyage_ai
     voyage_ai (1 table)
     └─ embeddings
     Query tests
-    2 declared · 2 passed - 0 failed
+    2 declared · 2 passed · 0 failed
 ```
 
 **Tables introspection:**
@@ -283,7 +283,7 @@ $ coral source test voyage_ai
     voyage_ai (1 table)
     └─ embeddings
     Query tests
-    2 declared · 2 passed - 0 failed
+    2 declared · 2 passed · 0 failed
 ```
 
 **Live bounded embedding proof:**
