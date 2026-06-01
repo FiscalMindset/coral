@@ -144,6 +144,17 @@ returned_model    | object | total_tokens | embedding_preview
 voyage-3.5-lite   | list   | 4            | [-0.012345,0.045678,-0.078901,0.023456,0.056789,-0.034567,0.067890,-0.04567...
 ```
 
+## Screenshots
+
+![Voyage proof 1 - lint](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/1_lint.png)
+![Voyage proof 2 - source add](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/2_add.png)
+![Voyage proof 3 - tables](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/3_tables.png)
+![Voyage proof 4 - columns](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/4_columns.png)
+![Voyage proof 5 - inputs](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/5_inputs.png)
+![Voyage proof 6 - source test](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/6_source_test.png)
+![Voyage proof 7 - bounded live embedding](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/7_embedding_main.png)
+![Voyage proof 8 - bounded live embedding with output_dimension=256](https://raw.githubusercontent.com/FiscalMindset/coral/voyage-ai-proof-assets/output_proof/voyage_ai/8_embedding_dim_256.png)
+
 ## Scope And Limitations
 
 - The first version supports `POST /v1/embeddings` only. Other Voyage
