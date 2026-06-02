@@ -90,7 +90,7 @@ tables:
       and should match an available model from `deepgram.models`. Results include transcript text,
       confidence scores, word-level timing, and response metadata. Optional filters include booleans
       (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`), strings
-      (`language`, `search`, `replace`, `redact`), and string/enum for encoding (`sample_rate`, `encoding`).
+      (`language`, `search`, `replace`, `redact`, `encoding`), and numeric (`sample_rate`).
     fetch_limit_default: 1
     filters:
       - name: model

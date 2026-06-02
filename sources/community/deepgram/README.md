@@ -103,8 +103,8 @@ LIMIT 1;
 
 Optional filters include booleans for feature toggles (`punctuate`, `smart_format`,
 `summarize`, `sentiment`, `diarize`, `topics`, `intents`, `detect_entities`), strings
-for language and search/replace/redact values, and string/enum for raw-audio encoding
-(`sample_rate`, `encoding`):
+for language, search/replace/redact, and encoding values, and numeric (`sample_rate`)
+for raw-audio encoding:
 
 ```sql
 SELECT transcript, summary, sentiment
