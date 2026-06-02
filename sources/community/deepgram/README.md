@@ -44,8 +44,8 @@ Create or copy an API key from the Deepgram console:
 
 https://console.deepgram.com/
 
-API keys are project-scoped and require at least `models:read` and
-`transcription:request` permissions for the models and transcriptions tables.
+API keys are project-scoped. Use a project API key with a role that can
+call the Models and Listen APIs.
 See: https://developers.deepgram.com/docs/create-additional-api-keys
 
 Set the key as `DEEPGRAM_API_KEY` before adding or testing the source. Coral sends
@@ -211,27 +211,27 @@ ORDER BY ordinal_position;
 ```
 
 ```text
-+-------------+-----------+------------+--------------------+
-| column_name | data_type | is_virtual | is_required_filter |
-+-------------+-----------+------------+--------------------+
-| model       | Utf8      | true       | true               |
-| url         | Utf8      | true       | true               |
-| language    | Utf8      | true       | false              |
-| request_id  | Utf8      | false      | false              |
++--------------+-----------+------------+--------------------+
+| column_name  | data_type | is_virtual | is_required_filter |
++--------------+-----------+------------+--------------------+
+| model        | Utf8      | true       | true               |
+| url          | Utf8      | true       | true               |
+| language     | Utf8      | true       | false              |
+| request_id   | Utf8      | false      | false              |
 | channels     | Int64     | false      | false              |
 | channels_raw | Json      | false      | false              |
 | duration     | Float64   | false      | false              |
-| transcript  | Utf8      | false      | false              |
-| confidence  | Float64   | false      | false              |
-| words       | Json      | false      | false              |
-| paragraphs  | Json      | false      | false              |
-| search      | Json      | false      | false              |
-| entities    | Json      | false      | false              |
-| summary     | Json      | false      | false              |
-| topics      | Json      | false      | false              |
-| intent      | Json      | false      | false              |
-| sentiment   | Json      | false      | false              |
-+-------------+-----------+------------+--------------------+
+| transcript   | Utf8      | false      | false              |
+| confidence   | Float64   | false      | false              |
+| words        | Json      | false      | false              |
+| paragraphs   | Json      | false      | false              |
+| search       | Json      | false      | false              |
+| entities     | Json      | false      | false              |
+| summary      | Json      | false      | false              |
+| topics       | Json      | false      | false              |
+| intent       | Json      | false      | false              |
+| sentiment    | Json      | false      | false              |
++--------------+-----------+------------+--------------------+
 ```
 
 ```sql

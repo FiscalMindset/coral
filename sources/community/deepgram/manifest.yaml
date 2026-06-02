@@ -14,9 +14,8 @@ inputs:
       https://console.deepgram.com/
 
       The key is sent as a Token header to Deepgram's API.
-      API keys are project-scoped. The key needs at least
-      the models:read and transcription:request permissions
-      for the models and transcriptions tables.
+      API keys are project-scoped. Use a project API key with a role
+      that can call the Models and Listen APIs.
       See: https://developers.deepgram.com/docs/create-additional-api-keys
 auth:
   type: HeaderAuth
