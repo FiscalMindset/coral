@@ -3,9 +3,9 @@
 Query Deepgram speech-to-text model metadata and run audio transcriptions through
 Coral SQL. This source exposes available STT models and a live transcription table
 that accepts an audio URL and model name, returning transcript text, confidence
-scores, word-level timing, and usage metadata.
+scores, word-level timing, and response metadata.
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 **Backend:** HTTP
 **Tables:** 2
 **Base URL:** `https://api.deepgram.com`
@@ -44,6 +44,10 @@ Create or copy an API key from the Deepgram console:
 
 https://console.deepgram.com/
 
+API keys are project-scoped and require at least `models:read` and
+`transcription:request` permissions for the models and transcriptions tables.
+See: https://developers.deepgram.com/docs/create-additional-api-keys
+
 Set the key as `DEEPGRAM_API_KEY` before adding or testing the source. Coral sends
 it as a `Token` header to Deepgram's API (not Bearer).
 
@@ -62,7 +66,7 @@ coral source add --interactive --file sources/community/deepgram/manifest.yaml
 
 - Deepgram API reference: https://developers.deepgram.com/
 - Deepgram models: https://console.deepgram.com/
-- Deepgram listen endpoint: https://developers.deepgram.com/reference/listen
+- Deepgram listen endpoint: https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded
 
 ## Tables
 
@@ -88,22 +92,23 @@ Runs a single transcription through `POST /v1/listen`. The audio URL must be
 publicly accessible. Use the `general` or `nova-2` model for most workloads.
 
 ```sql
-SELECT transcript, confidence, duration, characters
+SELECT transcript, confidence, duration, request_id
 FROM deepgram.transcriptions
 WHERE model = 'nova-2'
   AND url = 'https://example.com/audio.wav'
 LIMIT 1;
 ```
 
-Enable optional features via filters:
+Enable optional features via boolean filters:
 
 ```sql
-SELECT transcript, sentiment, topics
+SELECT transcript, summary, sentiment
 FROM deepgram.transcriptions
 WHERE model = 'nova-2'
   AND url = 'https://example.com/audio.wav'
   AND punctuate = true
   AND smart_format = true
+  AND summarize = true
   AND sentiment = true
 LIMIT 1;
 ```
@@ -119,35 +124,35 @@ Manifest is valid
 $ coral source add --file sources/community/deepgram/manifest.yaml
 Added source deepgram
 
-  PASS deepgram connected successfully
+  ✓ deepgram connected successfully
 
     deepgram (2 tables)
-    - models
-    - transcriptions
+    ├─ models
+    └─ transcriptions
     Query tests
-    2 declared - 2 passed - 0 failed
+    2 declared · 2 passed · 0 failed
 
-    PASS SELECT name, architecture, version FROM deepgram.models LIMIT 5
+    ✓ SELECT name, architecture, version FROM deepgram.models LIMIT 5
       5 rows
 
-    PASS SELECT name, canonical_name, languages FROM deepgram.models WHERE architecture = 'polaris' LIMIT 5
+    ✓ SELECT name, canonical_name, languages FROM deepgram.models WHERE architecture = 'polaris' LIMIT 5
       5 rows
 ```
 
 ```bash
 $ coral source test deepgram
-  PASS deepgram connected successfully
+  ✓ deepgram connected successfully
 
     deepgram (2 tables)
-    - models
-    - transcriptions
+    ├─ models
+    └─ transcriptions
     Query tests
-    2 declared - 2 passed - 0 failed
+    2 declared · 2 passed · 0 failed
 
-    PASS SELECT name, architecture, version FROM deepgram.models LIMIT 5
+    ✓ SELECT name, architecture, version FROM deepgram.models LIMIT 5
       5 rows
 
-    PASS SELECT name, canonical_name, languages FROM deepgram.models WHERE architecture = 'polaris' LIMIT 5
+    ✓ SELECT name, canonical_name, languages FROM deepgram.models WHERE architecture = 'polaris' LIMIT 5
       5 rows
 ```
 
@@ -159,12 +164,12 @@ ORDER BY table_name;
 ```
 
 ```text
-+----------------+---------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| table_name     | description                                                                                                                                 | required_filters |
-+----------------+---------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| models         | Available Deepgram speech-to-text models from GET /v1/models.                                                                               |                  |
-| transcriptions | Transcribe audio from a URL using Deepgram `POST /v1/listen`. One SQL row per transcription request; preserves top-level response metadata. | model,url        |
-+----------------+---------------------------------------------------------------------------------------------------------------------------------------------+------------------+
++----------------+-------------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| table_name     | description                                                                                                                               | required_filters |
++----------------+-------------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| models         | Available Deepgram speech-to-text models from GET /v1/models.                                                                             |                  |
+| transcriptions | Transcribe audio from a URL using Deepgram POST /v1/listen. One SQL row per transcription request; preserves top-level response metadata. | model,url        |
++----------------+-------------------------------------------------------------------------------------------------------------------------------------------+------------------+
 ```
 
 ```sql
@@ -199,29 +204,25 @@ ORDER BY ordinal_position;
 ```
 
 ```text
-+----------------------+-----------+------------+--------------------+
-| column_name          | data_type | is_virtual | is_required_filter |
-+----------------------+-----------+------------+--------------------+
-| model                | Utf8      | true       | true               |
-| url                  | Utf8      | true       | true               |
-| language             | Utf8      | true       | false              |
-| request_id           | Utf8      | false      | false              |
-| encoding             | Utf8      | false      | false              |
-| channels             | Int64     | false      | false              |
-| sample_rate          | Int64     | false      | false              |
-| duration             | Float64   | false      | false              |
-| transcript           | Utf8      | false      | false              |
-| confidence           | Float64   | false      | false              |
-| words                | Json      | false      | false              |
-| paragraphs           | Json      | false      | false              |
-| summaries            | Json      | false      | false              |
-| topics               | Json      | false      | false              |
-| intent               | Utf8      | false      | false              |
-| sentiment            | Utf8      | false      | false              |
-| usage                | Json      | false      | false              |
-| characters           | Int64     | false      | false              |
-| total_audio_duration | Float64   | false      | false              |
-+----------------------+-----------+------------+--------------------+
++-------------+-----------+------------+--------------------+
+| column_name | data_type | is_virtual | is_required_filter |
++-------------+-----------+------------+--------------------+
+| model       | Utf8      | true       | true               |
+| url         | Utf8      | true       | true               |
+| language    | Utf8      | true       | false              |
+| request_id  | Utf8      | false      | false              |
+| channels    | Int64     | false      | false              |
+| duration    | Float64   | false      | false              |
+| transcript  | Utf8      | false      | false              |
+| confidence  | Float64   | false      | false              |
+| words       | Json      | false      | false              |
+| paragraphs  | Json      | false      | false              |
+| entities    | Json      | false      | false              |
+| summary     | Json      | false      | false              |
+| topics      | Json      | false      | false              |
+| intent      | Json      | false      | false              |
+| sentiment   | Json      | false      | false              |
++-------------+-----------+------------+--------------------+
 ```
 
 ```sql
@@ -283,29 +284,21 @@ ORDER BY model_count DESC;
 +--------------+-------------+
 ```
 
-## Validation screenshots
+```sql
+SELECT request_id, channels, duration, transcript, confidence
+FROM deepgram.transcriptions
+WHERE model = 'nova-2'
+  AND url = 'https://dpgr.am/spacewalk.wav'
+LIMIT 1;
+```
 
-![Deepgram validation 1 - lint](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/1_lint.png)
-
-![Deepgram validation 2 - add source](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/2_add.png)
-
-![Deepgram validation 3 - source test](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/3_source_test.png)
-
-![Deepgram validation 4 - tables](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/4_tables.png)
-
-![Deepgram validation 5 - columns models](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/5_columns_models.png)
-
-![Deepgram validation 6 - columns transcriptions](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/6_columns_transcriptions.png)
-
-![Deepgram validation 7 - inputs](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/7_inputs.png)
-
-![Deepgram validation 8 - models main](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/8_models_main.png)
-
-![Deepgram validation 9 - models polaris](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/9_models_polaris.png)
-
-![Deepgram validation 10 - models group by](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/10_models_group_by.png)
-
-![Deepgram validation 11 - models nova-2](https://raw.githubusercontent.com/FiscalMindset/coral/deepgram-proof-assets/proof/deepgram/11_models_nova2.png)
+```text
++--------------------------------------+----------+-----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
+| request_id                           | channels | duration  | transcript                                                                                                                                                                                                                                                                                                                        | confidence |
++--------------------------------------+----------+-----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
+| 019e8781-10d5-73c0-9132-ce7591874576 | 1        | 25.933313 | yeah as as much as it's worth celebrating the first spacewalk with an all female team i think many of us are looking forward to it just being normal and i think if it signifies anything it is to honor the the women who came before us who were skilled and qualified and didn't get the same opportunities that we have today | 0.99853516 |
++--------------------------------------+----------+-----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
+```
 
 ## Implementation notes
 
@@ -313,9 +306,16 @@ ORDER BY model_count DESC;
 - Uses `HeaderAuth` with `Authorization: Token {{input.DEEPGRAM_API_KEY}}`.
 - Maps Deepgram's `stt` array from `GET /v1/models` into `deepgram.models`.
 - Maps transcription response onto `deepgram.transcriptions`, including
-  `results.channels.[0].alternatives.[0]` fields for transcript and metadata.
+  `results.channels.[0].alternatives.[0]` fields for transcript and
+  `metadata` fields for request metadata. Intelligence features
+  (`summary`, `topics`, `intents`, `sentiments`) map to `results.*` at the
+  response root level per current Deepgram API shape.
+- Transcription request parameters (`model`, `language`, `punctuate`, etc.) are
+  sent as query parameters per Deepgram's API contract. Only the `url` is sent
+  in the JSON body.
 - Sets `fetch_limit_default: 1` on `transcriptions` to prevent accidental API calls.
 - Requires `model` and `url` filters on `transcriptions`; audio URL must be publicly accessible.
+- Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`).
 - Does not require runtime, CLI, MCP, or UI changes.
 
 ## Limitations

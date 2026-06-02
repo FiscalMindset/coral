@@ -1,5 +1,5 @@
 name: deepgram
-version: 0.1.0
+version: 0.2.0
 dsl_version: 3
 backend: http
 description: Query Deepgram speech-to-text models and run audio transcription through SQL.
@@ -13,8 +13,11 @@ inputs:
       Create or copy an API key from your Deepgram console:
       https://console.deepgram.com/
 
-      The key is sent as a Token to Deepgram's API. Keys are account-scoped
-      and work across all models and usage.
+      The key is sent as a Token header to Deepgram's API.
+      API keys are project-scoped. The key needs at least
+      the models:read and transcription:request permissions
+      for the models and transcriptions tables.
+      See: https://developers.deepgram.com/docs/create-additional-api-keys
 auth:
   type: HeaderAuth
   headers:
@@ -47,7 +50,7 @@ tables:
       - name: architecture
         type: Utf8
         nullable: true
-        description: Model architecture type (e.g., base, polaris).
+        description: Model architecture type (e.g., base, polaris, nova-2).
       - name: languages
         type: Json
         nullable: true
@@ -78,13 +81,13 @@ tables:
         description: Whether the model supports multiple languages.
 
   - name: transcriptions
-    description: Transcribe audio from a URL using Deepgram `POST /v1/listen`. One SQL row per transcription request; preserves top-level response metadata.
+    description: Transcribe audio from a URL using Deepgram POST /v1/listen. One SQL row per transcription request; preserves top-level response metadata.
     guide: |
       The `transcriptions` table requires a publicly accessible audio URL and a valid Deepgram model.
-      Use `general` or `nova-2` models for general-purpose transcription. The `model` filter is required
+      Use `nova-2` or `nova-3` models for general-purpose transcription. The `model` filter is required
       and should match an available model from `deepgram.models`. Results include transcript text,
-      confidence scores, word-level timing, and usage metadata. Enable features like `diarize`,
-      `smart_format`, `summarize` via optional filters.
+      confidence scores, word-level timing, and response metadata. Enable features like `diarize`,
+      `smart_format`, `summarize`, `topics`, `intents`, or `sentiment` via optional boolean filters.
     fetch_limit_default: 1
     filters:
       - name: model
@@ -99,13 +102,13 @@ tables:
         required: false
       - name: diarize
         required: false
-      - name: ner
+      - name: detect_entities
         required: false
       - name: multichannel
         required: false
       - name: alternatives
         required: false
-      - name: numericalize
+      - name: numerals
         required: false
       - name: search
         required: false
@@ -115,7 +118,13 @@ tables:
         required: false
       - name: redact
         required: false
-      - name: sample_rate
+      - name: summarize
+        required: false
+      - name: topics
+        required: false
+      - name: intents
+        required: false
+      - name: sentiment
         required: false
     request:
       method: POST
@@ -124,67 +133,63 @@ tables:
         - name: Content-Type
           from: literal
           value: application/json
+      query:
+        - name: model
+          from: filter
+          key: model
+        - name: language
+          from: filter
+          key: language
+        - name: punctuate
+          from: filter
+          key: punctuate
+        - name: smart_format
+          from: filter
+          key: smart_format
+        - name: diarize
+          from: filter
+          key: diarize
+        - name: detect_entities
+          from: filter
+          key: detect_entities
+        - name: multichannel
+          from: filter
+          key: multichannel
+        - name: alternatives
+          from: filter
+          key: alternatives
+        - name: numerals
+          from: filter
+          key: numerals
+        - name: search
+          from: filter
+          key: search
+        - name: replace
+          from: filter
+          key: replace
+        - name: profanity_filter
+          from: filter
+          key: profanity_filter
+        - name: redact
+          from: filter
+          key: redact
+        - name: summarize
+          from: filter
+          key: summarize
+        - name: topics
+          from: filter
+          key: topics
+        - name: intents
+          from: filter
+          key: intents
+        - name: sentiment
+          from: filter
+          key: sentiment
       body:
         - path:
             - url
           from: filter
           key: url
-        - path:
-            - model
-          from: filter
-          key: model
-        - path:
-            - language
-          from: filter
-          key: language
-        - path:
-            - punctuate
-          from: filter
-          key: punctuate
-        - path:
-            - smart_format
-          from: filter
-          key: smart_format
-        - path:
-            - diarize
-          from: filter
-          key: diarize
-        - path:
-            - ner
-          from: filter
-          key: ner
-        - path:
-            - multichannel
-          from: filter
-          key: multichannel
-        - path:
-            - alternatives
-          from: filter
-          key: alternatives
-        - path:
-            - numericalize
-          from: filter
-          key: numericalize
-        - path:
-            - search
-          from: filter
-          key: search
-        - path:
-            - replace
-          from: filter
-          key: replace
-        - path:
-            - profanity_filter
-          from: filter
-          key: profanity_filter
-        - path:
-            - redact
-          from: filter
-          key: redact
-        - path:
-            - sample_rate
-          from: filter_int
-          key: sample_rate
     response:
       row_strategy: direct
       error_path:
@@ -223,16 +228,8 @@ tables:
         expr:
           kind: path
           path:
+            - metadata
             - request_id
-      - name: encoding
-        type: Utf8
-        nullable: true
-        description: Audio encoding detected by Deepgram.
-        expr:
-          kind: path
-          path:
-            - audio
-            - encoding
       - name: channels
         type: Int64
         nullable: true
@@ -240,17 +237,8 @@ tables:
         expr:
           kind: path
           path:
-            - audio
+            - metadata
             - channels
-      - name: sample_rate
-        type: Int64
-        nullable: true
-        description: Audio sample rate detected by Deepgram.
-        expr:
-          kind: path
-          path:
-            - audio
-            - sample_rate
       - name: duration
         type: Float64
         nullable: true
@@ -258,7 +246,7 @@ tables:
         expr:
           kind: path
           path:
-            - audio
+            - metadata
             - duration
       - name: transcript
         type: Utf8
@@ -312,10 +300,10 @@ tables:
             - alternatives
             - "0"
             - paragraphs
-      - name: summaries
+      - name: entities
         type: Json
         nullable: true
-        description: Summary objects when summarization is enabled.
+        description: Detected entities when detect_entities is enabled.
         expr:
           kind: path
           path:
@@ -324,69 +312,40 @@ tables:
             - "0"
             - alternatives
             - "0"
-            - summaries
+            - entities
+      - name: summary
+        type: Json
+        nullable: true
+        description: Summary object when summarize is enabled.
+        expr:
+          kind: path
+          path:
+            - results
+            - summary
       - name: topics
         type: Json
         nullable: true
-        description: Topic entities when topic extraction is enabled.
+        description: Topic detection results when topics is enabled.
         expr:
           kind: path
           path:
             - results
-            - channels
-            - "0"
-            - alternatives
-            - "0"
             - topics
       - name: intent
-        type: Utf8
-        nullable: true
-        description: Detected intent when intent detection is enabled.
-        expr:
-          kind: path
-          path:
-            - results
-            - channels
-            - "0"
-            - alternatives
-            - "0"
-            - intent
-      - name: sentiment
-        type: Utf8
-        nullable: true
-        description: Sentiment analysis result when enabled.
-        expr:
-          kind: path
-          path:
-            - results
-            - channels
-            - "0"
-            - alternatives
-            - "0"
-            - sentiment
-      - name: usage
         type: Json
         nullable: true
-        description: Usage metadata including characters, I/O, and billing.
+        description: Intent detection results when intents is enabled.
         expr:
           kind: path
           path:
-            - usage
-      - name: characters
-        type: Int64
+            - results
+            - intents
+      - name: sentiment
+        type: Json
         nullable: true
-        description: Character count for the transcription.
+        description: Sentiment analysis results when sentiment is enabled.
         expr:
           kind: path
           path:
-            - usage
-            - characters
-      - name: total_audio_duration
-        type: Float64
-        nullable: true
-        description: Total audio duration processed in seconds.
-        expr:
-          kind: path
-          path:
-            - usage
-            - total_audio_duration
+            - results
+            - sentiments
