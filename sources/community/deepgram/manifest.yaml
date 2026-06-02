@@ -81,13 +81,16 @@ tables:
         description: Whether the model supports multiple languages.
 
   - name: transcriptions
-    description: Transcribe audio from a URL using Deepgram POST /v1/listen. One SQL row per transcription request; preserves top-level response metadata.
+    description: >
+      Transcribe audio from a URL using Deepgram POST /v1/listen. One SQL row per
+      transcription request; preserves top-level response metadata.
     guide: |
       The `transcriptions` table requires a publicly accessible audio URL and a valid Deepgram model.
       Use `nova-2` or `nova-3` models for general-purpose transcription. The `model` filter is required
       and should match an available model from `deepgram.models`. Results include transcript text,
-      confidence scores, word-level timing, and response metadata. Enable features like `diarize`,
-      `smart_format`, `summarize`, `topics`, `intents`, or `sentiment` via optional boolean filters.
+      confidence scores, word-level timing, and response metadata. Optional filters include booleans
+      (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`), strings
+      (`language`, `search`, `replace`, `redact`), and numeric (`sample_rate`, `encoding`).
     fetch_limit_default: 1
     filters:
       - name: model
@@ -109,6 +112,8 @@ tables:
       - name: numerals
         required: false
       - name: sample_rate
+        required: false
+      - name: encoding
         required: false
       - name: search
         required: false
@@ -161,6 +166,9 @@ tables:
         - name: sample_rate
           from: filter
           key: sample_rate
+        - name: encoding
+          from: filter
+          key: encoding
         - name: search
           from: filter
           key: search
@@ -300,6 +308,17 @@ tables:
             - alternatives
             - "0"
             - paragraphs
+      - name: search
+        type: Json
+        nullable: true
+        description: Search term hits when search filter is used.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - search
       - name: entities
         type: Json
         nullable: true

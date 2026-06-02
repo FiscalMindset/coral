@@ -101,7 +101,10 @@ WHERE model = 'nova-2'
 LIMIT 1;
 ```
 
-Enable optional features via boolean filters:
+Optional filters include booleans for feature toggles (`punctuate`, `smart_format`,
+`summarize`, `sentiment`, `diarize`, `topics`, `intents`, `detect_entities`), strings
+for language and search/replace/redact values, and numeric for raw-audio encoding
+(`sample_rate`, `encoding`):
 
 ```sql
 SELECT transcript, summary, sentiment
@@ -112,6 +115,7 @@ WHERE model = 'nova-2'
   AND smart_format = true
   AND summarize = true
   AND sentiment = true
+  AND language = 'en'
 LIMIT 1;
 ```
 
@@ -317,7 +321,7 @@ LIMIT 1;
   in the JSON body.
 - Sets `fetch_limit_default: 1` on `transcriptions` to prevent accidental API calls.
 - Requires `model` and `url` filters on `transcriptions`; audio URL must be publicly accessible.
-- Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`). Exposes `sample_rate` for raw-audio encoding cases.
+- Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`). Exposes `sample_rate` and `encoding` for raw-audio encoding cases; both should be omitted for containerized audio and used together for headerless raw audio.
 - Rate limits apply per Deepgram account tier. See provider docs for details.
 - Does not require runtime, CLI, MCP, or UI changes.
 
