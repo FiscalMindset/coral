@@ -317,7 +317,7 @@ LIMIT 1;
   in the JSON body.
 - Sets `fetch_limit_default: 1` on `transcriptions` to prevent accidental API calls.
 - Requires `model` and `url` filters on `transcriptions`; audio URL must be publicly accessible.
-- Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`).
+- Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`). Exposes `sample_rate` for raw-audio encoding cases.
 - Rate limits apply per Deepgram account tier. See provider docs for details.
 - Does not require runtime, CLI, MCP, or UI changes.
 
