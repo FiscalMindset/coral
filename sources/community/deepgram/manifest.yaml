@@ -89,8 +89,11 @@ tables:
       Use `nova-2` or `nova-3` models for general-purpose transcription. The `model` filter is required
       and should match an available model from `deepgram.models`. Results include transcript text,
       confidence scores, word-level timing, and response metadata. Optional filters include booleans
-      (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`), strings
+      (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`, `multichannel`,
+      `paragraphs`), strings
       (`language`, `search`, `replace`, `redact`, `encoding`), and numeric (`sample_rate`).
+      Channel-specific columns use `channels[0]`; use the `channels_raw` JSON column to inspect
+      all channels when `multichannel` is enabled.
     fetch_limit_default: 1
     filters:
       - name: model
@@ -106,6 +109,8 @@ tables:
       - name: diarize
         required: false
       - name: detect_entities
+        required: false
+      - name: multichannel
         required: false
       - name: numerals
         required: false
@@ -157,6 +162,9 @@ tables:
         - name: detect_entities
           from: filter
           key: detect_entities
+        - name: multichannel
+          from: filter
+          key: multichannel
         - name: numerals
           from: filter
           key: numerals
@@ -246,6 +254,15 @@ tables:
           kind: path
           path:
             - metadata
+            - channels
+      - name: channels_raw
+        type: Json
+        nullable: true
+        description: Full per-channel results when multichannel is enabled; use this to inspect channel 1+ data.
+        expr:
+          kind: path
+          path:
+            - results
             - channels
       - name: duration
         type: Float64

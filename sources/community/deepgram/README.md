@@ -102,9 +102,10 @@ LIMIT 1;
 ```
 
 Optional filters include booleans for feature toggles (`punctuate`, `smart_format`,
-`summarize`, `sentiment`, `diarize`, `topics`, `intents`, `detect_entities`), strings
-for language, search/replace/redact, and encoding values, and numeric (`sample_rate`)
-for raw-audio encoding:
+`summarize`, `sentiment`, `diarize`, `topics`, `intents`, `detect_entities`, `multichannel`,
+`paragraphs`), strings for language, search/replace/redact, and encoding values, and
+numeric (`sample_rate`) for raw-audio encoding. Channel-specific columns use
+`channels[0]`; query `channels_raw` to inspect all channels when `multichannel` is enabled:
 
 ```sql
 SELECT transcript, summary, sentiment
@@ -217,8 +218,9 @@ ORDER BY ordinal_position;
 | url         | Utf8      | true       | true               |
 | language    | Utf8      | true       | false              |
 | request_id  | Utf8      | false      | false              |
-| channels    | Int64     | false      | false              |
-| duration    | Float64   | false      | false              |
+| channels     | Int64     | false      | false              |
+| channels_raw | Json      | false      | false              |
+| duration     | Float64   | false      | false              |
 | transcript  | Utf8      | false      | false              |
 | confidence  | Float64   | false      | false              |
 | words       | Json      | false      | false              |
@@ -323,6 +325,7 @@ LIMIT 1;
 - Sets `fetch_limit_default: 1` on `transcriptions` to prevent accidental API calls.
 - Requires `model` and `url` filters on `transcriptions`; audio URL must be publicly accessible.
 - Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`). Exposes `sample_rate` and `encoding` for raw-audio encoding cases; both should be omitted for containerized audio and used together for headerless raw audio.
+- `multichannel` is exposed alongside a `channels_raw` JSON column containing the full `results.channels` array so multi-channel data is queryable even though per-channel columns reference `channels[0]`.
 - Rate limits apply per Deepgram account tier. See provider docs for details.
 - Does not require runtime, CLI, MCP, or UI changes.
 
