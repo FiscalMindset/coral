@@ -115,7 +115,7 @@ tables:
         required: false
       - name: redact
         required: false
-      - name: audio_sample_rate
+      - name: sample_rate
         required: false
     request:
       method: POST
@@ -182,9 +182,9 @@ tables:
           from: filter
           key: redact
         - path:
-            - audio_sample_rate
+            - sample_rate
           from: filter_int
-          key: audio_sample_rate
+          key: sample_rate
     response:
       row_strategy: direct
       error_path:
