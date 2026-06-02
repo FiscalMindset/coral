@@ -19,7 +19,7 @@ gives users a focused read/query surface for:
 
 - Discovering available Deepgram STT models from SQL.
 - Running bounded transcription queries against publicly accessible audio URLs.
-- Extracting word-level timing, confidence scores, and usage metadata.
+- Extracting word-level timing, confidence scores, and response metadata.
 - Joining model metadata with other Coral sources in local analysis workflows.
 
 The v1 surface is intentionally narrow and read-oriented. It proves Coral can
@@ -67,6 +67,8 @@ coral source add --interactive --file sources/community/deepgram/manifest.yaml
 - Deepgram API reference: https://developers.deepgram.com/
 - Deepgram models: https://console.deepgram.com/
 - Deepgram listen endpoint: https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded
+- Deepgram rate limits: https://developers.deepgram.com/docs/rate-limits
+- API key roles and permissions: https://developers.deepgram.com/docs/create-additional-api-keys
 
 ## Tables
 
@@ -316,6 +318,7 @@ LIMIT 1;
 - Sets `fetch_limit_default: 1` on `transcriptions` to prevent accidental API calls.
 - Requires `model` and `url` filters on `transcriptions`; audio URL must be publicly accessible.
 - Uses current Deepgram parameter names: `detect_entities` (not `ner`), `numerals` (not `numericalize`).
+- Rate limits apply per Deepgram account tier. See provider docs for details.
 - Does not require runtime, CLI, MCP, or UI changes.
 
 ## Limitations

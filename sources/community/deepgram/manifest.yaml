@@ -106,8 +106,6 @@ tables:
         required: false
       - name: multichannel
         required: false
-      - name: alternatives
-        required: false
       - name: numerals
         required: false
       - name: search
@@ -155,9 +153,6 @@ tables:
         - name: multichannel
           from: filter
           key: multichannel
-        - name: alternatives
-          from: filter
-          key: alternatives
         - name: numerals
           from: filter
           key: numerals
