@@ -91,7 +91,7 @@ LIMIT 10;
 ### `deepgram.transcriptions`
 
 Runs a single transcription through `POST /v1/listen`. The audio URL must be
-publicly accessible. Use the `general` or `nova-2` model for most workloads.
+publicly accessible. Use the `nova-3` model for most workloads; fall back to `nova-2` if `nova-3` is unavailable for your region.
 
 ```sql
 SELECT transcript, confidence, duration, request_id

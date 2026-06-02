@@ -85,7 +85,7 @@ tables:
       transcription request; preserves top-level response metadata.
     guide: |
       The `transcriptions` table requires a publicly accessible audio URL and a valid Deepgram model.
-      Use `nova-2` or `nova-3` models for general-purpose transcription. The `model` filter is required
+      Use `nova-3` for general-purpose transcription; fall back to `nova-2` if unavailable. The `model` filter is required
       and should match an available model from `deepgram.models`. Results include transcript text,
       confidence scores, word-level timing, and response metadata. Optional filters include booleans
       (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`, `multichannel`,
