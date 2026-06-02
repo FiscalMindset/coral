@@ -1,0 +1,392 @@
+name: deepgram
+version: 0.1.0
+dsl_version: 3
+backend: http
+description: Query Deepgram speech-to-text models and run audio transcription through SQL.
+base_url: https://api.deepgram.com
+inputs:
+  DEEPGRAM_API_KEY:
+    kind: secret
+    hint: |
+      Deepgram API key.
+
+      Create or copy an API key from your Deepgram console:
+      https://console.deepgram.com/
+
+      The key is sent as a Token to Deepgram's API. Keys are account-scoped
+      and work across all models and usage.
+auth:
+  type: HeaderAuth
+  headers:
+    - name: Authorization
+      from: template
+      template: "Token {{input.DEEPGRAM_API_KEY}}"
+test_queries:
+  - SELECT name, architecture, version FROM deepgram.models LIMIT 5
+  - SELECT name, canonical_name, languages FROM deepgram.models WHERE architecture = 'polaris' LIMIT 5
+tables:
+  - name: models
+    description: Available Deepgram speech-to-text models from GET /v1/models.
+    request:
+      method: GET
+      path: /v1/models
+    response:
+      rows_path:
+        - stt
+    pagination:
+      mode: none
+    columns:
+      - name: name
+        type: Utf8
+        nullable: false
+        description: Model name used in Deepgram API calls.
+      - name: canonical_name
+        type: Utf8
+        nullable: true
+        description: Canonical model name.
+      - name: architecture
+        type: Utf8
+        nullable: true
+        description: Model architecture type (e.g., base, polaris).
+      - name: languages
+        type: Json
+        nullable: true
+        description: Array of supported language codes.
+      - name: version
+        type: Utf8
+        nullable: true
+        description: Model version identifier.
+      - name: uuid
+        type: Utf8
+        nullable: true
+        description: Unique model UUID.
+      - name: batch
+        type: Boolean
+        nullable: true
+        description: Whether batch processing is supported.
+      - name: streaming
+        type: Boolean
+        nullable: true
+        description: Whether streaming is supported.
+      - name: formatted_output
+        type: Boolean
+        nullable: true
+        description: Whether formatted output is available.
+      - name: multilingual
+        type: Boolean
+        nullable: true
+        description: Whether the model supports multiple languages.
+
+  - name: transcriptions
+    description: Transcribe audio from a URL using Deepgram `POST /v1/listen`. One SQL row per transcription request; preserves top-level response metadata.
+    guide: |
+      The `transcriptions` table requires a publicly accessible audio URL and a valid Deepgram model.
+      Use `general` or `nova-2` models for general-purpose transcription. The `model` filter is required
+      and should match an available model from `deepgram.models`. Results include transcript text,
+      confidence scores, word-level timing, and usage metadata. Enable features like `diarize`,
+      `smart_format`, `summarize` via optional filters.
+    fetch_limit_default: 1
+    filters:
+      - name: model
+        required: true
+      - name: url
+        required: true
+      - name: language
+        required: false
+      - name: punctuate
+        required: false
+      - name: smart_format
+        required: false
+      - name: diarize
+        required: false
+      - name: ner
+        required: false
+      - name: multichannel
+        required: false
+      - name: alternatives
+        required: false
+      - name: numericalize
+        required: false
+      - name: search
+        required: false
+      - name: replace
+        required: false
+      - name: profanity_filter
+        required: false
+      - name: redact
+        required: false
+      - name: audio_sample_rate
+        required: false
+    request:
+      method: POST
+      path: /v1/listen
+      headers:
+        - name: Content-Type
+          from: literal
+          value: application/json
+      body:
+        - path:
+            - url
+          from: filter
+          key: url
+        - path:
+            - model
+          from: filter
+          key: model
+        - path:
+            - language
+          from: filter
+          key: language
+        - path:
+            - punctuate
+          from: filter
+          key: punctuate
+        - path:
+            - smart_format
+          from: filter
+          key: smart_format
+        - path:
+            - diarize
+          from: filter
+          key: diarize
+        - path:
+            - ner
+          from: filter
+          key: ner
+        - path:
+            - multichannel
+          from: filter
+          key: multichannel
+        - path:
+            - alternatives
+          from: filter
+          key: alternatives
+        - path:
+            - numericalize
+          from: filter
+          key: numericalize
+        - path:
+            - search
+          from: filter
+          key: search
+        - path:
+            - replace
+          from: filter
+          key: replace
+        - path:
+            - profanity_filter
+          from: filter
+          key: profanity_filter
+        - path:
+            - redact
+          from: filter
+          key: redact
+        - path:
+            - audio_sample_rate
+          from: filter_int
+          key: audio_sample_rate
+    response:
+      row_strategy: direct
+      error_path:
+        - err_msg
+    pagination:
+      mode: none
+    columns:
+      - name: model
+        type: Utf8
+        nullable: false
+        virtual: true
+        description: Model name supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: model
+      - name: url
+        type: Utf8
+        nullable: false
+        virtual: true
+        description: Audio URL supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: url
+      - name: language
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Language code supplied in SQL filter.
+        expr:
+          kind: from_filter
+          key: language
+      - name: request_id
+        type: Utf8
+        nullable: true
+        description: Deepgram request ID for the transcription.
+        expr:
+          kind: path
+          path:
+            - request_id
+      - name: encoding
+        type: Utf8
+        nullable: true
+        description: Audio encoding detected by Deepgram.
+        expr:
+          kind: path
+          path:
+            - audio
+            - encoding
+      - name: channels
+        type: Int64
+        nullable: true
+        description: Number of audio channels.
+        expr:
+          kind: path
+          path:
+            - audio
+            - channels
+      - name: sample_rate
+        type: Int64
+        nullable: true
+        description: Audio sample rate detected by Deepgram.
+        expr:
+          kind: path
+          path:
+            - audio
+            - sample_rate
+      - name: duration
+        type: Float64
+        nullable: true
+        description: Audio duration in seconds.
+        expr:
+          kind: path
+          path:
+            - audio
+            - duration
+      - name: transcript
+        type: Utf8
+        nullable: true
+        description: Transcribed text.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - transcript
+      - name: confidence
+        type: Float64
+        nullable: true
+        description: Transcription confidence score.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - confidence
+      - name: words
+        type: Json
+        nullable: true
+        description: Word-level metadata including timing and confidence.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - words
+      - name: paragraphs
+        type: Json
+        nullable: true
+        description: Paragraph-level transcription when available.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - paragraphs
+      - name: summaries
+        type: Json
+        nullable: true
+        description: Summary objects when summarization is enabled.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - summaries
+      - name: topics
+        type: Json
+        nullable: true
+        description: Topic entities when topic extraction is enabled.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - topics
+      - name: intent
+        type: Utf8
+        nullable: true
+        description: Detected intent when intent detection is enabled.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - intent
+      - name: sentiment
+        type: Utf8
+        nullable: true
+        description: Sentiment analysis result when enabled.
+        expr:
+          kind: path
+          path:
+            - results
+            - channels
+            - "0"
+            - alternatives
+            - "0"
+            - sentiment
+      - name: usage
+        type: Json
+        nullable: true
+        description: Usage metadata including characters, I/O, and billing.
+        expr:
+          kind: path
+          path:
+            - usage
+      - name: characters
+        type: Int64
+        nullable: true
+        description: Character count for the transcription.
+        expr:
+          kind: path
+          path:
+            - usage
+            - characters
+      - name: total_audio_duration
+        type: Float64
+        nullable: true
+        description: Total audio duration processed in seconds.
+        expr:
+          kind: path
+          path:
+            - usage
+            - total_audio_duration
