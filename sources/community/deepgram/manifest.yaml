@@ -90,7 +90,7 @@ tables:
       and should match an available model from `deepgram.models`. Results include transcript text,
       confidence scores, word-level timing, and response metadata. Optional filters include booleans
       (`diarize`, `smart_format`, `summarize`, `topics`, `intents`, `sentiment`), strings
-      (`language`, `search`, `replace`, `redact`), and numeric (`sample_rate`, `encoding`).
+      (`language`, `search`, `replace`, `redact`), and string/enum for encoding (`sample_rate`, `encoding`).
     fetch_limit_default: 1
     filters:
       - name: model
@@ -107,8 +107,6 @@ tables:
         required: false
       - name: detect_entities
         required: false
-      - name: multichannel
-        required: false
       - name: numerals
         required: false
       - name: sample_rate
@@ -118,6 +116,8 @@ tables:
       - name: search
         required: false
       - name: replace
+        required: false
+      - name: paragraphs
         required: false
       - name: profanity_filter
         required: false
@@ -157,9 +157,6 @@ tables:
         - name: detect_entities
           from: filter
           key: detect_entities
-        - name: multichannel
-          from: filter
-          key: multichannel
         - name: numerals
           from: filter
           key: numerals
@@ -175,6 +172,9 @@ tables:
         - name: replace
           from: filter
           key: replace
+        - name: paragraphs
+          from: filter
+          key: paragraphs
         - name: profanity_filter
           from: filter
           key: profanity_filter

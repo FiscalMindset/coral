@@ -103,7 +103,7 @@ LIMIT 1;
 
 Optional filters include booleans for feature toggles (`punctuate`, `smart_format`,
 `summarize`, `sentiment`, `diarize`, `topics`, `intents`, `detect_entities`), strings
-for language and search/replace/redact values, and numeric for raw-audio encoding
+for language and search/replace/redact values, and string/enum for raw-audio encoding
 (`sample_rate`, `encoding`):
 
 ```sql
@@ -223,6 +223,7 @@ ORDER BY ordinal_position;
 | confidence  | Float64   | false      | false              |
 | words       | Json      | false      | false              |
 | paragraphs  | Json      | false      | false              |
+| search      | Json      | false      | false              |
 | entities    | Json      | false      | false              |
 | summary     | Json      | false      | false              |
 | topics      | Json      | false      | false              |
