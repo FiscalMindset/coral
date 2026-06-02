@@ -108,6 +108,8 @@ tables:
         required: false
       - name: numerals
         required: false
+      - name: sample_rate
+        required: false
       - name: search
         required: false
       - name: replace
@@ -156,6 +158,9 @@ tables:
         - name: numerals
           from: filter
           key: numerals
+        - name: sample_rate
+          from: filter
+          key: sample_rate
         - name: search
           from: filter
           key: search
