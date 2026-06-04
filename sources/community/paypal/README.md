@@ -4,7 +4,7 @@ Query PayPal balances, transactions, invoices, and webhooks through Coral SQL.
 
 ## Summary
 
-This source lets Coral query PayPal reporting balance rows, transaction-search rows, transaction-search response metadata, invoice rows, and configured webhooks. It targets PayPal REST APIs with OAuth 2.0 bearer-token authentication and keeps mutating checkout, payout, refund, invoice-write, and webhook-write operations out of scope.
+This source lets Coral query PayPal reporting balance rows, transaction-search rows, transaction-search response metadata, invoice rows, and configured webhooks. It exposes six tables: `balance_summary`, `balances`, `transaction_search_summary`, `transaction_search`, `invoices`, and `webhooks`. It targets PayPal REST APIs with OAuth 2.0 bearer-token authentication and keeps mutating checkout, payout, refund, invoice-write, and webhook-write operations out of scope.
 
 ## Provider docs
 
@@ -47,6 +47,8 @@ The access token must include permissions for the tables you want to query. For 
 This source performs live read-only PayPal API requests. It does not create, capture, refund, send, or mutate PayPal resources. PayPal access tokens expire, sandbox and live credentials are separate, and individual APIs can enforce provider-specific limits such as transaction-search date-window limits.
 
 ## Source shape
+
+The source exposes six tables:
 
 - `paypal.balance_summary` returns top-level metadata and the raw `balances` array from `GET /v1/reporting/balances`.
 - `paypal.balances` returns one SQL row per PayPal balance entry from the documented `balances[]` array.
