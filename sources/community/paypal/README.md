@@ -40,7 +40,12 @@ coral source add --file sources/community/paypal/manifest.yaml
 
 For live PayPal, use `https://api-m.paypal.com` as `PAYPAL_BASE_URL` and a live access token created from live REST app credentials.
 
-The access token must include permissions for the tables you want to query. For the first version, useful scopes include reporting/search read access for balances and transactions, invoicing for invoices, and applications/webhooks for webhooks. PayPal returns the scopes granted to the token in the token response.
+The access token must include permissions for the tables you want to query. PayPal uses separate OAuth scopes for the reporting APIs:
+
+- `paypal.balance_summary` and `paypal.balances`: `https://uri.paypal.com/services/reporting/balances/read`
+- `paypal.transaction_search_summary` and `paypal.transaction_search`: `https://uri.paypal.com/services/reporting/search/read`
+
+The invoices and webhooks tables also require the corresponding PayPal app permissions for the Invoicing and Webhooks APIs. PayPal returns the scopes granted to the token in the token response.
 
 ## Request limits
 
