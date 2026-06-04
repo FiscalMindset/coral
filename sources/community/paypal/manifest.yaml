@@ -24,9 +24,11 @@ inputs:
       Exchange your PayPal REST app client ID and secret for an access token
       using POST /v1/oauth2/token with grant_type=client_credentials.
 
-      Reporting tables need these PayPal scopes:
-      - Balances: https://uri.paypal.com/services/reporting/balances/read
-      - Transaction Search: https://uri.paypal.com/services/reporting/search/read
+      The exposed tables need these PayPal scopes:
+      - balance_summary and balances: https://uri.paypal.com/services/reporting/balances/read
+      - transaction_search_summary and transaction_search: https://uri.paypal.com/services/reporting/search/read
+      - invoices: https://uri.paypal.com/services/invoicing/invoices/read
+      - webhooks: https://uri.paypal.com/services/applications/webhooks
 
       The token is sent as Authorization: Bearer <token>.
 auth:
