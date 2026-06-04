@@ -4,7 +4,7 @@ Query web search results from Tavily through SQL. The source provides a search t
 
 ## Summary
 
-This source lets Coral call Tavily's search API endpoint and expose the ranked search results through SQL. The single live table `tavily.search_results` sends one Tavily search request per SQL query and returns the top results with relevance scores. Supports configurable search depth, topic filtering (general/news), time range, and optional answer and image inclusion.
+This source lets Coral call Tavily's search API endpoint and expose the ranked search results through SQL. The single live table `tavily.search_results` sends one Tavily search request per SQL query and returns the top results with relevance scores. Supports configurable search depth, topic filtering (general/news), time range, raw HTML content, and optional answer and image inclusion.
 
 ## Provider docs
 
@@ -35,7 +35,7 @@ Selecting the `tavily.search_results` table performs one live `POST /search` cal
 
 ## Source shape
 
-- `tavily.search_results` searches the web through `POST /search` with a required `q` filter and optional `max_results`, `search_depth`, `topic`, `time_range`, `include_answer`, and `include_images` filters.
+- `tavily.search_results` searches the web through `POST /search` with a required `q` filter and optional `max_results`, `search_depth`, `topic`, `time_range`, `include_answer`, `include_images`, and `include_raw_content` filters.
 
 ## Source scope
 
@@ -43,7 +43,7 @@ Selecting the `tavily.search_results` table performs one live `POST /search` cal
 - Requires `TAVILY_API_KEY` authentication as a Bearer token.
 - The search_results table requires the `q` filter (the search query).
 - `max_results` is an integer filter that controls how many results to return (default 5, max 20). Pass an integer literal in the `WHERE` clause (e.g. `WHERE max_results = 10`).
-- `include_answer` and `include_images` are boolean filters. Pass `true` or `false` (e.g. `WHERE include_answer = true`).
+- `include_answer`, `include_images`, and `include_raw_content` are boolean filters. Pass `true` or `false` (e.g. `WHERE include_answer = true`).
 - The `score` column is a relevance score between 0 and 1.
 
 ## Limitations
@@ -106,7 +106,7 @@ Useful columns:
 | `title` | Title of the search result. |
 | `content` | Most query-related content extracted from the source. |
 | `score` | Relevance score of the search result (0 to 1). |
-| `raw_content` | Parsed and cleaned HTML content (requires `include_raw_content`). |
+| `raw_content` | Parsed and cleaned HTML content. Use `include_raw_content = true` to populate. |
 | `published_date` | Publication date (only for news topic searches). |
 | `images` | Images extracted from the result (requires `include_images`). |
 
@@ -144,7 +144,7 @@ ORDER BY table_name;
 +-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
 | schema_name | table_name     | description                                                                                                                                                                 | required_filters |
 +-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| tavily      | search_results | Web search results from Tavily. Use `q % '<query>'` for provider-ranked search. Returns titles, URLs, content snippets, and relevance scores optimized for LLM consumption. | q                |
+| tavily      | search_results | Web search results from Tavily. Use `WHERE q = '<query>'` for provider-ranked search. Returns titles, URLs, content snippets, and relevance scores optimized for LLM consumption. | q                |
 +-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
 ```
 
@@ -161,14 +161,21 @@ ORDER BY table_name, ordinal_position;
 +----------------+----------------+-----------+--------------------+
 | table_name     | column_name    | data_type | is_required_filter |
 +----------------+----------------+-----------+--------------------+
-| search_results | q              | Utf8      | true               |
-| search_results | url            | Utf8      | false              |
-| search_results | title          | Utf8      | false              |
-| search_results | content        | Utf8      | false              |
-| search_results | score          | Float64   | false              |
-| search_results | raw_content    | Utf8      | false              |
-| search_results | published_date | Utf8      | false              |
-| search_results | images         | Json      | false              |
+| search_results | q                   | Utf8      | true               |
+| search_results | max_results         | Int64     | false              |
+| search_results | search_depth        | Utf8      | false              |
+| search_results | topic               | Utf8      | false              |
+| search_results | time_range          | Utf8      | false              |
+| search_results | include_answer      | Boolean   | false              |
+| search_results | include_images      | Boolean   | false              |
+| search_results | include_raw_content | Boolean   | false              |
+| search_results | url                 | Utf8      | false              |
+| search_results | title               | Utf8      | false              |
+| search_results | content             | Utf8      | false              |
+| search_results | score               | Float64   | false              |
+| search_results | raw_content         | Utf8      | false              |
+| search_results | published_date      | Utf8      | false              |
+| search_results | images              | Json      | false              |
 +----------------+----------------+-----------+--------------------+
 ```
 

@@ -3,7 +3,7 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Query web search results from Tavily. The source provides a search table
+  Query web search results from Tavily. The source provides a search function
   that returns ranked results with titles, URLs, content snippets, and
   relevance scores, optimized for LLM consumption.
 base_url: https://api.tavily.com
@@ -23,9 +23,9 @@ test_queries:
 tables:
   - name: search_results
     description: >-
-      Web search results from Tavily. Use `q % '<query>'` for provider-ranked
-      search. Returns titles, URLs, content snippets, and relevance scores
-      optimized for LLM consumption.
+      Web search results from Tavily. Use `WHERE q = '<query>'` for
+      provider-ranked search. Returns titles, URLs, content snippets, and
+      relevance scores optimized for LLM consumption.
     filters:
       - name: q
         mode: contains
@@ -36,6 +36,7 @@ tables:
       - name: time_range
       - name: include_answer
       - name: include_images
+      - name: include_raw_content
     request:
       method: POST
       path: /search
@@ -61,6 +62,9 @@ tables:
         - path: [include_images]
           from: filter_bool
           key: include_images
+        - path: [include_raw_content]
+          from: filter_bool
+          key: include_raw_content
     response:
       rows_path:
         - results
@@ -75,6 +79,62 @@ tables:
         expr:
           kind: from_filter
           key: q
+      - name: max_results
+        type: Int64
+        nullable: true
+        virtual: true
+        description: Maximum number of results to return (default 5, max 20).
+        expr:
+          kind: from_filter
+          key: max_results
+      - name: search_depth
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Search depth (basic or advanced).
+        expr:
+          kind: from_filter
+          key: search_depth
+      - name: topic
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Search topic (general or news).
+        expr:
+          kind: from_filter
+          key: topic
+      - name: time_range
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Time range filter (day, week, month, year).
+        expr:
+          kind: from_filter
+          key: time_range
+      - name: include_answer
+        type: Boolean
+        nullable: true
+        virtual: true
+        description: Include an AI-generated answer in the response.
+        expr:
+          kind: from_filter
+          key: include_answer
+      - name: include_images
+        type: Boolean
+        nullable: true
+        virtual: true
+        description: Include images in the response.
+        expr:
+          kind: from_filter
+          key: include_images
+      - name: include_raw_content
+        type: Boolean
+        nullable: true
+        virtual: true
+        description: Include raw HTML content in the response.
+        expr:
+          kind: from_filter
+          key: include_raw_content
       - name: url
         type: Utf8
         nullable: false
