@@ -1,114 +1,107 @@
-# Tavily Source
+# Tavily
 
-Query web search results from Tavily through SQL. The source provides a search table that returns ranked results with titles, URLs, content snippets, and relevance scores, optimized for LLM consumption.
+**Version:** 0.1.0
+**Backend:** HTTP
+**Functions:** 1
 
-## Summary
+Search the web through Tavily. The source provides a provider-native search function that returns ranked results with titles, URLs, content snippets, and relevance scores optimized for LLM consumption.
 
-This source lets Coral call Tavily's search API endpoint and expose the ranked search results through SQL. The single live table `tavily.search_results` sends one Tavily search request per SQL query and returns the top results with relevance scores. Supports configurable search depth, topic filtering (general/news), time range, raw HTML content, and optional answer and image inclusion.
+## Installation
 
-## Provider docs
-
-- Search API reference:
-  https://docs.tavily.com/documentation/api-reference/endpoint/search
-- API keys:
-  https://app.tavily.com
-
-## Authentication
-
-Create or copy a Tavily API key from the Tavily dashboard, then add the community source:
+Install the source via the CLI:
 
 ```bash
-coral source add --interactive --file sources/community/tavily/manifest.yaml
+coral source add --file sources/community/tavily/manifest.yaml
 ```
 
-For scripted setup, provide the key as an environment variable:
+## Credentials
+
+To use this source, you will need a Tavily API key.
+
+1. Register at [app.tavily.com](https://app.tavily.com).
+2. Copy your API key (starts with `tvly-`).
+3. Provide it when prompted by `coral source add` or set it as an environment variable:
 
 ```bash
-TAVILY_API_KEY=tvly-... coral source add --file sources/community/tavily/manifest.yaml
+export TAVILY_API_KEY="tvly-your-api-key"
 ```
 
-The key is stored locally by Coral and sent in the `Authorization: Bearer <key>` header. Tavily keys start with `tvly-`.
+## Quick Start
+
+```sql
+-- Basic web search with provider-native ranking
+SELECT url, title, score
+FROM tavily.search(q => 'Coral SQL')
+LIMIT 5;
+
+-- Search with advanced depth for more comprehensive results
+SELECT url, title, content, score
+FROM tavily.search(q => 'Coral SQL', search_depth => 'advanced')
+LIMIT 3;
+
+-- Filter by news topic within a specific time range
+SELECT url, title, published_date, score
+FROM tavily.search(q => 'Coral SQL', topic => 'news', time_range => 'week')
+LIMIT 5;
+
+-- Include an AI-generated answer from Tavily
+SELECT url, title, score
+FROM tavily.search(q => 'What is Coral SQL?', include_answer => true)
+LIMIT 3;
+```
+
+## Functions
+
+### `tavily.search`
+Provider-native search for the web. Pass the query as a named argument with `q => '<query>'`.
+
+| Argument / Column | Type | Description |
+|--------|------|-------------|
+| `q` | Utf8 | (Required) Search query |
+| `url` | Utf8 | URL of the search result |
+| `title` | Utf8 | Title of the search result |
+| `content` | Utf8 | Most query-related content extracted from the source |
+| `score` | Float64 | Relevance score of the search result (0 to 1) |
+| `raw_content` | Utf8 | Parsed and cleaned HTML content (requires `include_raw_content => true`) |
+| `published_date` | Utf8 | Publication date (only for news topic searches) |
+| `images` | Json | Images extracted from the result (requires `include_images => true`) |
+| `max_results` | Utf8 | Maximum number of results (default 5, max 20) |
+| `search_depth` | Utf8 | Search depth: `basic` or `advanced` |
+| `topic` | Utf8 | Topic: `general` or `news` |
+| `time_range` | Utf8 | Time range: `day`, `week`, `month`, `year` |
+| `include_answer` | Utf8 | Set to `true` to include AI-generated answer |
+| `include_images` | Utf8 | Set to `true` to include images |
+| `include_raw_content` | Utf8 | Set to `true` to include raw HTML content |
 
 ## Live request costs
 
-Selecting the `tavily.search_results` table performs one live `POST /search` call per SQL query. Tavily charges per search credit; refer to <https://docs.tavily.com/docs/features/pricing> for current rates. Add `LIMIT` to control the number of results returned (max 20).
-
-## Source shape
-
-- `tavily.search_results` searches the web through `POST /search` with a required `q` filter and optional `max_results`, `search_depth`, `topic`, `time_range`, `include_answer`, `include_images`, and `include_raw_content` filters.
+Calling `tavily.search` performs one live `POST /search` call per SQL query. Tavily charges per search credit; refer to <https://docs.tavily.com/docs/features/pricing> for current rates. Add `LIMIT` to control the number of results returned (max 20).
 
 ## Source scope
 
 - Targets Tavily's hosted API at `https://api.tavily.com`.
 - Requires `TAVILY_API_KEY` authentication as a Bearer token.
-- The search_results table requires the `q` filter (the search query).
-- `max_results` is an integer filter that controls how many results to return (default 5, max 20). Pass an integer literal in the `WHERE` clause (e.g. `WHERE max_results = 10`).
-- `include_answer`, `include_images`, and `include_raw_content` are boolean filters. Pass `true` or `false` (e.g. `WHERE include_answer = true`).
+- The `q` argument is required.
+- `max_results` controls how many results to return (default 5, max 20).
+- `include_answer`, `include_images`, and `include_raw_content` are boolean arguments. Pass `true` or `false` (e.g. `include_answer => true`).
 - The `score` column is a relevance score between 0 and 1.
 
 ## Limitations
 
 - The source models the `POST /search` endpoint only. Other Tavily endpoints are intentionally out of scope.
-- `raw_content` is only available when `include_raw_content` is enabled (not currently modeled as a filter).
+- `raw_content` is only available when `include_raw_content => true` is passed.
 - `published_date` is only populated for news topic searches.
 - Pagination is not supported; Tavily returns a single page of results per call (max 20).
 
-## Tables
+## Notes
 
-### `tavily.search_results`
+- **Rate Limits:** Rate limits apply based on your Tavily plan. Refer to Tavily's pricing page for details.
+- **Nullable Fields:** `raw_content`, `published_date`, and `images` may be `NULL` depending on the arguments passed and the search results returned.
 
-Searches the web and returns ranked results.
+## Provider docs
 
-```sql
-SELECT url, title, score
-FROM tavily.search_results
-WHERE q = 'Coral SQL'
-LIMIT 5;
-```
-
-Search with advanced depth for more comprehensive results:
-
-```sql
-SELECT url, title, content, score
-FROM tavily.search_results
-WHERE q = 'Coral SQL'
-  AND search_depth = 'advanced'
-LIMIT 3;
-```
-
-Filter by news topic within a specific time range:
-
-```sql
-SELECT url, title, published_date, score
-FROM tavily.search_results
-WHERE q = 'Coral SQL'
-  AND topic = 'news'
-  AND time_range = 'week'
-LIMIT 5;
-```
-
-Include an AI-generated answer from Tavily:
-
-```sql
-SELECT url, title, score
-FROM tavily.search_results
-WHERE q = 'What is Coral SQL?'
-  AND include_answer = true
-LIMIT 3;
-```
-
-Useful columns:
-
-| Column | Notes |
-|---|---|
-| `q` | Search query supplied in the SQL filter (virtual column). |
-| `url` | URL of the search result. |
-| `title` | Title of the search result. |
-| `content` | Most query-related content extracted from the source. |
-| `score` | Relevance score of the search result (0 to 1). |
-| `raw_content` | Parsed and cleaned HTML content. Use `include_raw_content = true` to populate. |
-| `published_date` | Publication date (only for news topic searches). |
-| `images` | Images extracted from the result (requires `include_images`). |
+- Search API reference: https://docs.tavily.com/documentation/api-reference/endpoint/search
+- API keys: https://app.tavily.com
 
 ## Live validation output
 
@@ -121,62 +114,15 @@ Manifest is valid
 
 ```bash
 $ coral source add --file sources/community/tavily/manifest.yaml
-Added source tavily
+Added source tavily (secrets: file (plaintext))
 
   ✓ tavily connected successfully
-
-    tavily (1 table)
-    └─ search_results
+  Secrets: file (plaintext)
     Query tests
     1 declared · 1 passed · 0 failed
-```
 
-**Tables introspection:**
-
-```sql
-SELECT schema_name, table_name, description, required_filters
-FROM coral.tables
-WHERE schema_name = 'tavily'
-ORDER BY table_name;
-```
-
-```text
-+-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| schema_name | table_name     | description                                                                                                                                                                 | required_filters |
-+-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| tavily      | search_results | Web search results from Tavily. Use `WHERE q = '<query>'` for provider-ranked search. Returns titles, URLs, content snippets, and relevance scores optimized for LLM consumption. | q                |
-+-------------+----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-```
-
-**Columns introspection:**
-
-```sql
-SELECT table_name, column_name, data_type, is_required_filter
-FROM coral.columns
-WHERE schema_name = 'tavily'
-ORDER BY table_name, ordinal_position;
-```
-
-```text
-+----------------+----------------+-----------+--------------------+
-| table_name     | column_name    | data_type | is_required_filter |
-+----------------+----------------+-----------+--------------------+
-| search_results | q                   | Utf8      | true               |
-| search_results | max_results         | Int64     | false              |
-| search_results | search_depth        | Utf8      | false              |
-| search_results | topic               | Utf8      | false              |
-| search_results | time_range          | Utf8      | false              |
-| search_results | include_answer      | Boolean   | false              |
-| search_results | include_images      | Boolean   | false              |
-| search_results | include_raw_content | Boolean   | false              |
-| search_results | url                 | Utf8      | false              |
-| search_results | title               | Utf8      | false              |
-| search_results | content             | Utf8      | false              |
-| search_results | score               | Float64   | false              |
-| search_results | raw_content         | Utf8      | false              |
-| search_results | published_date      | Utf8      | false              |
-| search_results | images              | Json      | false              |
-+----------------+----------------+-----------+--------------------+
+    ✓ SELECT url, title, score FROM tavily.search(q => 'Coral SQL') LIMIT 2
+      2 rows
 ```
 
 **Inputs introspection:**
@@ -199,13 +145,11 @@ ORDER BY key;
 ```bash
 $ coral source test tavily
   ✓ tavily connected successfully
-
-    tavily (1 table)
-    └─ search_results
+  Secrets: file (plaintext)
     Query tests
     1 declared · 1 passed · 0 failed
 
-    ✓ SELECT url, title, score FROM tavily.search_results WHERE q = 'Coral SQL' LIMIT 2
+    ✓ SELECT url, title, score FROM tavily.search(q => 'Coral SQL') LIMIT 2
       2 rows
 ```
 
@@ -213,17 +157,16 @@ $ coral source test tavily
 
 ```sql
 SELECT url, title, score
-FROM tavily.search_results
-WHERE q = 'Coral SQL'
+FROM tavily.search(q => 'Coral SQL')
 LIMIT 3;
 ```
 
 ```text
-+---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
-| url                                                                                                                                   | title                                                                                                                                                                                                                                                                                                                                                                                                                                                             | score      |
-+---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
-| https://cdmsworkshop.github.io/2022/Proceedings/InvitedTalks/Abstract_WalaaEldinMoustafa.pdf                                          | [PDF] Coral: A SQL translation and rewrite engine for modern data lakes                                                                                                                                                                                                                                                                                                                                                                                           | 0.7931224  |
-| https://www.threads.com/@githubprojects/post/DYtu-WtlAFY/coral-gives-agents-a-local-first-sql-runtime-over-ap-is-files-and-other-data | Coral gives agents a local-first SQL runtime over APIs, files, and other data sources, replacing bespoke tool glue with one query interface. - Query multiple live sources through SQL from the CLI or over MCP - Join across sources like GitHub, Linear, and local files in a single statement - 20% more accurate and 2x more cost efficient than direct provider MCPs in benchmarks - Write custom source specs as YAML files to expose any API as SQL tables | 0.77405477 |
-| https://indico.cern.ch/event/408139/contributions/979851/attachments/815802/1117844/coral_CHEP06_paper.pdf                            | [PDF] CORAL, A SOFTWARE SYSTEM FOR VENDOR-NEUTRAL ... - Indico                                                                                                                                                                                                                                                                                                                                                                                                    | 0.7520312  |
-+---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
++---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------+-----------+
+| url                                                                                                                                   | title                                                                   | score     |
++---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------+-----------+
+| https://cdmsworkshop.github.io/2022/Proceedings/InvitedTalks/Abstract_WalaaEldinMoustafa.pdf                                          | [PDF] Coral: A SQL translation and rewrite engine for modern data lakes | 0.8245895 |
+| https://www.threads.com/@githubprojects/post/DYtu-WtlAFY/coral-gives-agents-a-local-first-sql-runtime-over-ap-is-files-and-other-data | Coral gives agents a local-first SQL runtime over APIs, files, and ...  | 0.7703443 |
+| https://indico.cern.ch/event/408139/contributions/979851/attachments/815802/1117844/coral_CHEP06_paper.pdf                            | [PDF] CORAL, A SOFTWARE SYSTEM FOR VENDOR-NEUTRAL ... - Indico          | 0.7520312 |
++---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------+-----------+
 ```

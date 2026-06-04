@@ -3,8 +3,8 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Query web search results from Tavily. The source provides a search function
-  that returns ranked results with titles, URLs, content snippets, and
+  Search the web through Tavily. The source provides a provider-native search
+  function that returns ranked results with titles, URLs, content snippets, and
   relevance scores, optimized for LLM consumption.
 base_url: https://api.tavily.com
 inputs:
@@ -19,51 +19,72 @@ auth:
       from: template
       template: "Bearer {{input.TAVILY_API_KEY}}"
 test_queries:
-  - SELECT url, title, score FROM tavily.search_results WHERE q = 'Coral SQL' LIMIT 2
-tables:
-  - name: search_results
+  - SELECT url, title, score FROM tavily.search(q => 'Coral SQL') LIMIT 2
+functions:
+  - name: search
+    kind: search
     description: >-
-      Web search results from Tavily. Use `WHERE q = '<query>'` for
-      provider-ranked search. Returns titles, URLs, content snippets, and
-      relevance scores optimized for LLM consumption.
-    filters:
+      Search the web using Tavily. Pass the query as a named argument with
+      `q => '<query>'`. Returns ranked results with titles, URLs, content
+      snippets, and relevance scores optimized for LLM consumption.
+    fetch_limit_default: 10
+    search_limits:
+      default_top_k: 5
+      max_top_k: 20
+      max_calls_per_query: 1
+    args:
       - name: q
-        mode: contains
         required: true
+        bind:
+          arg: q
       - name: max_results
+        bind:
+          arg: max_results
       - name: search_depth
+        bind:
+          arg: search_depth
       - name: topic
+        bind:
+          arg: topic
       - name: time_range
+        bind:
+          arg: time_range
       - name: include_answer
+        bind:
+          arg: include_answer
       - name: include_images
+        bind:
+          arg: include_images
       - name: include_raw_content
+        bind:
+          arg: include_raw_content
     request:
       method: POST
       path: /search
       body:
         - path: [query]
-          from: filter
+          from: arg
           key: q
         - path: [max_results]
-          from: filter_int
+          from: arg
           key: max_results
         - path: [search_depth]
-          from: filter
+          from: arg
           key: search_depth
         - path: [topic]
-          from: filter
+          from: arg
           key: topic
         - path: [time_range]
-          from: filter
+          from: arg
           key: time_range
         - path: [include_answer]
-          from: filter_bool
+          from: arg
           key: include_answer
         - path: [include_images]
-          from: filter_bool
+          from: arg
           key: include_images
         - path: [include_raw_content]
-          from: filter_bool
+          from: arg
           key: include_raw_content
     response:
       rows_path:
@@ -71,70 +92,6 @@ tables:
     pagination:
       mode: none
     columns:
-      - name: q
-        type: Utf8
-        nullable: false
-        virtual: true
-        description: Search query.
-        expr:
-          kind: from_filter
-          key: q
-      - name: max_results
-        type: Int64
-        nullable: true
-        virtual: true
-        description: Maximum number of results to return (default 5, max 20).
-        expr:
-          kind: from_filter
-          key: max_results
-      - name: search_depth
-        type: Utf8
-        nullable: true
-        virtual: true
-        description: Search depth (basic or advanced).
-        expr:
-          kind: from_filter
-          key: search_depth
-      - name: topic
-        type: Utf8
-        nullable: true
-        virtual: true
-        description: Search topic (general or news).
-        expr:
-          kind: from_filter
-          key: topic
-      - name: time_range
-        type: Utf8
-        nullable: true
-        virtual: true
-        description: Time range filter (day, week, month, year).
-        expr:
-          kind: from_filter
-          key: time_range
-      - name: include_answer
-        type: Boolean
-        nullable: true
-        virtual: true
-        description: Include an AI-generated answer in the response.
-        expr:
-          kind: from_filter
-          key: include_answer
-      - name: include_images
-        type: Boolean
-        nullable: true
-        virtual: true
-        description: Include images in the response.
-        expr:
-          kind: from_filter
-          key: include_images
-      - name: include_raw_content
-        type: Boolean
-        nullable: true
-        virtual: true
-        description: Include raw HTML content in the response.
-        expr:
-          kind: from_filter
-          key: include_raw_content
       - name: url
         type: Utf8
         nullable: false
