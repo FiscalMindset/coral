@@ -23,7 +23,8 @@ users a focused read/query surface for:
 
 The v1 surface is intentionally narrow and read-oriented. It proves Coral can authenticate
 against ElevenLabs, call the Models and Voices APIs, map JSON responses into tables, and
-validate the source with declared test queries.
+validate the source with declared test queries. The `voices` table uses the v2 list endpoint
+with cursor pagination and optional category/search/voice-type filters.
 
 ## Installation
 
@@ -64,7 +65,8 @@ coral source add --interactive --file sources/community/elevenlabs/manifest.yaml
 
 - ElevenLabs API reference: https://elevenlabs.io/docs/api-reference
 - ElevenLabs models: https://elevenlabs.io/docs/api-reference/models/list
-- ElevenLabs voices: https://elevenlabs.io/docs/api-reference/voices/get
+- ElevenLabs voices (v2 list): https://elevenlabs.io/docs/api-reference/voices/search
+- ElevenLabs voices (legacy): https://elevenlabs.io/docs/api-reference/legacy/voices/get-all
 - ElevenLabs authentication: https://elevenlabs.io/docs/api-reference/authentication
 - ElevenLabs API key settings: https://elevenlabs.io/app/settings/api-keys
 
@@ -73,7 +75,7 @@ coral source add --interactive --file sources/community/elevenlabs/manifest.yaml
 | Table | Description | Required filters |
 | --- | --- | --- |
 | `elevenlabs.models` | Available TTS models from the Models API. | None |
-| `elevenlabs.voices` | Available premade voices from the Voices API. | None |
+| `elevenlabs.voices` | Available voices from the v2 Voices API (cursor pagination). | Optional: `category`, `voice_type`, `search`, `sort`, `sort_direction`, `fine_tuning_state`, `collection_id` |
 
 ### `elevenlabs.models`
 
@@ -89,11 +91,20 @@ LIMIT 10;
 
 ### `elevenlabs.voices`
 
-Lists available voices from `GET /v1/voices`.
+Lists available voices from `GET /v2/voices` with cursor pagination and optional filters.
 
 ```sql
 SELECT voice_id, name, category, labels, preview_url
 FROM elevenlabs.voices
+LIMIT 10;
+```
+
+Optional filters include `category`, `voice_type`, and `search`:
+
+```sql
+SELECT voice_id, name, category
+FROM elevenlabs.voices
+WHERE category = 'premade'
 LIMIT 10;
 ```
 
@@ -114,12 +125,15 @@ Added source elevenlabs
     ├─ models
     └─ voices
     Query tests
-    2 declared · 2 passed · 0 failed
+    3 declared · 3 passed · 0 failed
 
     ✓ SELECT model_id, name, can_do_text_to_speech, can_do_voice_conversion FROM elevenlabs.models LIMIT 5
       5 rows
 
     ✓ SELECT model_id, name, token_cost_factor, concurrency_group FROM elevenlabs.models WHERE can_do_text_to_speech = true LIMIT 5
+      5 rows
+
+    ✓ SELECT voice_id, name, category FROM elevenlabs.voices LIMIT 5
       5 rows
 ```
 
@@ -131,12 +145,15 @@ $ coral source test elevenlabs
     ├─ models
     └─ voices
     Query tests
-    2 declared · 2 passed · 0 failed
+    3 declared · 3 passed · 0 failed
 
     ✓ SELECT model_id, name, can_do_text_to_speech, can_do_voice_conversion FROM elevenlabs.models LIMIT 5
       5 rows
 
     ✓ SELECT model_id, name, token_cost_factor, concurrency_group FROM elevenlabs.models WHERE can_do_text_to_speech = true LIMIT 5
+      5 rows
+
+    ✓ SELECT voice_id, name, category FROM elevenlabs.voices LIMIT 5
       5 rows
 ```
 
@@ -152,7 +169,9 @@ ORDER BY table_name;
 | table_name | description                                                     | required_filters |
 +------------+-----------------------------------------------------------------+------------------+
 | models     | Available ElevenLabs text-to-speech models from GET /v1/models. |                  |
-| voices     | Available ElevenLabs voices from GET /v1/voices.                |                  |
+| voices     | Available ElevenLabs voices from GET /v2/voices. Supports       |                  |
+|            | cursor pagination and optional filters for category, search,    |                  |
+|            | and voice type.                                                 |                  |
 +------------+-----------------------------------------------------------------+------------------+
 ```
 
@@ -287,8 +306,11 @@ ORDER BY voice_count DESC;
 - Uses Coral source-spec DSL v3 with the HTTP backend.
 - Uses `HeaderAuth` with `xi-api-key: {{input.ELEVENLABS_API_KEY}}`.
 - Maps `GET /v1/models` top-level array into `elevenlabs.models` via `row_strategy: direct`.
-- Maps `GET /v1/voices` response `voices` array into `elevenlabs.voices` via `rows_path: [voices]`.
-- Both endpoints return small datasets (10 models, 21 premade voices) so no pagination is needed.
+- Maps `GET /v2/voices` response `voices` array into `elevenlabs.voices` via `rows_path: [voices]`.
+- The models endpoint returns small datasets (10 models) so no pagination is needed.
+- The voices endpoint uses the v2 API with cursor pagination (`next_page_token`) and
+  supports optional query filters (`category`, `voice_type`, `search`, `sort`,
+  `sort_direction`, `fine_tuning_state`, `collection_id`).
 - Exposes `model_rates` and `languages` as JSON for flexible inspection when querying.
 - Does not require runtime, CLI, MCP, or UI changes.
 
@@ -298,8 +320,11 @@ ORDER BY voice_count DESC;
 - Text-to-speech synthesis, voice cloning, and audio generation are not included.
 - Responses, available models, pricing, rate limits, and errors depend on the ElevenLabs
   account tier and API key permissions.
-- The `voices` table returns all voices accessible to the API key (premade, cloned, or
-  professional); no `category` filter is available on the `GET /v1/voices` endpoint.
+- The `voices` table uses the v2 list endpoint with cursor pagination and optional filters
+  for `category`, `voice_type`, `search`, `sort`, `sort_direction`, `fine_tuning_state`,
+  and `collection_id`.
+- The v1 `GET /v1/voices` endpoint (legacy) stops working above 500 voices and has no
+  pagination or filtering support. The v2 endpoint replaces it.
 - Streaming TTS, SSML input, pronunciation dictionaries, and voice design (VoiceLab) are
   not included.
 

@@ -26,6 +26,7 @@ auth:
 test_queries:
   - SELECT model_id, name, can_do_text_to_speech, can_do_voice_conversion FROM elevenlabs.models LIMIT 5
   - SELECT model_id, name, token_cost_factor, concurrency_group FROM elevenlabs.models WHERE can_do_text_to_speech = true LIMIT 5
+  - SELECT voice_id, name, category FROM elevenlabs.voices LIMIT 5
 tables:
   - name: models
     description: Available ElevenLabs text-to-speech models from GET /v1/models.
@@ -107,15 +108,69 @@ tables:
         description: Concurrency group for the model.
 
   - name: voices
-    description: Available ElevenLabs voices from GET /v1/voices.
+    description: >-
+      Available ElevenLabs voices from GET /v2/voices. Supports cursor
+      pagination and optional filters for category, search, and voice type.
+    guide: |
+      Lists voices using the v2 API with cursor pagination. Optional filters
+      let you narrow results:
+
+        category       — premade, cloned, generated, professional
+        voice_type     — personal, community, default, workspace
+        search         — free-text search in name, description, labels
+        sort           — created_at_unix or name
+        sort_direction — asc or desc
+
+      Example:
+        SELECT voice_id, name, category
+        FROM elevenlabs.voices
+        WHERE category = 'premade'
+        LIMIT 10
+    filters:
+      - name: category
+      - name: voice_type
+      - name: search
+      - name: sort
+      - name: sort_direction
+      - name: fine_tuning_state
+      - name: collection_id
     request:
       method: GET
-      path: /v1/voices
+      path: /v2/voices
+      query:
+        - name: category
+          from: filter
+          key: category
+        - name: voice_type
+          from: filter
+          key: voice_type
+        - name: search
+          from: filter
+          key: search
+        - name: sort
+          from: filter
+          key: sort
+        - name: sort_direction
+          from: filter
+          key: sort_direction
+        - name: fine_tuning_state
+          from: filter
+          key: fine_tuning_state
+        - name: collection_id
+          from: filter
+          key: collection_id
     response:
       rows_path:
         - voices
     pagination:
-      mode: none
+      mode: cursor_query
+      cursor_param: next_page_token
+      response_cursor_path:
+        - next_page_token
+      page_size:
+        default: 100
+        max: 100
+        query_param: page_size
     columns:
       - name: voice_id
         type: Utf8
