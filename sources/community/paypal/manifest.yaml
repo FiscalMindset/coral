@@ -2,7 +2,7 @@ name: paypal
 version: 0.1.0
 dsl_version: 3
 backend: http
-description: Query PayPal balances, transaction search summaries, invoices, and webhooks through SQL.
+description: Query PayPal balances, transactions, invoices, and webhooks through SQL.
 base_url: "{{input.PAYPAL_BASE_URL}}"
 inputs:
   PAYPAL_BASE_URL:
@@ -36,10 +36,10 @@ request_headers:
     from: literal
     value: application/json
 test_queries:
-  - SELECT account_id, as_of_time, last_refresh_time FROM paypal.balances LIMIT 1
+  - SELECT currency, primary, total_balance_value FROM paypal.balances LIMIT 1
 tables:
-  - name: balances
-    description: PayPal reporting balance summary from GET /v1/reporting/balances.
+  - name: balance_summary
+    description: PayPal reporting balance response metadata from GET /v1/reporting/balances.
     filters:
       - name: as_of_time
       - name: currency_code
@@ -90,67 +90,114 @@ tables:
         type: Json
         nullable: true
         description: Raw balance array returned by PayPal.
-      - name: primary_currency
+
+  - name: balances
+    description: PayPal reporting balance rows from the balances array returned by GET /v1/reporting/balances.
+    filters:
+      - name: as_of_time
+      - name: currency_code
+    request:
+      method: GET
+      path: /v1/reporting/balances
+      query:
+        - name: as_of_time
+          from: filter
+          key: as_of_time
+        - name: currency_code
+          from: filter
+          key: currency_code
+    response:
+      rows_path:
+        - balances
+    pagination:
+      mode: none
+    columns:
+      - name: as_of_time_filter
         type: Utf8
         nullable: true
-        description: First returned balance currency.
+        virtual: true
+        description: Optional as_of_time filter supplied in SQL.
         expr:
-          kind: path
-          path:
-            - balances
-            - "0"
-            - currency
+          kind: from_filter
+          key: as_of_time
+      - name: currency_code_filter
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional currency_code filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: currency_code
+      - name: currency
+        type: Utf8
+        nullable: true
+        description: PayPal balance currency.
+      - name: primary
+        type: Boolean
+        nullable: true
+        description: Whether PayPal marks this currency balance as primary.
       - name: total_balance_currency_code
         type: Utf8
         nullable: true
-        description: Currency code for the first total balance object.
+        description: Currency code for the total balance object.
         expr:
           kind: path
           path:
-            - balances
-            - "0"
             - total_balance
             - currency_code
       - name: total_balance_value
         type: Utf8
         nullable: true
-        description: Value for the first total balance object.
+        description: Value for the total balance object.
         expr:
           kind: path
           path:
-            - balances
-            - "0"
             - total_balance
             - value
+      - name: available_balance_currency_code
+        type: Utf8
+        nullable: true
+        description: Currency code for the available balance object.
+        expr:
+          kind: path
+          path:
+            - available_balance
+            - currency_code
       - name: available_balance_value
         type: Utf8
         nullable: true
-        description: Value for the first available balance object.
+        description: Value for the available balance object.
         expr:
           kind: path
           path:
-            - balances
-            - "0"
             - available_balance
             - value
+      - name: withheld_balance_currency_code
+        type: Utf8
+        nullable: true
+        description: Currency code for the withheld balance object.
+        expr:
+          kind: path
+          path:
+            - withheld_balance
+            - currency_code
       - name: withheld_balance_value
         type: Utf8
         nullable: true
-        description: Value for the first withheld balance object.
+        description: Value for the withheld balance object.
         expr:
           kind: path
           path:
-            - balances
-            - "0"
             - withheld_balance
             - value
 
-  - name: transaction_search
-    description: Search PayPal reporting transactions for a required date range using GET /v1/reporting/transactions.
+  - name: transaction_search_summary
+    description: PayPal transaction search response metadata from GET /v1/reporting/transactions.
     guide: |
       PayPal limits transaction search date windows. Keep `start_date` and
-      `end_date` within PayPal's documented maximum range and use `page_size`
-      for small validation queries.
+      `end_date` within PayPal's documented maximum range. PayPal defaults
+      `balance_affecting_records_only` to `Y`; pass `N` to include
+      non-balance-affecting records.
     filters:
       - name: start_date
         required: true
@@ -163,6 +210,7 @@ tables:
       - name: transaction_status
       - name: transaction_type
       - name: transaction_currency
+      - name: balance_affecting_records_only
     request:
       method: GET
       path: /v1/reporting/transactions
@@ -194,6 +242,9 @@ tables:
         - name: transaction_currency
           from: filter
           key: transaction_currency
+        - name: balance_affecting_records_only
+          from: filter
+          key: balance_affecting_records_only
     response:
       row_strategy: direct
     pagination:
@@ -271,10 +322,18 @@ tables:
         expr:
           kind: from_filter
           key: transaction_currency
+      - name: balance_affecting_records_only
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal balance_affecting_records_only filter supplied in SQL. Defaults to Y when omitted.
+        expr:
+          kind: from_filter
+          key: balance_affecting_records_only
       - name: account_number
         type: Utf8
         nullable: true
-        description: PayPal account number returned for the transaction search.
+        description: PayPal account number returned for the transaction search response.
       - name: returned_start_date
         type: Timestamp
         nullable: true
@@ -315,63 +374,306 @@ tables:
         type: Json
         nullable: true
         description: Raw response links returned by PayPal.
-      - name: first_transaction_id
+
+  - name: transaction_search
+    description: PayPal reporting transaction detail rows from GET /v1/reporting/transactions.
+    guide: |
+      Requires `start_date` and `end_date`. PayPal limits transaction search
+      date windows. PayPal defaults `balance_affecting_records_only` to `Y`;
+      pass `N` to include non-balance-affecting records.
+    filters:
+      - name: start_date
+        required: true
+      - name: end_date
+        required: true
+      - name: fields
+      - name: transaction_id
+      - name: transaction_status
+      - name: transaction_type
+      - name: transaction_currency
+      - name: balance_affecting_records_only
+    request:
+      method: GET
+      path: /v1/reporting/transactions
+      query:
+        - name: start_date
+          from: filter
+          key: start_date
+        - name: end_date
+          from: filter
+          key: end_date
+        - name: fields
+          from: filter
+          key: fields
+        - name: transaction_id
+          from: filter
+          key: transaction_id
+        - name: transaction_status
+          from: filter
+          key: transaction_status
+        - name: transaction_type
+          from: filter
+          key: transaction_type
+        - name: transaction_currency
+          from: filter
+          key: transaction_currency
+        - name: balance_affecting_records_only
+          from: filter
+          key: balance_affecting_records_only
+    response:
+      rows_path:
+        - transaction_details
+    pagination:
+      mode: page
+      page_param: page
+      page_start: 1
+      page_step: 1
+      page_size:
+        default: 100
+        max: 500
+        query_param: page_size
+    columns:
+      - name: start_date
+        type: Utf8
+        nullable: false
+        virtual: true
+        description: Required transaction search start date supplied in SQL.
+        expr:
+          kind: from_filter
+          key: start_date
+      - name: end_date
+        type: Utf8
+        nullable: false
+        virtual: true
+        description: Required transaction search end date supplied in SQL.
+        expr:
+          kind: from_filter
+          key: end_date
+      - name: fields
         type: Utf8
         nullable: true
-        description: Transaction ID from the first returned transaction detail.
+        virtual: true
+        description: Optional PayPal fields filter supplied in SQL, such as all.
+        expr:
+          kind: from_filter
+          key: fields
+      - name: transaction_id_filter
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional transaction_id filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_id
+      - name: transaction_status_filter
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional transaction_status filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_status
+      - name: transaction_type
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal transaction_type filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_type
+      - name: transaction_currency
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal transaction_currency filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_currency
+      - name: balance_affecting_records_only
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal balance_affecting_records_only filter supplied in SQL. Defaults to Y when omitted.
+        expr:
+          kind: from_filter
+          key: balance_affecting_records_only
+      - name: transaction_id
+        type: Utf8
+        nullable: true
+        description: PayPal transaction ID.
         expr:
           kind: path
           path:
-            - transaction_details
-            - "0"
             - transaction_info
             - transaction_id
-      - name: first_transaction_event_code
+      - name: paypal_reference_id
         type: Utf8
         nullable: true
-        description: Event code from the first returned transaction detail.
+        description: PayPal reference ID when returned.
         expr:
           kind: path
           path:
-            - transaction_details
-            - "0"
+            - transaction_info
+            - paypal_reference_id
+      - name: transaction_event_code
+        type: Utf8
+        nullable: true
+        description: PayPal transaction event code.
+        expr:
+          kind: path
+          path:
             - transaction_info
             - transaction_event_code
-      - name: first_transaction_status
-        type: Utf8
+      - name: transaction_initiation_date
+        type: Timestamp
         nullable: true
-        description: Status from the first returned transaction detail.
+        description: PayPal transaction initiation timestamp.
         expr:
           kind: path
           path:
-            - transaction_details
-            - "0"
+            - transaction_info
+            - transaction_initiation_date
+      - name: transaction_updated_date
+        type: Timestamp
+        nullable: true
+        description: PayPal transaction update timestamp.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - transaction_updated_date
+      - name: transaction_status
+        type: Utf8
+        nullable: true
+        description: PayPal transaction status.
+        expr:
+          kind: path
+          path:
             - transaction_info
             - transaction_status
-      - name: first_transaction_amount_currency_code
+      - name: transaction_amount_currency_code
         type: Utf8
         nullable: true
-        description: Currency code from the first returned transaction amount.
+        description: Currency code from the transaction amount.
         expr:
           kind: path
           path:
-            - transaction_details
-            - "0"
             - transaction_info
             - transaction_amount
             - currency_code
-      - name: first_transaction_amount_value
+      - name: transaction_amount_value
         type: Utf8
         nullable: true
-        description: Value from the first returned transaction amount.
+        description: Value from the transaction amount.
         expr:
           kind: path
           path:
-            - transaction_details
-            - "0"
             - transaction_info
             - transaction_amount
             - value
+      - name: fee_amount_currency_code
+        type: Utf8
+        nullable: true
+        description: Currency code from the fee amount.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - fee_amount
+            - currency_code
+      - name: fee_amount_value
+        type: Utf8
+        nullable: true
+        description: Value from the fee amount.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - fee_amount
+            - value
+      - name: ending_balance_currency_code
+        type: Utf8
+        nullable: true
+        description: Currency code from the ending balance.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - ending_balance
+            - currency_code
+      - name: ending_balance_value
+        type: Utf8
+        nullable: true
+        description: Value from the ending balance.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - ending_balance
+            - value
+      - name: available_balance_currency_code
+        type: Utf8
+        nullable: true
+        description: Currency code from the available balance.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - available_balance
+            - currency_code
+      - name: available_balance_value
+        type: Utf8
+        nullable: true
+        description: Value from the available balance.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - available_balance
+            - value
+      - name: invoice_id
+        type: Utf8
+        nullable: true
+        description: PayPal invoice ID when returned.
+        expr:
+          kind: path
+          path:
+            - transaction_info
+            - invoice_id
+      - name: transaction_info
+        type: Json
+        nullable: true
+        description: Raw transaction_info object returned by PayPal.
+      - name: payer_account_id
+        type: Utf8
+        nullable: true
+        description: Payer account ID when returned.
+        expr:
+          kind: path
+          path:
+            - payer_info
+            - account_id
+      - name: payer_email_address
+        type: Utf8
+        nullable: true
+        description: Payer email address when returned.
+        expr:
+          kind: path
+          path:
+            - payer_info
+            - email_address
+      - name: payer_info
+        type: Json
+        nullable: true
+        description: Raw payer_info object returned by PayPal.
+      - name: shipping_info
+        type: Json
+        nullable: true
+        description: Raw shipping_info object returned by PayPal.
+      - name: cart_info
+        type: Json
+        nullable: true
+        description: Raw cart_info object returned by PayPal.
 
   - name: invoices
     description: PayPal invoices from GET /v2/invoicing/invoices.

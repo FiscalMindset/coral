@@ -1,10 +1,10 @@
 # PayPal Source
 
-Query PayPal balances, transaction search summaries, invoices, and webhooks through Coral SQL.
+Query PayPal balances, transactions, invoices, and webhooks through Coral SQL.
 
 ## Summary
 
-This source lets Coral query PayPal reporting balances, transaction-search metadata, invoice rows, and configured webhooks. It targets PayPal REST APIs with OAuth 2.0 bearer-token authentication and keeps mutating checkout, payout, refund, invoice-write, and webhook-write operations out of scope.
+This source lets Coral query PayPal reporting balance rows, transaction-search rows, transaction-search response metadata, invoice rows, and configured webhooks. It targets PayPal REST APIs with OAuth 2.0 bearer-token authentication and keeps mutating checkout, payout, refund, invoice-write, and webhook-write operations out of scope.
 
 ## Provider docs
 
@@ -48,8 +48,10 @@ This source performs live read-only PayPal API requests. It does not create, cap
 
 ## Source shape
 
-- `paypal.balances` returns a balance summary row from `GET /v1/reporting/balances`.
-- `paypal.transaction_search` returns one transaction-search response row from `GET /v1/reporting/transactions`, preserving top-level metadata and the raw `transaction_details` array.
+- `paypal.balance_summary` returns top-level metadata and the raw `balances` array from `GET /v1/reporting/balances`.
+- `paypal.balances` returns one SQL row per PayPal balance entry from the documented `balances[]` array.
+- `paypal.transaction_search_summary` returns top-level metadata and the raw `transaction_details` array from `GET /v1/reporting/transactions`.
+- `paypal.transaction_search` returns one SQL row per PayPal transaction detail from the documented `transaction_details[]` array.
 - `paypal.invoices` lists invoice rows from `GET /v2/invoicing/invoices`.
 - `paypal.webhooks` lists app webhooks from `GET /v1/notifications/webhooks`.
 
@@ -57,8 +59,9 @@ This source performs live read-only PayPal API requests. It does not create, cap
 
 - Targets PayPal REST APIs through `PAYPAL_BASE_URL`; sandbox is the default.
 - Requires `PAYPAL_ACCESS_TOKEN` bearer authentication.
-- `paypal.transaction_search` requires `start_date` and `end_date`.
-- Transaction search preserves the top-level account number, returned date window, totals, links, and raw transaction detail array.
+- `paypal.transaction_search` and `paypal.transaction_search_summary` require `start_date` and `end_date`.
+- PayPal defaults `balance_affecting_records_only` to `Y`; pass `balance_affecting_records_only = 'N'` to request non-balance-affecting transactions too.
+- `paypal.transaction_search` uses PayPal page pagination with a conservative default page size.
 - `paypal.invoices` uses page pagination with `page` and `page_size`.
 - `paypal.webhooks` is read-only and supports the optional PayPal `anchor_type` filter.
 
@@ -67,37 +70,64 @@ This source performs live read-only PayPal API requests. It does not create, cap
 - The source does not perform the client-credentials token exchange itself. Generate a PayPal access token outside Coral and provide it as `PAYPAL_ACCESS_TOKEN`.
 - PayPal access tokens expire. Refresh the token and re-add/update the source when needed.
 - Checkout order creation/capture, payments capture/refund, payouts, subscriptions, invoice creation/update/send, webhook creation/update/delete, disputes, vault, and tracking endpoints are intentionally omitted.
-- `paypal.transaction_search` returns one response row with the raw transaction detail array instead of one SQL row per transaction so top-level response metadata is preserved.
+- PayPal documents `as_of_time`, `last_refresh_time`, and transaction search date metadata, but sandbox responses can omit those fields; the corresponding summary columns are nullable.
 - PayPal enforces provider-specific transaction-search date-window limits. Keep validation ranges short.
 - Some tables may return zero rows in a fresh sandbox account, depending on app scopes and sandbox data.
 
 ## Tables
 
-### `paypal.balances`
+### `paypal.balance_summary`
 
-Returns PayPal reporting balances.
+Returns the top-level PayPal balance response.
 
 ```sql
-SELECT account_id, as_of_time, last_refresh_time,
-       primary_currency, total_balance_value, available_balance_value
+SELECT account_id, substr(CAST(balances AS VARCHAR), 1, 80) AS balances_preview
+FROM paypal.balance_summary
+LIMIT 1;
+```
+
+### `paypal.balances`
+
+Returns one row per PayPal balance entry.
+
+```sql
+SELECT currency, primary, total_balance_currency_code,
+       total_balance_value, available_balance_value
 FROM paypal.balances
+LIMIT 5;
+```
+
+### `paypal.transaction_search_summary`
+
+Returns top-level PayPal transaction search metadata for a required date window.
+
+```sql
+SELECT account_number, page, total_items, total_pages
+FROM paypal.transaction_search_summary
+WHERE start_date = '2026-05-20T00:00:00Z'
+  AND end_date = '2026-06-04T00:00:00Z'
+  AND fields = 'all'
+  AND transaction_type = 'T1900'
+  AND transaction_currency = 'USD'
+  AND balance_affecting_records_only = 'Y'
 LIMIT 1;
 ```
 
 ### `paypal.transaction_search`
 
-Searches PayPal transaction reporting data for a required date window.
+Returns one row per PayPal transaction detail for a required date window.
 
 ```sql
-SELECT account_number, total_items, total_pages,
-       first_transaction_id, first_transaction_status,
-       first_transaction_amount_currency_code, first_transaction_amount_value
+SELECT transaction_id, transaction_event_code, transaction_status,
+       transaction_amount_currency_code, transaction_amount_value
 FROM paypal.transaction_search
 WHERE start_date = '2026-05-20T00:00:00Z'
   AND end_date = '2026-06-04T00:00:00Z'
   AND fields = 'all'
-  AND page_size = 5
-LIMIT 1;
+  AND transaction_type = 'T1900'
+  AND transaction_currency = 'USD'
+  AND balance_affecting_records_only = 'Y'
+LIMIT 5;
 ```
 
 ### `paypal.invoices`
@@ -135,15 +165,17 @@ Added source paypal
 
   PASS paypal connected successfully
 
-    paypal (4 tables)
+    paypal (6 tables)
+    - balance_summary
     - balances
     - invoices
     - transaction_search
+    - transaction_search_summary
     - webhooks
     Query tests
     1 declared - 1 passed - 0 failed
 
-    PASS SELECT account_id, as_of_time, last_refresh_time FROM paypal.balances LIMIT 1
+    PASS SELECT currency, primary, total_balance_value FROM paypal.balances LIMIT 1
       1 row
 ```
 
@@ -151,15 +183,17 @@ Added source paypal
 $ coral source test paypal
   PASS paypal connected successfully
 
-    paypal (4 tables)
+    paypal (6 tables)
+    - balance_summary
     - balances
     - invoices
     - transaction_search
+    - transaction_search_summary
     - webhooks
     Query tests
     1 declared - 1 passed - 0 failed
 
-    PASS SELECT account_id, as_of_time, last_refresh_time FROM paypal.balances LIMIT 1
+    PASS SELECT currency, primary, total_balance_value FROM paypal.balances LIMIT 1
       1 row
 ```
 
@@ -171,82 +205,16 @@ ORDER BY table_name;
 ```
 
 ```text
-+--------------------+
-| table_name         |
-+--------------------+
-| balances           |
-| invoices           |
-| transaction_search |
-| webhooks           |
-+--------------------+
-```
-
-```sql
-SELECT table_name, column_name, data_type
-FROM coral.columns
-WHERE schema_name = 'paypal'
-ORDER BY table_name, ordinal_position;
-```
-
-```text
-+--------------------+----------------------------------------+-----------+
-| table_name         | column_name                            | data_type |
-+--------------------+----------------------------------------+-----------+
-| balances           | as_of_time_filter                      | Utf8      |
-| balances           | currency_code_filter                   | Utf8      |
-| balances           | account_id                             | Utf8      |
-| balances           | as_of_time                             | Timestamp |
-| balances           | last_refresh_time                      | Timestamp |
-| balances           | balances                               | Json      |
-| balances           | primary_currency                       | Utf8      |
-| balances           | total_balance_currency_code            | Utf8      |
-| balances           | total_balance_value                    | Utf8      |
-| balances           | available_balance_value                | Utf8      |
-| balances           | withheld_balance_value                 | Utf8      |
-| invoices           | id                                     | Utf8      |
-| invoices           | parent_id                              | Utf8      |
-| invoices           | status                                 | Utf8      |
-| invoices           | invoice_number                         | Utf8      |
-| invoices           | currency_code                          | Utf8      |
-| invoices           | invoice_date                           | Utf8      |
-| invoices           | due_date                               | Utf8      |
-| invoices           | create_time                            | Timestamp |
-| invoices           | last_update_time                       | Timestamp |
-| invoices           | detail                                 | Json      |
-| invoices           | invoicer                               | Json      |
-| invoices           | primary_recipients                     | Json      |
-| invoices           | amount                                 | Json      |
-| invoices           | due_amount                             | Json      |
-| invoices           | links                                  | Json      |
-| transaction_search | start_date                             | Utf8      |
-| transaction_search | end_date                               | Utf8      |
-| transaction_search | fields                                 | Utf8      |
-| transaction_search | page_size                              | Int64     |
-| transaction_search | page_filter                            | Int64     |
-| transaction_search | transaction_id                         | Utf8      |
-| transaction_search | transaction_status                     | Utf8      |
-| transaction_search | transaction_type                       | Utf8      |
-| transaction_search | transaction_currency                   | Utf8      |
-| transaction_search | account_number                         | Utf8      |
-| transaction_search | returned_start_date                    | Timestamp |
-| transaction_search | returned_end_date                      | Timestamp |
-| transaction_search | last_refreshed_datetime                | Timestamp |
-| transaction_search | page                                   | Int64     |
-| transaction_search | total_items                            | Int64     |
-| transaction_search | total_pages                            | Int64     |
-| transaction_search | transaction_details                    | Json      |
-| transaction_search | links                                  | Json      |
-| transaction_search | first_transaction_id                   | Utf8      |
-| transaction_search | first_transaction_event_code           | Utf8      |
-| transaction_search | first_transaction_status               | Utf8      |
-| transaction_search | first_transaction_amount_currency_code | Utf8      |
-| transaction_search | first_transaction_amount_value         | Utf8      |
-| webhooks           | anchor_type                            | Utf8      |
-| webhooks           | id                                     | Utf8      |
-| webhooks           | url                                    | Utf8      |
-| webhooks           | event_types                            | Json      |
-| webhooks           | links                                  | Json      |
-+--------------------+----------------------------------------+-----------+
++----------------------------+
+| table_name                 |
++----------------------------+
+| balance_summary            |
+| balances                   |
+| invoices                   |
+| transaction_search         |
+| transaction_search_summary |
+| webhooks                   |
++----------------------------+
 ```
 
 ```sql
@@ -266,59 +234,171 @@ ORDER BY key;
 ```
 
 ```sql
-SELECT account_id, as_of_time, last_refresh_time,
-       primary_currency, total_balance_value, available_balance_value
+SELECT table_name, column_name, data_type
+FROM coral.columns
+WHERE schema_name = 'paypal'
+ORDER BY table_name, ordinal_position;
+```
+
+```text
++----------------------------+----------------------------------+-----------+
+| table_name                 | column_name                      | data_type |
++----------------------------+----------------------------------+-----------+
+| balance_summary            | as_of_time_filter                | Utf8      |
+| balance_summary            | currency_code_filter             | Utf8      |
+| balance_summary            | account_id                       | Utf8      |
+| balance_summary            | as_of_time                       | Timestamp |
+| balance_summary            | last_refresh_time                | Timestamp |
+| balance_summary            | balances                         | Json      |
+| balances                   | as_of_time_filter                | Utf8      |
+| balances                   | currency_code_filter             | Utf8      |
+| balances                   | currency                         | Utf8      |
+| balances                   | primary                          | Boolean   |
+| balances                   | total_balance_currency_code      | Utf8      |
+| balances                   | total_balance_value              | Utf8      |
+| balances                   | available_balance_currency_code  | Utf8      |
+| balances                   | available_balance_value          | Utf8      |
+| balances                   | withheld_balance_currency_code   | Utf8      |
+| balances                   | withheld_balance_value           | Utf8      |
+| invoices                   | id                               | Utf8      |
+| invoices                   | parent_id                        | Utf8      |
+| invoices                   | status                           | Utf8      |
+| invoices                   | invoice_number                   | Utf8      |
+| invoices                   | currency_code                    | Utf8      |
+| invoices                   | invoice_date                     | Utf8      |
+| invoices                   | due_date                         | Utf8      |
+| invoices                   | create_time                      | Timestamp |
+| invoices                   | last_update_time                 | Timestamp |
+| invoices                   | detail                           | Json      |
+| invoices                   | invoicer                         | Json      |
+| invoices                   | primary_recipients               | Json      |
+| invoices                   | amount                           | Json      |
+| invoices                   | due_amount                       | Json      |
+| invoices                   | links                            | Json      |
+| transaction_search         | start_date                       | Utf8      |
+| transaction_search         | end_date                         | Utf8      |
+| transaction_search         | fields                           | Utf8      |
+| transaction_search         | transaction_id_filter            | Utf8      |
+| transaction_search         | transaction_status_filter        | Utf8      |
+| transaction_search         | transaction_type                 | Utf8      |
+| transaction_search         | transaction_currency             | Utf8      |
+| transaction_search         | balance_affecting_records_only   | Utf8      |
+| transaction_search         | transaction_id                   | Utf8      |
+| transaction_search         | paypal_reference_id              | Utf8      |
+| transaction_search         | transaction_event_code           | Utf8      |
+| transaction_search         | transaction_initiation_date      | Timestamp |
+| transaction_search         | transaction_updated_date         | Timestamp |
+| transaction_search         | transaction_status               | Utf8      |
+| transaction_search         | transaction_amount_currency_code | Utf8      |
+| transaction_search         | transaction_amount_value         | Utf8      |
+| transaction_search         | fee_amount_currency_code         | Utf8      |
+| transaction_search         | fee_amount_value                 | Utf8      |
+| transaction_search         | ending_balance_currency_code     | Utf8      |
+| transaction_search         | ending_balance_value             | Utf8      |
+| transaction_search         | available_balance_currency_code  | Utf8      |
+| transaction_search         | available_balance_value          | Utf8      |
+| transaction_search         | invoice_id                       | Utf8      |
+| transaction_search         | transaction_info                 | Json      |
+| transaction_search         | payer_account_id                 | Utf8      |
+| transaction_search         | payer_email_address              | Utf8      |
+| transaction_search         | payer_info                       | Json      |
+| transaction_search         | shipping_info                    | Json      |
+| transaction_search         | cart_info                        | Json      |
+| transaction_search_summary | start_date                       | Utf8      |
+| transaction_search_summary | end_date                         | Utf8      |
+| transaction_search_summary | fields                           | Utf8      |
+| transaction_search_summary | page_size                        | Int64     |
+| transaction_search_summary | page_filter                      | Int64     |
+| transaction_search_summary | transaction_id                   | Utf8      |
+| transaction_search_summary | transaction_status               | Utf8      |
+| transaction_search_summary | transaction_type                 | Utf8      |
+| transaction_search_summary | transaction_currency             | Utf8      |
+| transaction_search_summary | balance_affecting_records_only   | Utf8      |
+| transaction_search_summary | account_number                   | Utf8      |
+| transaction_search_summary | returned_start_date              | Timestamp |
+| transaction_search_summary | returned_end_date                | Timestamp |
+| transaction_search_summary | last_refreshed_datetime          | Timestamp |
+| transaction_search_summary | page                             | Int64     |
+| transaction_search_summary | total_items                      | Int64     |
+| transaction_search_summary | total_pages                      | Int64     |
+| transaction_search_summary | transaction_details              | Json      |
+| transaction_search_summary | links                            | Json      |
+| webhooks                   | anchor_type                      | Utf8      |
+| webhooks                   | id                               | Utf8      |
+| webhooks                   | url                              | Utf8      |
+| webhooks                   | event_types                      | Json      |
+| webhooks                   | links                            | Json      |
++----------------------------+----------------------------------+-----------+
+```
+
+```sql
+SELECT account_id, substr(CAST(balances AS VARCHAR), 1, 80) AS balances_preview
+FROM paypal.balance_summary
+LIMIT 1;
+```
+
+```text
++---------------+----------------------------------------------------------------------------------+
+| account_id    | balances_preview                                                                 |
++---------------+----------------------------------------------------------------------------------+
+| BUADSUQLH7WEC | [{"currency":"USD","total_balance":{"currency_code":"USD","value":"5000.00"},"av |
++---------------+----------------------------------------------------------------------------------+
+```
+
+```sql
+SELECT currency, primary, total_balance_currency_code,
+       total_balance_value, available_balance_value
 FROM paypal.balances
-LIMIT 1;
+LIMIT 5;
 ```
 
 ```text
-+---------------+------------+-------------------+------------------+---------------------+-------------------------+
-| account_id    | as_of_time | last_refresh_time | primary_currency | total_balance_value | available_balance_value |
-+---------------+------------+-------------------+------------------+---------------------+-------------------------+
-| BUADSUQLH7WEC |            |                   | USD              | 5000.00             | 5000.00                 |
-+---------------+------------+-------------------+------------------+---------------------+-------------------------+
++----------+---------+-----------------------------+---------------------+-------------------------+
+| currency | primary | total_balance_currency_code | total_balance_value | available_balance_value |
++----------+---------+-----------------------------+---------------------+-------------------------+
+| USD      |         | USD                         | 5000.00             | 5000.00                 |
++----------+---------+-----------------------------+---------------------+-------------------------+
 ```
 
 ```sql
-SELECT account_number, total_items, total_pages,
-       first_transaction_id, first_transaction_status,
-       first_transaction_amount_currency_code, first_transaction_amount_value
-FROM paypal.transaction_search
+SELECT account_number, page, total_items, total_pages
+FROM paypal.transaction_search_summary
 WHERE start_date = '2026-05-20T00:00:00Z'
   AND end_date = '2026-06-04T00:00:00Z'
   AND fields = 'all'
-  AND page_size = 5
-LIMIT 1;
-```
-
-```text
-+----------------+-------------+-------------+----------------------+--------------------------+----------------------------------------+--------------------------------+
-| account_number | total_items | total_pages | first_transaction_id | first_transaction_status | first_transaction_amount_currency_code | first_transaction_amount_value |
-+----------------+-------------+-------------+----------------------+--------------------------+----------------------------------------+--------------------------------+
-| BUADSUQLH7WEC  | 1           | 1           | 9CG326359F0639103    | S                        | USD                                    | 5000.00                        |
-+----------------+-------------+-------------+----------------------+--------------------------+----------------------------------------+--------------------------------+
-```
-
-```sql
-SELECT account_number, total_items, transaction_type, transaction_currency,
-       first_transaction_event_code, first_transaction_amount_currency_code
-FROM paypal.transaction_search
-WHERE start_date = '2026-05-20T00:00:00Z'
-  AND end_date = '2026-06-04T00:00:00Z'
-  AND fields = 'all'
-  AND page_size = 5
   AND transaction_type = 'T1900'
   AND transaction_currency = 'USD'
+  AND balance_affecting_records_only = 'Y'
 LIMIT 1;
 ```
 
 ```text
-+----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
-| account_number | total_items | transaction_type | transaction_currency | first_transaction_event_code | first_transaction_amount_currency_code |
-+----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
-| BUADSUQLH7WEC  | 1           | T1900            | USD                  | T1900                        | USD                                    |
-+----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
++----------------+------+-------------+-------------+
+| account_number | page | total_items | total_pages |
++----------------+------+-------------+-------------+
+| BUADSUQLH7WEC  | 1    | 1           | 1           |
++----------------+------+-------------+-------------+
+```
+
+```sql
+SELECT transaction_id, transaction_event_code, transaction_status,
+       transaction_amount_currency_code, transaction_amount_value
+FROM paypal.transaction_search
+WHERE start_date = '2026-05-20T00:00:00Z'
+  AND end_date = '2026-06-04T00:00:00Z'
+  AND fields = 'all'
+  AND transaction_type = 'T1900'
+  AND transaction_currency = 'USD'
+  AND balance_affecting_records_only = 'Y'
+LIMIT 5;
+```
+
+```text
++-------------------+------------------------+--------------------+----------------------------------+--------------------------+
+| transaction_id    | transaction_event_code | transaction_status | transaction_amount_currency_code | transaction_amount_value |
++-------------------+------------------------+--------------------+----------------------------------+--------------------------+
+| 9CG326359F0639103 | T1900                  | S                  | USD                              | 5000.00                  |
++-------------------+------------------------+--------------------+----------------------------------+--------------------------+
 ```
 
 ```sql
