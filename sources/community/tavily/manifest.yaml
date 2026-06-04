@@ -1,0 +1,113 @@
+name: tavily
+version: 0.1.0
+dsl_version: 3
+backend: http
+description: >-
+  Query web search results from Tavily. The source provides a search table
+  that returns ranked results with titles, URLs, content snippets, and
+  relevance scores, optimized for LLM consumption.
+base_url: https://api.tavily.com
+inputs:
+  TAVILY_API_KEY:
+    kind: secret
+    hint: >-
+      Tavily API key from https://app.tavily.com. Keys start with `tvly-`.
+auth:
+  type: HeaderAuth
+  headers:
+    - name: Authorization
+      from: template
+      template: "Bearer {{input.TAVILY_API_KEY}}"
+test_queries:
+  - SELECT url, title, score FROM tavily.search_results WHERE q = 'Coral SQL' LIMIT 2
+tables:
+  - name: search_results
+    description: >-
+      Web search results from Tavily. Use `q % '<query>'` for provider-ranked
+      search. Returns titles, URLs, content snippets, and relevance scores
+      optimized for LLM consumption.
+    filters:
+      - name: q
+        mode: contains
+        required: true
+      - name: max_results
+      - name: search_depth
+      - name: topic
+      - name: time_range
+      - name: include_answer
+      - name: include_images
+    request:
+      method: POST
+      path: /search
+      body:
+        - path: [query]
+          from: filter
+          key: q
+        - path: [max_results]
+          from: filter_int
+          key: max_results
+        - path: [search_depth]
+          from: filter
+          key: search_depth
+        - path: [topic]
+          from: filter
+          key: topic
+        - path: [time_range]
+          from: filter
+          key: time_range
+        - path: [include_answer]
+          from: filter_bool
+          key: include_answer
+        - path: [include_images]
+          from: filter_bool
+          key: include_images
+    response:
+      rows_path:
+        - results
+    pagination:
+      mode: none
+    columns:
+      - name: q
+        type: Utf8
+        nullable: false
+        virtual: true
+        description: Search query.
+        expr:
+          kind: from_filter
+          key: q
+      - name: url
+        type: Utf8
+        nullable: false
+        description: URL of the search result.
+      - name: title
+        type: Utf8
+        nullable: true
+        description: Title of the search result.
+      - name: content
+        type: Utf8
+        nullable: true
+        description: >-
+          Most query-related content extracted from the source. With advanced
+          search depth, this contains concatenated relevant chunks.
+      - name: score
+        type: Float64
+        nullable: false
+        description: Relevance score of the search result (0 to 1).
+      - name: raw_content
+        type: Utf8
+        nullable: true
+        description: >-
+          Parsed and cleaned HTML content. Only available when
+          include_raw_content is enabled.
+      - name: published_date
+        type: Utf8
+        nullable: true
+        description: >-
+          Publication date of the source. Only available for news topic
+          searches.
+      - name: images
+        type: Json
+        nullable: true
+        description: >-
+          Images extracted from this search result. Only included when
+          include_images is enabled.
