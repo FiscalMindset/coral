@@ -298,8 +298,8 @@ ORDER BY voice_count DESC;
 - Text-to-speech synthesis, voice cloning, and audio generation are not included.
 - Responses, available models, pricing, rate limits, and errors depend on the ElevenLabs
   account tier and API key permissions.
-- The `voices` table returns the 21 premade ElevenLabs voices; user-cloned or professional
-  voices are not included in this endpoint.
+- The `voices` table returns all voices accessible to the API key (premade, cloned, or
+  professional); no `category` filter is available on the `GET /v1/voices` endpoint.
 - Streaming TTS, SSML input, pronunciation dictionaries, and voice design (VoiceLab) are
   not included.
 
