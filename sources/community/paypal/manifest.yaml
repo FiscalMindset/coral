@@ -161,8 +161,8 @@ tables:
       - name: page
       - name: transaction_id
       - name: transaction_status
-      - name: transaction_event_code
-      - name: currency_code
+      - name: transaction_type
+      - name: transaction_currency
     request:
       method: GET
       path: /v1/reporting/transactions
@@ -188,12 +188,12 @@ tables:
         - name: transaction_status
           from: filter
           key: transaction_status
-        - name: transaction_event_code
+        - name: transaction_type
           from: filter
-          key: transaction_event_code
-        - name: currency_code
+          key: transaction_type
+        - name: transaction_currency
           from: filter
-          key: currency_code
+          key: transaction_currency
     response:
       row_strategy: direct
     pagination:
@@ -239,6 +239,38 @@ tables:
         expr:
           kind: from_filter
           key: page
+      - name: transaction_id
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional transaction_id filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_id
+      - name: transaction_status
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional transaction_status filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_status
+      - name: transaction_type
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal transaction_type filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_type
+      - name: transaction_currency
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional PayPal transaction_currency filter supplied in SQL.
+        expr:
+          kind: from_filter
+          key: transaction_currency
       - name: account_number
         type: Utf8
         nullable: true

@@ -223,6 +223,10 @@ ORDER BY table_name, ordinal_position;
 | transaction_search | fields                                 | Utf8      |
 | transaction_search | page_size                              | Int64     |
 | transaction_search | page_filter                            | Int64     |
+| transaction_search | transaction_id                         | Utf8      |
+| transaction_search | transaction_status                     | Utf8      |
+| transaction_search | transaction_type                       | Utf8      |
+| transaction_search | transaction_currency                   | Utf8      |
 | transaction_search | account_number                         | Utf8      |
 | transaction_search | returned_start_date                    | Timestamp |
 | transaction_search | returned_end_date                      | Timestamp |
@@ -294,6 +298,27 @@ LIMIT 1;
 +----------------+-------------+-------------+----------------------+--------------------------+----------------------------------------+--------------------------------+
 | BUADSUQLH7WEC  | 1           | 1           | 9CG326359F0639103    | S                        | USD                                    | 5000.00                        |
 +----------------+-------------+-------------+----------------------+--------------------------+----------------------------------------+--------------------------------+
+```
+
+```sql
+SELECT account_number, total_items, transaction_type, transaction_currency,
+       first_transaction_event_code, first_transaction_amount_currency_code
+FROM paypal.transaction_search
+WHERE start_date = '2026-05-20T00:00:00Z'
+  AND end_date = '2026-06-04T00:00:00Z'
+  AND fields = 'all'
+  AND page_size = 5
+  AND transaction_type = 'T1900'
+  AND transaction_currency = 'USD'
+LIMIT 1;
+```
+
+```text
++----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
+| account_number | total_items | transaction_type | transaction_currency | first_transaction_event_code | first_transaction_amount_currency_code |
++----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
+| BUADSUQLH7WEC  | 1           | T1900            | USD                  | T1900                        | USD                                    |
++----------------+-------------+------------------+----------------------+------------------------------+----------------------------------------+
 ```
 
 ```sql
