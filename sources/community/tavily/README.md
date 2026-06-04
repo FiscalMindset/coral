@@ -70,9 +70,9 @@ Provider-native search for the web. Pass the query as a named argument with `q =
 | `search_depth` | Utf8 | Search depth: `basic`, `advanced`, `fast`, or `ultra-fast` |
 | `topic` | Utf8 | Topic: `general`, `news`, or `finance` |
 | `time_range` | Utf8 | Time range: `day`, `week`, `month`, `year` |
-| `include_answer` | Utf8 | Set to `true` to include AI-generated answer |
+| `include_answer` | Utf8 | Set to `true`, `'basic'`, or `'advanced'` to include an AI-generated answer |
 | `include_images` | Utf8 | Set to `true` to include images |
-| `include_raw_content` | Utf8 | Set to `true` to include raw HTML content |
+| `include_raw_content` | Utf8 | Set to `true`, `'markdown'`, or `'text'` to include raw HTML content |
 
 ## Live request costs
 
