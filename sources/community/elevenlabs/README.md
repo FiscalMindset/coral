@@ -1,7 +1,7 @@
 # elevenlabs community source
 
 Query ElevenLabs voices and text-to-speech models through Coral SQL. This source exposes
-available TTS models and premade voices so you can discover model capabilities, compare
+available TTS models and voices so you can discover model capabilities, compare
 pricing, list voices, and join voice metadata into wider analysis workflows.
 
 **Version:** 0.1.0
@@ -17,7 +17,7 @@ users a focused read/query surface for:
 
 - Discovering available TTS models and their capabilities (TTS, voice conversion, style,
   speaker boost, fine-tuning support).
-- Listing premade voices with their categories, labels, and preview URLs.
+- Listing voices with their categories, labels, and preview URLs.
 - Comparing model pricing via `token_cost_factor` and `model_rates`.
 - Joining voice metadata with other Coral sources in local analysis workflows.
 

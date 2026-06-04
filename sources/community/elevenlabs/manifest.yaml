@@ -159,6 +159,9 @@ tables:
         - name: collection_id
           from: filter
           key: collection_id
+        - name: include_total_count
+          from: literal
+          value: "false"
     response:
       rows_path:
         - voices
