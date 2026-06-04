@@ -220,13 +220,3 @@ LIMIT 3;
 | https://indico.cern.ch/event/408139/contributions/979851/attachments/815802/1117844/coral_CHEP06_paper.pdf                            | [PDF] CORAL, A SOFTWARE SYSTEM FOR VENDOR-NEUTRAL ... - Indico                                                                                                                                                                                                                                                                                                                                                                                                    | 0.7520312  |
 +---------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------+
 ```
-
-## Screenshots
-
-![Tavily proof 1 - lint](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/1_lint.png)
-![Tavily proof 2 - source add](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/2_add.png)
-![Tavily proof 3 - tables](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/3_tables.png)
-![Tavily proof 4 - columns](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/4_columns.png)
-![Tavily proof 5 - inputs](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/5_inputs.png)
-![Tavily proof 6 - source test](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/6_source_test.png)
-![Tavily proof 7 - bounded live search](https://raw.githubusercontent.com/FiscalMindset/coral/tavily-proof-assets/output_proof/tavily/7_search_main.png)
