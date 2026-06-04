@@ -3,15 +3,19 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Search the web through Tavily. The source provides a provider-native search
-  function that returns ranked results with titles, URLs, content snippets, and
-  relevance scores, optimized for LLM consumption.
+  Query web search results from Tavily. The source provides a provider-native
+  search function that returns ranked results with titles, URLs, content
+  snippets, and relevance scores, optimized for LLM consumption.
 base_url: https://api.tavily.com
 inputs:
   TAVILY_API_KEY:
     kind: secret
     hint: >-
       Tavily API key from https://app.tavily.com. Keys start with `tvly-`.
+    credential:
+      methods:
+        - type: source_config
+          label: Paste API key
 auth:
   type: HeaderAuth
   headers:
@@ -27,7 +31,7 @@ functions:
       Search the web using Tavily. Pass the query as a named argument with
       `q => '<query>'`. Returns ranked results with titles, URLs, content
       snippets, and relevance scores optimized for LLM consumption.
-    fetch_limit_default: 10
+    fetch_limit_default: 5
     search_limits:
       default_top_k: 5
       max_top_k: 20
@@ -128,3 +132,7 @@ functions:
         description: >-
           Images extracted from this search result. Only included when
           include_images is enabled.
+      - name: favicon
+        type: Utf8
+        nullable: true
+        description: Favicon URL for the search result.

@@ -4,7 +4,7 @@
 **Backend:** HTTP
 **Functions:** 1
 
-Search the web through Tavily. The source provides a provider-native search function that returns ranked results with titles, URLs, content snippets, and relevance scores optimized for LLM consumption.
+Query web search results from Tavily. The source provides a provider-native search function that returns ranked results with titles, URLs, content snippets, and relevance scores optimized for LLM consumption.
 
 ## Installation
 
@@ -65,9 +65,10 @@ Provider-native search for the web. Pass the query as a named argument with `q =
 | `raw_content` | Utf8 | Parsed and cleaned HTML content (requires `include_raw_content => true`) |
 | `published_date` | Utf8 | Publication date (only for news topic searches) |
 | `images` | Json | Images extracted from the result (requires `include_images => true`) |
+| `favicon` | Utf8 | Favicon URL for the search result |
 | `max_results` | Utf8 | Maximum number of results (default 5, max 20) |
-| `search_depth` | Utf8 | Search depth: `basic` or `advanced` |
-| `topic` | Utf8 | Topic: `general` or `news` |
+| `search_depth` | Utf8 | Search depth: `basic`, `advanced`, `fast`, or `ultra-fast` |
+| `topic` | Utf8 | Topic: `general`, `news`, or `finance` |
 | `time_range` | Utf8 | Time range: `day`, `week`, `month`, `year` |
 | `include_answer` | Utf8 | Set to `true` to include AI-generated answer |
 | `include_images` | Utf8 | Set to `true` to include images |
@@ -82,21 +83,24 @@ Calling `tavily.search` performs one live `POST /search` call per SQL query. Tav
 - Targets Tavily's hosted API at `https://api.tavily.com`.
 - Requires `TAVILY_API_KEY` authentication as a Bearer token.
 - The `q` argument is required.
-- `max_results` controls how many results to return (default 5, max 20).
-- `include_answer`, `include_images`, and `include_raw_content` are boolean arguments. Pass `true` or `false` (e.g. `include_answer => true`).
+- `fetch_limit_default: 5` matches the Tavily API's default `max_results` of 5.
+- `include_answer`, `include_images`, and `include_raw_content` are boolean arguments. Pass `true` or `false` (e.g. `include_answer => true`). `include_answer` also accepts `'basic'` or `'advanced'` for a short or detailed answer. `include_raw_content` also accepts `'markdown'` or `'text'` for format control.
 - The `score` column is a relevance score between 0 and 1.
+- `search_depth` supports `basic`, `advanced`, `fast`, and `ultra-fast`.
 
 ## Limitations
 
 - The source models the `POST /search` endpoint only. Other Tavily endpoints are intentionally out of scope.
 - `raw_content` is only available when `include_raw_content => true` is passed.
 - `published_date` is only populated for news topic searches.
+- `favicon` is only available when the search result includes a favicon URL.
+- Tavily's top-level `answer` field (when `include_answer` is enabled) is not exposed as a column since it is per-query, not per-result.
 - Pagination is not supported; Tavily returns a single page of results per call (max 20).
 
 ## Notes
 
 - **Rate Limits:** Rate limits apply based on your Tavily plan. Refer to Tavily's pricing page for details.
-- **Nullable Fields:** `raw_content`, `published_date`, and `images` may be `NULL` depending on the arguments passed and the search results returned.
+- **Nullable Fields:** `raw_content`, `published_date`, `images`, and `favicon` may be `NULL` depending on the arguments passed and the search results returned.
 
 ## Provider docs
 
