@@ -83,7 +83,7 @@ Provider-native search for the web. Pass the query as a named argument with `q =
 
 ## Live request costs
 
-Calling `tavily.search` performs one live `POST /search` call per SQL query. Tavily charges per search credit; refer to <https://docs.tavily.com/docs/features/pricing> for current rates. Add `LIMIT` to control the number of results returned (max 20).
+Calling `tavily.search` performs one live `POST /search` call per SQL query. Tavily charges per search credit; refer to <https://docs.tavily.com/documentation/api-credits> for current rates. Pass `max_results => N` to control how many results Tavily returns (default 5, max 20). `LIMIT` only caps rows after Coral receives the response.
 
 ## Source scope
 
