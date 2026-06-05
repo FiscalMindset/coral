@@ -44,9 +44,9 @@ SELECT url, title, published_date, score
 FROM tavily.search(q => 'Coral SQL', topic => 'news', time_range => 'week')
 LIMIT 5;
 
--- Include an AI-generated answer from Tavily
-SELECT url, title, score
-FROM tavily.search(q => 'What is Coral SQL?', include_answer => true)
+-- Search with favicons enabled
+SELECT url, title, favicon
+FROM tavily.search(q => 'Coral SQL', include_favicon => true)
 LIMIT 3;
 ```
 
@@ -55,9 +55,23 @@ LIMIT 3;
 ### `tavily.search`
 Provider-native search for the web. Pass the query as a named argument with `q => '<query>'`.
 
-| Argument / Column | Type | Description |
-|--------|------|-------------|
+**Arguments**
+
+| Argument | Type | Description |
+|----------|------|-------------|
 | `q` | Utf8 | (Required) Search query |
+| `max_results` | Int64 | Maximum number of results (default 5, max 20) |
+| `search_depth` | Utf8 | Search depth: `basic`, `advanced`, `fast`, or `ultra-fast` |
+| `topic` | Utf8 | Topic: `general`, `news`, or `finance` |
+| `time_range` | Utf8 | Time range: `day`, `week`, `month`, `year` |
+| `include_images` | Boolean | Set to `true` to include images |
+| `include_raw_content` | Utf8 | Set to `true`, `'markdown'`, or `'text'` to include raw HTML content |
+| `include_favicon` | Boolean | Set to `true` to include favicon URLs |
+
+**Result columns**
+
+| Column | Type | Description |
+|--------|------|-------------|
 | `url` | Utf8 | URL of the search result |
 | `title` | Utf8 | Title of the search result |
 | `content` | Utf8 | Most query-related content extracted from the source |
@@ -65,14 +79,7 @@ Provider-native search for the web. Pass the query as a named argument with `q =
 | `raw_content` | Utf8 | Parsed and cleaned HTML content (requires `include_raw_content => true`) |
 | `published_date` | Utf8 | Publication date (only for news topic searches) |
 | `images` | Json | Images extracted from the result (requires `include_images => true`) |
-| `favicon` | Utf8 | Favicon URL for the search result |
-| `max_results` | Utf8 | Maximum number of results (default 5, max 20) |
-| `search_depth` | Utf8 | Search depth: `basic`, `advanced`, `fast`, or `ultra-fast` |
-| `topic` | Utf8 | Topic: `general`, `news`, or `finance` |
-| `time_range` | Utf8 | Time range: `day`, `week`, `month`, `year` |
-| `include_answer` | Utf8 | Set to `true`, `'basic'`, or `'advanced'` to include an AI-generated answer |
-| `include_images` | Utf8 | Set to `true` to include images |
-| `include_raw_content` | Utf8 | Set to `true`, `'markdown'`, or `'text'` to include raw HTML content |
+| `favicon` | Utf8 | Favicon URL for the result (requires `include_favicon => true`) |
 
 ## Live request costs
 
@@ -84,7 +91,7 @@ Calling `tavily.search` performs one live `POST /search` call per SQL query. Tav
 - Requires `TAVILY_API_KEY` authentication as a Bearer token.
 - The `q` argument is required.
 - `fetch_limit_default: 5` matches the Tavily API's default `max_results` of 5.
-- `include_answer`, `include_images`, and `include_raw_content` are boolean arguments. Pass `true` or `false` (e.g. `include_answer => true`). `include_answer` also accepts `'basic'` or `'advanced'` for a short or detailed answer. `include_raw_content` also accepts `'markdown'` or `'text'` for format control.
+- `include_raw_content` accepts `true`, `'markdown'`, or `'text'`. `include_images` and `include_favicon` accept `true` or `false`.
 - The `score` column is a relevance score between 0 and 1.
 - `search_depth` supports `basic`, `advanced`, `fast`, and `ultra-fast`.
 
@@ -93,14 +100,13 @@ Calling `tavily.search` performs one live `POST /search` call per SQL query. Tav
 - The source models the `POST /search` endpoint only. Other Tavily endpoints are intentionally out of scope.
 - `raw_content` is only available when `include_raw_content => true` is passed.
 - `published_date` is only populated for news topic searches.
-- `favicon` is only available when the search result includes a favicon URL.
-- Tavily's top-level `answer` field (when `include_answer` is enabled) is not exposed as a column since it is per-query, not per-result.
+- `favicon` is only available when `include_favicon => true` is passed.
 - Pagination is not supported; Tavily returns a single page of results per call (max 20).
 
 ## Notes
 
 - **Rate Limits:** Rate limits apply based on your Tavily plan. Refer to Tavily's pricing page for details.
-- **Nullable Fields:** `raw_content`, `published_date`, `images`, and `favicon` may be `NULL` depending on the arguments passed and the search results returned.
+- **Nullable Fields:** `raw_content`, `published_date`, `images`, and `favicon` may be `NULL` depending on the arguments passed and the results returned.
 
 ## Provider docs
 
