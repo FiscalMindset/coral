@@ -142,7 +142,7 @@ List posts from a blog, ordered by publication date (newest first). Paginates au
 | `author_url` | Utf8 | Author profile URL |
 | `author_image_url` | Utf8 | Author avatar image URL |
 | `labels` | Json | Labels/tags as a JSON array of strings |
-| `replies_total_items` | Int64 | Total number of comments on this post |
+| `replies_total_items` | Utf8 | Total number of comments on this post (string from API) |
 | `status` | Utf8 | Post status (`LIVE`, `DRAFT`, `SCHEDULED`) |
 
 ---
