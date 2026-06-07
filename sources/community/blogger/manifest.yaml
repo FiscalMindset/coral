@@ -757,7 +757,7 @@ tables:
         expr:
           kind: path
           path:
-            - blog
+            - post
             - id
       - name: published
         type: Timestamp
