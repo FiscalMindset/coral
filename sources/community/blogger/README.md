@@ -247,7 +247,7 @@ Same as `posts` (table).
 
 ## Live request costs
 
-Each table query performs at least one live API call to `https://www.googleapis.com/blogger/v3`. Token-based pagination may trigger additional calls when `LIMIT` exceeds a single page's results. Blogger API usage counts toward your Google Cloud API quota — refer to the [Blogger API usage limits](https://developers.google.com/blogger/docs/3.0/performance) for current rates.
+Each table query performs at least one live API call to `https://www.googleapis.com/blogger/v3`. Token-based pagination may trigger additional calls when `LIMIT` exceeds a single page's results. See the [Blogger API performance tips](https://developers.google.com/blogger/docs/3.0/performance) for guidance and the [Google Cloud Console](https://console.cloud.google.com/apis/api/blogger.googleapis.com/quotas) for current quota limits.
 
 ## Source scope
 
@@ -263,7 +263,7 @@ Each table query performs at least one live API call to `https://www.googleapis.
 ## Limitations
 
 - The source provides read-only access. Blog creation, post writing, and comment moderation are intentionally out of scope.
-- Pagination uses the Blogger API token-based cursor system; page size is controlled by the API's default (25 for posts/pages, 20 for comments). Pass `maxResults` as an optional filter on `posts`, `pages`, and `comments` to override page size. The `posts_search` function does not support `maxResults`.
+- Pagination uses the Blogger API token-based cursor system; page size is controlled by the API's default (25 for posts/pages, 20 for comments). Pass `max_results` as an optional filter on `posts`, `pages`, and `comments` to override page size (sent as `maxResults` to the API). The `posts_search` function does not support `max_results`.
 - `replies_total_items` is typed as Int64 per the [Blogger API resource schema](https://developers.google.com/blogger/docs/3.0/reference/posts#resource), though the wire format may return it as a string for some responses.
 - The `blog_by_url` table requires the full public blog URL including protocol (e.g. `https://googledevelopers.blogspot.com/`).
 
@@ -396,5 +396,5 @@ LIMIT 3;
 | 4125177830831475108 | Introducing new AI tools on Google for Developers                                                                        | 2024-04-29T21:00:00Z |
 | 3703054361452072781 | Achieving privacy compliance with your CI/CD: A guide for compliance teams                                               | 2024-04-10T16:00:00Z |
 | 364483124263275268  | Gemini 1.5 Pro Now Available in 180+ Countries; With Native Audio Understanding, System Instructions, JSON Mode and More | 2024-04-09T16:00:00Z |
-+---------------------+--------------------------------------------------------------------------------------------------------------------------+---------------------------+
++---------------------+--------------------------------------------------------------------------------------------------------------------------+----------------------+
 ```

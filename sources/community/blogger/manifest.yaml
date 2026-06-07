@@ -270,14 +270,14 @@ tables:
     filters:
       - name: blog_id
         required: true
-      - name: maxResults
+      - name: max_results
     request:
       method: GET
       path: /blogs/{{filter.blog_id}}/posts
       query:
         - name: maxResults
           from: filter
-          key: maxResults
+          key: max_results
     response:
       rows_path:
         - items
@@ -577,14 +577,14 @@ tables:
     filters:
       - name: blog_id
         required: true
-      - name: maxResults
+      - name: max_results
     request:
       method: GET
       path: /blogs/{{filter.blog_id}}/pages
       query:
         - name: maxResults
           from: filter
-          key: maxResults
+          key: max_results
     response:
       rows_path:
         - items
@@ -716,14 +716,14 @@ tables:
         required: true
       - name: post_id
         required: true
-      - name: maxResults
+      - name: max_results
     request:
       method: GET
       path: /blogs/{{filter.blog_id}}/posts/{{filter.post_id}}/comments
       query:
         - name: maxResults
           from: filter
-          key: maxResults
+          key: max_results
     response:
       rows_path:
         - items
@@ -866,10 +866,7 @@ functions:
       rows_path:
         - items
     pagination:
-      mode: cursor_query
-      cursor_param: pageToken
-      response_cursor_path:
-        - nextPageToken
+      mode: none
     columns:
       - name: blog_id
         type: Utf8
