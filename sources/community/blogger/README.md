@@ -1,11 +1,11 @@
 # Blogger
 
-**Version:** 0.1.0
+**Version:** 0.2.0
 **Backend:** HTTP
 **Tables:** 6
 **Base URL:** `https://www.googleapis.com/blogger/v3`
 
-Query blogs, posts, pages, and comments from Google Blogger via the Blogger v3 API. Access blog metadata, search and list posts, browse pages, and read comments. Includes a search function for keyword-based post discovery.
+Query **public** blogs, posts, pages, and comments from Google Blogger via the Blogger v3 API. Access blog metadata, search and list posts, browse pages, and read comments. Includes a search function for keyword-based post discovery. Private or authorized-only blogs are not supported.
 
 ## Installation
 
@@ -17,7 +17,7 @@ coral source add --file sources/community/blogger/manifest.yaml
 
 ## Credentials
 
-To use this source, you need a Google API key with the Blogger API enabled.
+To use this source, you need a Google API key with the Blogger API enabled. The API key provides read-only access to **public** blog content — private or authorized-only blogs are not accessible.
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Create a new API key or select an existing one.
@@ -90,8 +90,8 @@ Get a blog by its Blogger blog ID. Returns a single row with metadata.
 | `id` | Utf8 | Blogger blog ID |
 | `name` | Utf8 | Blog display name |
 | `description` | Utf8 | Blog description |
-| `published` | Utf8 | ISO 8601 publication date |
-| `updated` | Utf8 | ISO 8601 last updated date |
+| `published` | Timestamp | RFC 3339 publication date |
+| `updated` | Timestamp | RFC 3339 last updated date |
 | `url` | Utf8 | Blog URL |
 | `posts_total_items` | Int64 | Total number of posts |
 | `pages_total_items` | Int64 | Total number of pages |
@@ -132,8 +132,8 @@ List posts from a blog, ordered by publication date (newest first). Paginates au
 |--------|------|-------------|
 | `id` | Utf8 | Post ID |
 | `blog_id` | Utf8 | Blog ID this post belongs to |
-| `published` | Utf8 | ISO 8601 publication date |
-| `updated` | Utf8 | ISO 8601 last updated date |
+| `published` | Timestamp | RFC 3339 publication date |
+| `updated` | Timestamp | RFC 3339 last updated date |
 | `title` | Utf8 | Post title |
 | `content` | Utf8 | Post body as HTML |
 | `url` | Utf8 | Post URL |
@@ -142,7 +142,7 @@ List posts from a blog, ordered by publication date (newest first). Paginates au
 | `author_url` | Utf8 | Author profile URL |
 | `author_image_url` | Utf8 | Author avatar image URL |
 | `labels` | Json | Labels/tags as a JSON array of strings |
-| `replies_total_items` | Utf8 | Total number of comments on this post (string from API) |
+| `replies_total_items` | Int64 | Total number of comments on this post |
 | `status` | Utf8 | Post status (`LIVE`, `DRAFT`, `SCHEDULED`) |
 
 ---
@@ -180,8 +180,8 @@ List static pages from a blog, ordered by publication date (newest first). Many 
 |--------|------|-------------|
 | `id` | Utf8 | Page ID |
 | `blog_id` | Utf8 | Blog ID this page belongs to |
-| `published` | Utf8 | ISO 8601 publication date |
-| `updated` | Utf8 | ISO 8601 last updated date |
+| `published` | Timestamp | RFC 3339 publication date |
+| `updated` | Timestamp | RFC 3339 last updated date |
 | `title` | Utf8 | Page title |
 | `content` | Utf8 | Page body as HTML |
 | `url` | Utf8 | Page URL |
@@ -211,8 +211,8 @@ List comments on a post, ordered by publication date (newest first).
 | `id` | Utf8 | Comment ID |
 | `blog_id` | Utf8 | Blog ID |
 | `post_id` | Utf8 | Post ID this comment belongs to |
-| `published` | Utf8 | ISO 8601 publication date |
-| `updated` | Utf8 | ISO 8601 last updated date |
+| `published` | Timestamp | RFC 3339 publication date |
+| `updated` | Timestamp | RFC 3339 last updated date |
 | `content` | Utf8 | Comment body as HTML |
 | `author_display_name` | Utf8 | Author display name |
 | `author_id` | Utf8 | Author profile ID |
@@ -232,8 +232,6 @@ Search posts within a blog by keyword. Returns posts ordered by relevance. Uses 
 |----------|------|----------|-------------|
 | `blog_id` | Utf8 | Yes | Blog ID to search within |
 | `query` | Utf8 | Yes | Search keyword or phrase |
-| `maxResults` | Utf8 | No | Maximum results per page from API |
-
 **Columns**
 
 Same as `posts` (table).
@@ -255,6 +253,7 @@ Each table query performs at least one live API call to `https://www.googleapis.
 
 - Targets the Blogger v3 REST API at `https://www.googleapis.com/blogger/v3`.
 - Requires `BLOGGER_API_KEY` authentication via the `X-Goog-Api-Key` header.
+- **Public content only**: the API key provides access to public blogs, posts, pages, and comments. Private or authorized-only blogs are not supported.
 - Covers read-only access: blogs, posts, pages, and comments.
 - `posts_search` is a search function using function call syntax: `FROM blogger.posts_search(blog_id => '...', query => '...')`.
 - Automatic pagination via the Blogger API's `pageToken` mechanism.
@@ -264,8 +263,8 @@ Each table query performs at least one live API call to `https://www.googleapis.
 ## Limitations
 
 - The source provides read-only access. Blog creation, post writing, and comment moderation are intentionally out of scope.
-- Pagination uses the Blogger API token-based cursor system; page size is controlled by the API's default (25 for posts/pages, 20 for comments). Pass `maxResults` as an optional filter to override page size.
-- `replies_total_items` is typed as Utf8 because the Blogger API returns it as a string (e.g. `"0"`).
+- Pagination uses the Blogger API token-based cursor system; page size is controlled by the API's default (25 for posts/pages, 20 for comments). Pass `maxResults` as an optional filter on `posts`, `pages`, and `comments` to override page size. The `posts_search` function does not support `maxResults`.
+- `replies_total_items` is typed as Int64 per the [Blogger API resource schema](https://developers.google.com/blogger/docs/3.0/reference/posts#resource), though the wire format may return it as a string for some responses.
 - The `blog_by_url` table requires the full public blog URL including protocol (e.g. `https://googledevelopers.blogspot.com/`).
 
 ## Provider docs
@@ -342,11 +341,11 @@ ORDER BY function_name;
 ```
 
 ```text
-+---------------+--------+--------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+
-| function_name | kind   | arguments_json                                                                                                                                   | search_limits_json                                           |
-+---------------+--------+--------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+
-| posts_search  | search | [{"name":"blog_id","required":true,"values":[]},{"name":"query","required":true,"values":[]},{"name":"maxResults","required":false,"values":[]}] | {"default_top_k":10,"max_top_k":100,"max_calls_per_query":1} |
-+---------------+--------+--------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+
++---------------+--------+-----------------------------------------------------------------------------------------------+--------------------------------------------------------------+
+| function_name | kind   | arguments_json                                                                                | search_limits_json                                           |
++---------------+--------+-----------------------------------------------------------------------------------------------+--------------------------------------------------------------+
+| posts_search  | search | [{"name":"blog_id","required":true,"values":[]},{"name":"query","required":true,"values":[]}] | {"default_top_k":10,"max_top_k":100,"max_calls_per_query":1} |
++---------------+--------+-----------------------------------------------------------------------------------------------+--------------------------------------------------------------+
 ```
 
 **Inputs introspection:**

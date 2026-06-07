@@ -1,17 +1,18 @@
 name: blogger
-version: 0.1.0
+version: 0.2.0
 dsl_version: 3
 backend: http
 description: >-
-  Query blogs, posts, pages, and comments from Google Blogger. The source
-  provides access to the Blogger v3 API for reading blog metadata, searching
-  and listing posts, browsing pages, and reading comments.
+  Query public blogs, posts, pages, and comments from Google Blogger via the
+  Blogger v3 API. The source provides read-only access to public blog content
+  using an API key; private/authorized blogs are not supported.
 base_url: https://www.googleapis.com/blogger/v3
 inputs:
   BLOGGER_API_KEY:
     kind: secret
     hint: >-
-      Google API key with the Blogger API enabled. Get one from
+      Google API key with the Blogger API enabled. Only provides access to
+      public blog content. Get a key from
       https://console.cloud.google.com/apis/credentials.
     credential:
       methods:
@@ -45,6 +46,14 @@ tables:
     pagination:
       mode: none
     columns:
+      - name: blog_id
+        type: Utf8
+        nullable: false
+        description: Blogger blog ID (filter).
+        expr:
+          kind: path
+          path:
+            - id
       - name: id
         type: Utf8
         nullable: false
@@ -70,21 +79,27 @@ tables:
           path:
             - description
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: url
         type: Utf8
         nullable: true
@@ -177,21 +192,27 @@ tables:
           path:
             - description
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: url
         type: Utf8
         nullable: true
@@ -284,21 +305,27 @@ tables:
             - blog
             - id
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: title
         type: Utf8
         nullable: true
@@ -369,9 +396,9 @@ tables:
           path:
             - labels
       - name: replies_total_items
-        type: Utf8
+        type: Int64
         nullable: true
-        description: Total number of comments on this post (string from API).
+        description: Total number of comments on this post.
         expr:
           kind: path
           path:
@@ -385,7 +412,6 @@ tables:
           kind: path
           path:
             - status
-
 
   - name: post_by_id
     description: >-
@@ -432,21 +458,27 @@ tables:
             - blog
             - id
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: title
         type: Utf8
         nullable: true
@@ -517,9 +549,9 @@ tables:
           path:
             - labels
       - name: replies_total_items
-        type: Utf8
+        type: Int64
         nullable: true
-        description: Total number of comments on this post (string from API).
+        description: Total number of comments on this post.
         expr:
           kind: path
           path:
@@ -580,21 +612,27 @@ tables:
             - blog
             - id
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: title
         type: Utf8
         nullable: true
@@ -722,21 +760,27 @@ tables:
             - post
             - id
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: content
         type: Utf8
         nullable: true
@@ -811,9 +855,6 @@ functions:
         required: true
         bind:
           arg: query
-      - name: maxResults
-        bind:
-          arg: maxResults
     request:
       method: GET
       path: /blogs/{{arg.blog_id}}/posts/search
@@ -821,9 +862,6 @@ functions:
         - name: q
           from: arg
           key: query
-        - name: maxResults
-          from: arg
-          key: maxResults
     response:
       rows_path:
         - items
@@ -856,21 +894,27 @@ functions:
           path:
             - id
       - name: published
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 publication date.
+        description: RFC 3339 publication date.
         expr:
-          kind: path
-          path:
-            - published
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - published
       - name: updated
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: ISO 8601 last updated date.
+        description: RFC 3339 last updated date.
         expr:
-          kind: path
-          path:
-            - updated
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - updated
       - name: title
         type: Utf8
         nullable: true
@@ -941,9 +985,9 @@ functions:
           path:
             - labels
       - name: replies_total_items
-        type: Utf8
+        type: Int64
         nullable: true
-        description: Total number of comments on this post (string from API).
+        description: Total number of comments on this post.
         expr:
           kind: path
           path:
