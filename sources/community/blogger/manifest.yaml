@@ -605,7 +605,7 @@ tables:
       - name: blog_id
         type: Utf8
         nullable: false
-        description: Blog ID this page belongs to.
+        description: Blog ID this post belongs to.
         expr:
           kind: path
           path:
@@ -757,7 +757,7 @@ tables:
         expr:
           kind: path
           path:
-            - post
+            - blog
             - id
       - name: published
         type: Timestamp
