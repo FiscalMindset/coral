@@ -301,6 +301,42 @@ LIMIT 3;
 +----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
 ```
 
+
+
+**Live call proof:**
+
+```sql
+SELECT id, call_type, cid, created_by_id, created_by_name, created_at, backstage, recording, captioning, translating
+FROM stream_video.call
+WHERE call_type = 'default'
+  AND call_id = 'call_xyz789';
+```
+
+```text
++---------------+-----------+------------------------------------------+----------------+----------------+---------------------+-----------+-----------+-------------+-------------+
+| id            | call_type | cid                                      | created_by_id  | created_by_name | created_at          | backstage | recording | captioning | translating |
++---------------+-----------+------------------------------------------+----------------+----------------+---------------------+-----------+-----------+-------------+-------------+
+| call_xyz789   | default   | default:call_xyz789                      | user_abc123    | Alice           | 1773467506411120000 | false     | false     | false       | false       |
++---------------+-----------+------------------------------------------+----------------+----------------+---------------------+-----------+-----------+-------------+-------------+
+```
+
+**Live call_members proof:**
+
+```sql
+SELECT call_type, call_id, user_id, role, name, created_at, updated_at
+FROM stream_video.call_members
+WHERE call_type = 'default'
+  AND call_id = 'call_xyz789';
+```
+
+```text
++-----------+-------------+--------------+------+-------+---------------------+---------------------+
+| call_type | call_id     | user_id      | role | name  | created_at          | updated_at          |
++-----------+-------------+--------------+------+-------+---------------------+---------------------+
+| default   | call_xyz789 | user_abc123  | host | Alice | 1780933352582581000 | 1780933352582581000 |
++-----------+-------------+--------------+------+-------+---------------------+---------------------+
+```
+
 ## Timestamp evidence
 
 The Stream Video OpenAPI spec documents timestamps as `type: number, format: date-time`, but the live API returns 19-digit Unix nanosecond integers. Raw API response from `GET /api/v2/video/call/default/call_abc123`:
