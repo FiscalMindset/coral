@@ -102,6 +102,10 @@ Query video calls with optional filters, sorting, and pagination. Returns calls 
 | `transcribing` | Boolean | Whether the call is being transcribed |
 | `current_session_id` | Utf8 | Session ID if the call has an active session (empty string = none) |
 | `custom` | Json | Custom data JSON object associated with the call |
+| `captioning` | Boolean | Whether closed captioning is active on the call |
+| `translating` | Boolean | Whether translation is active on the call |
+| `channel_cid` | Utf8 | Channel CID if linked to a Stream Chat channel |
+| `team` | Utf8 | Team identifier for the call |
 
 ---
 
@@ -135,6 +139,10 @@ Get a single video call by its call type and ID. Returns the full call object in
 | `recording` | Boolean | Whether the call is being recorded |
 | `transcribing` | Boolean | Whether the call is being transcribed |
 | `custom` | Json | Custom data JSON object associated with the call |
+| `captioning` | Boolean | Whether closed captioning is active on the call |
+| `translating` | Boolean | Whether translation is active on the call |
+| `channel_cid` | Utf8 | Channel CID if linked to a Stream Chat channel |
+| `team` | Utf8 | Team identifier for the call |
 
 ---
 
@@ -160,6 +168,8 @@ List members of a video call. Requires both `call_type` and `call_id` filters. R
 | `name` | Utf8 | Display name of the member |
 | `created_at` | Int64 | Unix nanoseconds when the member was added |
 | `updated_at` | Int64 | Unix nanoseconds when the membership was last updated |
+| `custom` | Json | Custom member data JSON object associated with the membership |
+| `deleted_at` | Int64 | Unix nanoseconds when the membership was deleted |
 
 ## Live request costs
 
@@ -173,6 +183,7 @@ Each table query performs at least one live API call to `https://video.stream-io
 - Timestamps are Unix epoch nanoseconds (`Int64`) — use arithmetic for time-based filtering.
 - Automatic pagination via the API's cursor (`next`) mechanism.
 - The `custom` column contains a JSON object with application-specific data.
+- Column definitions are validated against the [official OpenAPI spec](https://github.com/GetStream/protocol/blob/main/openapi/v2/video-serverside-api.yaml).
 
 ## Limitations
 
@@ -186,6 +197,7 @@ Each table query performs at least one live API call to `https://video.stream-io
 - Stream Video API reference: https://getstream.io/video/docs/api/
 - Stream Dashboard (API keys): https://dashboard.getstream.io/
 - Server JWT tokens: https://getstream.io/video/docs/api/authentication/
+- OpenAPI spec (Video v2): https://github.com/GetStream/protocol/blob/main/openapi/v2/video-serverside-api.yaml
 
 ## Live validation output
 

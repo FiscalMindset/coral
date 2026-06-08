@@ -52,9 +52,9 @@ auth:
       template: "application/json"
 test_queries:
   - SELECT id, name, organization, placement FROM stream_video.app
-  - SELECT id, call_type, created_by_id, created_at, backstage FROM stream_video.calls LIMIT 3
-  - SELECT id, call_type, call_id, cid, created_by_id, created_at FROM stream_video.call WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
-  - SELECT call_type, call_id, user_id, role, created_at FROM stream_video.call_members WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
+  - SELECT id, call_type, created_by_id, created_at, backstage, captioning, translating, team FROM stream_video.calls LIMIT 3
+  - SELECT id, call_type, call_id, cid, created_by_id, created_at, captioning, translating, channel_cid, team FROM stream_video.call WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
+  - SELECT call_type, call_id, user_id, role, created_at, name, custom FROM stream_video.call_members WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
 tables:
   - name: app
     description: >-
@@ -272,6 +272,42 @@ tables:
           path:
             - call
             - custom
+      - name: captioning
+        type: Boolean
+        nullable: true
+        description: Whether closed captioning is active on the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - captioning
+      - name: translating
+        type: Boolean
+        nullable: true
+        description: Whether translation is active on the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - translating
+      - name: channel_cid
+        type: Utf8
+        nullable: true
+        description: Channel CID if the call is linked to a Stream Chat channel.
+        expr:
+          kind: path
+          path:
+            - call
+            - channel_cid
+      - name: team
+        type: Utf8
+        nullable: true
+        description: Team identifier for the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - team
 
   - name: call
     description: >-
@@ -434,6 +470,42 @@ tables:
           path:
             - call
             - custom
+      - name: captioning
+        type: Boolean
+        nullable: true
+        description: Whether closed captioning is active on the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - captioning
+      - name: translating
+        type: Boolean
+        nullable: true
+        description: Whether translation is active on the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - translating
+      - name: channel_cid
+        type: Utf8
+        nullable: true
+        description: Channel CID if the call is linked to a Stream Chat channel.
+        expr:
+          kind: path
+          path:
+            - call
+            - channel_cid
+      - name: team
+        type: Utf8
+        nullable: true
+        description: Team identifier for the call.
+        expr:
+          kind: path
+          path:
+            - call
+            - team
 
   - name: call_members
     description: >-
@@ -530,4 +602,21 @@ tables:
         expr:
           kind: path
           path:
+            - user
             - name
+      - name: custom
+        type: Json
+        nullable: true
+        description: Custom member data JSON object associated with the membership.
+        expr:
+          kind: path
+          path:
+            - custom
+      - name: deleted_at
+        type: Int64
+        nullable: true
+        description: Unix nanoseconds when the membership was deleted.
+        expr:
+          kind: path
+          path:
+            - deleted_at
