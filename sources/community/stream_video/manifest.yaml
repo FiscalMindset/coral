@@ -192,7 +192,7 @@ tables:
       - name: created_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call was created.
+        description: Unix nanoseconds when the call was created.
         expr:
           kind: path
           path:
@@ -201,7 +201,7 @@ tables:
       - name: updated_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call was last updated.
+        description: Unix nanoseconds when the call was last updated.
         expr:
           kind: path
           path:
@@ -210,7 +210,7 @@ tables:
       - name: starts_at
         type: Int64
         nullable: true
-        description: Unix microseconds of the scheduled start time.
+        description: Unix nanoseconds of the scheduled start time.
         expr:
           kind: path
           path:
@@ -219,7 +219,7 @@ tables:
       - name: ended_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call ended.
+        description: Unix nanoseconds when the call ended.
         expr:
           kind: path
           path:
@@ -365,7 +365,7 @@ tables:
       - name: created_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call was created.
+        description: Unix nanoseconds when the call was created.
         expr:
           kind: path
           path:
@@ -374,7 +374,7 @@ tables:
       - name: updated_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call was last updated.
+        description: Unix nanoseconds when the call was last updated.
         expr:
           kind: path
           path:
@@ -383,7 +383,7 @@ tables:
       - name: starts_at
         type: Int64
         nullable: true
-        description: Unix microseconds of the scheduled start time.
+        description: Unix nanoseconds of the scheduled start time.
         expr:
           kind: path
           path:
@@ -392,7 +392,7 @@ tables:
       - name: ended_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the call ended.
+        description: Unix nanoseconds when the call ended.
         expr:
           kind: path
           path:
@@ -510,7 +510,7 @@ tables:
       - name: created_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the member was added.
+        description: Unix nanoseconds when the member was added.
         expr:
           kind: path
           path:
@@ -518,7 +518,7 @@ tables:
       - name: updated_at
         type: Int64
         nullable: true
-        description: Unix microseconds when the membership was last updated.
+        description: Unix nanoseconds when the membership was last updated.
         expr:
           kind: path
           path:

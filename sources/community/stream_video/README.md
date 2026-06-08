@@ -93,10 +93,10 @@ Query video calls with optional filters, sorting, and pagination. Returns calls 
 | `cid` | Utf8 | Call CID (`type:id`) |
 | `created_by_id` | Utf8 | User ID of the call creator |
 | `created_by_name` | Utf8 | Display name of the call creator |
-| `created_at` | Int64 | Unix microseconds when the call was created |
-| `updated_at` | Int64 | Unix microseconds when the call was last updated |
-| `starts_at` | Int64 | Unix microseconds of the scheduled start time |
-| `ended_at` | Int64 | Unix microseconds when the call ended |
+| `created_at` | Int64 | Unix nanoseconds when the call was created |
+| `updated_at` | Int64 | Unix nanoseconds when the call was last updated |
+| `starts_at` | Int64 | Unix nanoseconds of the scheduled start time |
+| `ended_at` | Int64 | Unix nanoseconds when the call ended |
 | `backstage` | Boolean | Whether the call is in backstage mode |
 | `recording` | Boolean | Whether the call is being recorded |
 | `transcribing` | Boolean | Whether the call is being transcribed |
@@ -127,10 +127,10 @@ Get a single video call by its call type and ID. Returns the full call object in
 | `created_by_id` | Utf8 | User ID of the call creator |
 | `created_by_name` | Utf8 | Display name of the call creator |
 | `created_by_role` | Utf8 | Role of the call creator |
-| `created_at` | Int64 | Unix microseconds when the call was created |
-| `updated_at` | Int64 | Unix microseconds when the call was last updated |
-| `starts_at` | Int64 | Unix microseconds of the scheduled start time |
-| `ended_at` | Int64 | Unix microseconds when the call ended |
+| `created_at` | Int64 | Unix nanoseconds when the call was created |
+| `updated_at` | Int64 | Unix nanoseconds when the call was last updated |
+| `starts_at` | Int64 | Unix nanoseconds of the scheduled start time |
+| `ended_at` | Int64 | Unix nanoseconds when the call ended |
 | `backstage` | Boolean | Whether the call is in backstage mode |
 | `recording` | Boolean | Whether the call is being recorded |
 | `transcribing` | Boolean | Whether the call is being transcribed |
@@ -158,8 +158,8 @@ List members of a video call. Requires both `call_type` and `call_id` filters. R
 | `user_id` | Utf8 | User ID of the member |
 | `role` | Utf8 | Role of the member in the call |
 | `name` | Utf8 | Display name of the member |
-| `created_at` | Int64 | Unix microseconds when the member was added |
-| `updated_at` | Int64 | Unix microseconds when the membership was last updated |
+| `created_at` | Int64 | Unix nanoseconds when the member was added |
+| `updated_at` | Int64 | Unix nanoseconds when the membership was last updated |
 
 ## Live request costs
 
@@ -170,7 +170,7 @@ Each table query performs at least one live API call to `https://video.stream-io
 - Targets the Stream Video API v2 at `https://video.stream-io-api.com/api/v2`.
 - Requires `STREAM_API_KEY` (query parameter) and `STREAM_SERVER_TOKEN` (JWT `Authorization` header) authentication.
 - Covers read-only access: app metadata, call listing, single call details, and call member listing.
-- Timestamps are Unix epoch microseconds (`Int64`) — use arithmetic for time-based filtering.
+- Timestamps are Unix epoch nanoseconds (`Int64`) — use arithmetic for time-based filtering.
 - Automatic pagination via the API's cursor (`next`) mechanism.
 - The `custom` column contains a JSON object with application-specific data.
 
@@ -185,7 +185,7 @@ Each table query performs at least one live API call to `https://video.stream-io
 
 - Stream Video API reference: https://getstream.io/video/docs/api/
 - Stream Dashboard (API keys): https://dashboard.getstream.io/
-- Server JWT tokens: https://getstream.io/video/docs/api/server-authentication/
+- Server JWT tokens: https://getstream.io/video/docs/api/authentication/
 
 ## Live validation output
 
@@ -270,12 +270,11 @@ FROM stream_video.app;
 ```
 
 ```text
-+--------+------------------+--------------+-----------+
-| id     | name             | organization | placement |
-+--------+------------------+--------------+-----------+
-| 136519 | visionagents     |              | sydney    |
-+--------+------------------+--------------+-----------+
-```
++---------+---------+--------------+-----------+
+| id      | name    | organization | placement |
++---------+---------+--------------+-----------+
+| 1364176 | algsoch | algsoch      | ohio.c1   |
++---------+---------+--------------+-----------+```
 
 **Live calls proof:**
 
