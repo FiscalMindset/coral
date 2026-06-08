@@ -608,11 +608,22 @@ tables:
     description: Razorpay standard payment link rows from GET /v1/payment_links.
     guide: |
       Returns standard Payment Links. This table is read-only and does not
-      create, update, notify, or cancel payment links.
+      create, update, notify, or cancel payment links. Optional `payment_id`
+      and `reference_id` filters are pushed down to Razorpay.
     fetch_limit_default: 100
+    filters:
+      - name: payment_id
+      - name: reference_id
     request:
       method: GET
       path: /v1/payment_links
+      query:
+        - name: payment_id
+          from: filter
+          key: payment_id
+        - name: reference_id
+          from: filter
+          key: reference_id
     response:
       rows_path: [payment_links]
     pagination:
@@ -623,6 +634,12 @@ tables:
         max: 100
         query_param: count
     columns:
+      - name: payment_id
+        type: Utf8
+        nullable: true
+        virtual: true
+        description: Optional payment_id filter supplied in SQL.
+        expr: {kind: from_filter, key: payment_id}
       - name: id
         type: Utf8
         nullable: false

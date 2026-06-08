@@ -137,6 +137,8 @@ FROM razorpay.payment_links
 LIMIT 10;
 ```
 
+`payment_id` and `reference_id` filters are pushed down to Razorpay.
+
 ### `razorpay.settlements`
 
 Returns one row per Razorpay settlement.
@@ -290,6 +292,7 @@ ORDER BY table_name, ordinal_position;
 | orders           | attempts           | Int64     |
 | orders           | created_at         | Timestamp |
 | orders           | notes              | Json      |
+| payment_links    | payment_id         | Utf8      |
 | payment_links    | id                 | Utf8      |
 | payment_links    | entity             | Utf8      |
 | payment_links    | amount             | Int64     |
@@ -460,6 +463,21 @@ LIMIT 10;
 | id | amount | currency | status | reference_id | short_url | created_at |
 +----+--------+----------+--------+--------------+-----------+------------+
 +----+--------+----------+--------+--------------+-----------+------------+
+```
+
+```sql
+SELECT id, reference_id, payment_id, status
+FROM razorpay.payment_links
+WHERE reference_id = 'sample-reference'
+  AND payment_id = 'pay_sample'
+LIMIT 10;
+```
+
+```text
++----+--------------+------------+--------+
+| id | reference_id | payment_id | status |
++----+--------------+------------+--------+
++----+--------------+------------+--------+
 ```
 
 ```sql
