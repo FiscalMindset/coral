@@ -139,6 +139,9 @@ tables:
         - next
       response_cursor_path:
         - next
+      page_size:
+        body_path:
+          - limit
     columns:
       - name: id
         type: Utf8
@@ -546,6 +549,9 @@ tables:
         - next
       response_cursor_path:
         - next
+      page_size:
+        body_path:
+          - limit
     columns:
       - name: call_type
         type: Utf8
