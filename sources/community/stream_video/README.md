@@ -54,13 +54,13 @@ LIMIT 5;
 SELECT id, call_type, cid, created_by_id, created_at, backstage, recording
 FROM stream_video.call
 WHERE call_type = 'default'
-  AND call_id = 'english_call_1773473101174';
+  AND call_id = 'call_abc123';
 
 -- List members of a call
 SELECT call_type, call_id, user_id, role, created_at
 FROM stream_video.call_members
 WHERE call_type = 'default'
-  AND call_id = 'english_call_1773473101174';
+  AND call_id = 'call_abc123';
 ```
 
 ## Tables
@@ -279,7 +279,7 @@ FROM stream_video.app;
 +---------+---------+--------------+-----------+
 | id      | name    | organization | placement |
 +---------+---------+--------------+-----------+
-| 1364176 | algsoch | algsoch      | ohio.c1   |
+| 1234567 | your-app | your-org      | ohio.c1   |
 +---------+---------+--------------+-----------+
 ```
 
@@ -295,20 +295,20 @@ LIMIT 3;
 +----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
 | id                         | call_type | created_by_id  | created_at          | backstage | captioning | translating | team |
 +----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
-| english_call_1773473101174 | default   | learning_agent | 1773473105657621000 | false     | false       | false       |      |
-| english_call_1773472644229 | default   | learning_agent | 1773472678601915000 | false     | false       | false       |      |
-| english_call_1773472572196 | default   | learning_agent | 1773472575736554000 | false     | false       | false       |      |
+| call_abc123 | default   | user_abc123 | 1773473105657621000 | false     | false       | false       |      |
+| call_def456 | default   | user_abc123 | 1773472678601915000 | false     | false       | false       |      |
+| call_ghi789 | default   | user_abc123 | 1773472575736554000 | false     | false       | false       |      |
 +----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
 ```
 
 ## Timestamp evidence
 
-The Stream Video OpenAPI spec documents timestamps as `type: number, format: date-time`, but the live API returns 19-digit Unix nanosecond integers. Raw API response from `GET /api/v2/video/call/default/english_call_1773473101174`:
+The Stream Video OpenAPI spec documents timestamps as `type: number, format: date-time`, but the live API returns 19-digit Unix nanosecond integers. Raw API response from `GET /api/v2/video/call/default/call_abc123`:
 
 ```json
 {
   "call": {
-    "id": "english_call_1773473101174",
+    "id": "call_abc123",
     "created_at": 1773473105657621000,
     "updated_at": 1773473105657621000,
     "starts_at": 1773473105657621000,
