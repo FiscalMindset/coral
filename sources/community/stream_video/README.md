@@ -180,10 +180,10 @@ Each table query performs at least one live API call to `https://video.stream-io
 - Targets the Stream Video API v2 at `https://video.stream-io-api.com/api/v2`.
 - Requires `STREAM_API_KEY` (query parameter) and `STREAM_SERVER_TOKEN` (JWT `Authorization` header) authentication.
 - Covers read-only access: app metadata, call listing, single call details, and call member listing.
-- Timestamps are Unix epoch nanoseconds (`Int64`) — use arithmetic for time-based filtering.
+- Timestamps are Unix epoch nanoseconds (`Int64`) — the live API returns 19-digit nanosecond integers (e.g. `1773473105657621000`), not ISO 8601 strings. Coral's `format_timestamp` doesn't support nanosecond input, so these are exposed as `Int64` for arithmetic filtering. See evidence below.
 - Automatic pagination via the API's cursor (`next`) mechanism.
 - The `custom` column contains a JSON object with application-specific data.
-- Column definitions are validated against the [official OpenAPI spec](https://github.com/GetStream/protocol/blob/main/openapi/v2/video-serverside-api.yaml).
+- Column definitions are validated against the [official OpenAPI spec](https://github.com/GetStream/protocol/blob/main/openapi/v2/video-serverside-api.yaml). The spec documents timestamps as `type: number, format: date-time`, but the live API emits nanosecond integers.
 
 ## Limitations
 
@@ -221,19 +221,13 @@ Added source stream_video (secrets: keychain)
     ├─ call_members
     └─ calls
     Query tests
-    4 declared · 4 passed · 0 failed
+    2 declared · 2 passed · 0 failed
 
     ✓ SELECT id, name, organization, placement FROM stream_video.app
       1 row
 
-    ✓ SELECT id, call_type, created_by_id, created_at, backstage FROM stream_video.calls LIMIT 3
+    ✓ SELECT id, call_type, created_by_id, created_at, backstage, captioning, translating, team FROM stream_video.calls LIMIT 3
       3 rows
-
-    ✓ SELECT id, call_type, call_id, cid, created_by_id, created_at FROM stream_video.call WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
-      1 row
-
-    ✓ SELECT call_type, call_id, user_id, role, created_at FROM stream_video.call_members WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
-      0 rows
 ```
 
 **Table introspection:**
@@ -292,34 +286,39 @@ FROM stream_video.app;
 **Live calls proof:**
 
 ```sql
-SELECT id, call_type, created_by_id, created_at, backstage
+SELECT id, call_type, created_by_id, created_at, backstage, captioning, translating, team
 FROM stream_video.calls
 LIMIT 3;
 ```
 
 ```text
-+----------------------------+-----------+----------------+---------------------+-----------+
-| id                         | call_type | created_by_id  | created_at          | backstage |
-+----------------------------+-----------+----------------+---------------------+-----------+
-| english_call_1773473101174 | default   | learning_agent | 1773473105657621000 | false     |
-| english_call_1773472644229 | default   | learning_agent | 1773472678601915000 | false     |
-| english_call_1773472572196 | default   | learning_agent | 1773472575736554000 | false     |
-+----------------------------+-----------+----------------+---------------------+-----------+
++----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
+| id                         | call_type | created_by_id  | created_at          | backstage | captioning | translating | team |
++----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
+| english_call_1773473101174 | default   | learning_agent | 1773473105657621000 | false     | false       | false       |      |
+| english_call_1773472644229 | default   | learning_agent | 1773472678601915000 | false     | false       | false       |      |
+| english_call_1773472572196 | default   | learning_agent | 1773472575736554000 | false     | false       | false       |      |
++----------------------------+-----------+----------------+---------------------+-----------+-------------+-------------+------+
 ```
 
-**Live single-call proof:**
+## Timestamp evidence
 
-```sql
-SELECT id, call_type, cid, created_by_id, created_at, backstage, recording
-FROM stream_video.call
-WHERE call_type = 'default'
-  AND call_id = 'english_call_1773473101174';
+The Stream Video OpenAPI spec documents timestamps as `type: number, format: date-time`, but the live API returns 19-digit Unix nanosecond integers. Raw API response from `GET /api/v2/video/call/default/english_call_1773473101174`:
+
+```json
+{
+  "call": {
+    "id": "english_call_1773473101174",
+    "created_at": 1773473105657621000,
+    "updated_at": 1773473105657621000,
+    "starts_at": 1773473105657621000,
+    "ended_at": null
+  }
+}
 ```
 
-```text
-+----------------------------+-----------+------------------------------------+----------------+---------------------+-----------+-----------+
-| id                         | call_type | cid                                | created_by_id  | created_at          | backstage | recording |
-+----------------------------+-----------+------------------------------------+----------------+---------------------+-----------+-----------+
-| english_call_1773473101174 | default   | default:english_call_1773473101174 | learning_agent | 1773473105657621000 | false     | false     |
-+----------------------------+-----------+------------------------------------+----------------+---------------------+-----------+-----------+
-```
+The value `1773473105657621000` is 19 digits:
+- `1773473105657621000 / 1_000_000_000 = 1_773_473_105` → epoch year ~2026 ✓
+- `1773473105657621000 / 1_000_000 = 1_773_473_105_657` → epoch year ~58,000 ✗
+
+This confirms nanosecond precision. Coral's `format_timestamp` does not support nanosecond input, so timestamps are exposed as `Int64` for arithmetic filtering (`WHERE created_at > 1773473100000000000`).

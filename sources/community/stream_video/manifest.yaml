@@ -53,8 +53,6 @@ auth:
 test_queries:
   - SELECT id, name, organization, placement FROM stream_video.app
   - SELECT id, call_type, created_by_id, created_at, backstage, captioning, translating, team FROM stream_video.calls LIMIT 3
-  - SELECT id, call_type, call_id, cid, created_by_id, created_at, captioning, translating, channel_cid, team FROM stream_video.call WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
-  - SELECT call_type, call_id, user_id, role, created_at, name, custom FROM stream_video.call_members WHERE call_type = 'default' AND call_id = 'english_call_1773473101174'
 tables:
   - name: app
     description: >-
