@@ -140,6 +140,8 @@ tables:
       response_cursor_path:
         - next
       page_size:
+        default: 25
+        max: 100
         body_path:
           - limit
     columns:
@@ -550,6 +552,8 @@ tables:
       response_cursor_path:
         - next
       page_size:
+        default: 25
+        max: 100
         body_path:
           - limit
     columns:
