@@ -209,7 +209,7 @@ Manifest is valid
 ```
 
 ```bash
-$ CLOUDINARY_CLOUD_NAME=... CLOUDINARY_BASIC_AUTH=... coral source add --file sources/community/cloudinary/manifest.yaml
+$ coral source add --file sources/community/cloudinary/manifest.yaml
 Added source cloudinary
 
   ✓ cloudinary connected successfully
