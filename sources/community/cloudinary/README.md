@@ -227,7 +227,7 @@ Added source cloudinary
       0 rows
 
     ✓ SELECT name FROM cloudinary.folders LIMIT 5
-      1 row
+      0 rows
 ```
 
 **Table introspection:**
@@ -282,7 +282,7 @@ FROM cloudinary.usage;
 +------+---------------+---------------+-------------------------+---------------+---------------------+-----------------+-----------------------+
 | plan | credits_usage | credits_limit | credits_used_percentage | storage_bytes | storage_limit_bytes | bandwidth_bytes | bandwidth_limit_bytes |
 +------+---------------+---------------+-------------------------+---------------+---------------------+-----------------+-----------------------+
-| Free | 0             | 25            | 0.0                     | 0             |                     | 0               |                       |
+| Free | 1             | 25            | 4.36                    | 572942739     |                     | 601556002       |                       |
 +------+---------------+---------------+-------------------------+---------------+---------------------+-----------------+-----------------------+
 ```
 
@@ -294,11 +294,22 @@ FROM cloudinary.folders;
 ```
 
 ```text
-+---------+---------+
-| name    | path    |
-+---------+---------+
-| samples | samples |
-+---------+---------+
+(0 rows — account has no top-level folders)
+```
+
+**Live upload_presets proof:**
+
+```sql
+SELECT name, unsigned, settings
+FROM cloudinary.upload_presets;
+```
+
+```text
++------------+----------+---------------------------------------------------------------+
+| name       | unsigned | settings                                                      |
++------------+----------+---------------------------------------------------------------+
+| ml_default | false    | {"overwrite":true,"use_filename":true,"unique_filename":true} |
++------------+----------+---------------------------------------------------------------+
 ```
 
 **Live resources proof:**
