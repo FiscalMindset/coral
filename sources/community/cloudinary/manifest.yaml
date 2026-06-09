@@ -165,7 +165,7 @@ tables:
           expr:
             kind: path
             path:
-              - createdAt
+              - created_at
       - name: bytes
         type: Int64
         nullable: false
@@ -205,7 +205,7 @@ tables:
         expr:
           kind: path
           path:
-            - secureUrl
+            - secure_url
       - name: tags
         type: Json
         nullable: true
@@ -255,7 +255,7 @@ tables:
   - name: folders
     description: >-
       Top-level asset folders in your Cloudinary product environment.
-      Only returns folders, not subfolders (use the asset_folder filter
+      Only returns folders, not subfolders (use the prefix filter
       on the resources table to browse subfolder contents).
     guide: |
       No required filters. Start with:
