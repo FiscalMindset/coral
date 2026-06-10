@@ -32,15 +32,16 @@ auth:
       template: "Basic {{input.CLOUDINARY_BASIC_AUTH}}"
 
 test_queries:
-  - SELECT public_id, resource_type, format, bytes, created_at FROM cloudinary.resources LIMIT 5
+  - SELECT public_id, resource_type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' LIMIT 5
   - SELECT name FROM cloudinary.folders LIMIT 5
 
 tables:
 
   # --------------------------------------------------------------------------
-  # cloudinary.resources — List all assets
-  # GET /resources
+  # cloudinary.resources — List assets by type
+  # GET /resources/:resource_type(/:type)
   # Paginated array at response.resources. Cursor pagination (next_cursor).
+  # The resource_type must be specified as a WHERE clause (image, raw, video).
   # --------------------------------------------------------------------------
   - name: resources
     description: >-
@@ -48,17 +49,19 @@ tables:
       product environment. Returns metadata such as public ID, format,
       dimensions, file size, tags, and context.
     guide: |
-      No required filters. Start with:
+      resource_type is required (image, raw, or video). Start with:
         SELECT public_id, resource_type, format, bytes, created_at
-        FROM cloudinary.resources LIMIT 10
-      Use WHERE resource_type = 'image' to filter by resource type.
+        FROM cloudinary.resources
+        WHERE resource_type = 'image' LIMIT 10
       Use WHERE prefix = 'folder/subfolder' to list assets in a path.
       Use WHERE tags = true to include tag data (JSON array).
       Use WHERE context = true to include context metadata (JSON object).
       The `tags` column is a JSON array when returned; `context` is JSON.
+      The `type` column is a response field (upload, private, etc.) and is
+      not used as a request filter.
     filters:
       - name: resource_type
-      - name: type
+        required: true
       - name: prefix
       - name: start_at
       - name: direction
@@ -67,14 +70,8 @@ tables:
       - name: metadata
     request:
       method: GET
-      path: /resources
+      path: /resources/{{filter.resource_type}}
       query:
-        - name: resource_type
-          from: filter
-          key: resource_type
-        - name: type
-          from: filter
-          key: type
         - name: prefix
           from: filter
           key: prefix
@@ -142,7 +139,7 @@ tables:
       - name: resource_type
         type: Utf8
         nullable: false
-        description: Type of resource (image, video, raw, auto).
+        description: Type of resource (image, raw, video).
         expr:
           kind: path
           path:
@@ -240,7 +237,7 @@ tables:
             - etag
       - name: placeholder
         type: Boolean
-        nullable: false
+        nullable: true
         description: Whether the asset is a placeholder.
         expr:
           kind: path
@@ -250,7 +247,7 @@ tables:
   # --------------------------------------------------------------------------
   # cloudinary.folders — List root folders
   # GET /folders
-  # Paginated array at response.folders. Cursor pagination (next_cursor).
+  # Array at response.folders. No pagination (root folders only).
   # --------------------------------------------------------------------------
   - name: folders
     description: >-
@@ -269,15 +266,7 @@ tables:
       rows_path:
         - folders
     pagination:
-      mode: cursor_query
-      cursor_param: next_cursor
-      response_cursor_path:
-        - next_cursor
-      page_size:
-        default: 100
-        max: 500
-        query_param: max_results
-    fetch_limit_default: 100
+      mode: none
     columns:
       - name: name
         type: Utf8
