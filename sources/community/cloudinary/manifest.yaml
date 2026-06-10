@@ -39,7 +39,7 @@ tables:
 
   # --------------------------------------------------------------------------
   # cloudinary.resources — List assets by type
-  # GET /resources/:resource_type(/:type)
+  # GET /resources/:resource_type
   # Paginated array at response.resources. Cursor pagination (next_cursor).
   # The resource_type must be specified as a WHERE clause (image, raw, video).
   # --------------------------------------------------------------------------
@@ -247,7 +247,7 @@ tables:
   # --------------------------------------------------------------------------
   # cloudinary.folders — List root folders
   # GET /folders
-  # Array at response.folders. No pagination (root folders only).
+  # Paginated array at response.folders. Cursor pagination (next_cursor).
   # --------------------------------------------------------------------------
   - name: folders
     description: >-
@@ -266,7 +266,15 @@ tables:
       rows_path:
         - folders
     pagination:
-      mode: none
+      mode: cursor_query
+      cursor_param: next_cursor
+      response_cursor_path:
+        - next_cursor
+      page_size:
+        default: 100
+        max: 500
+        query_param: max_results
+    fetch_limit_default: 100
     columns:
       - name: name
         type: Utf8

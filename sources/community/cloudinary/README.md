@@ -171,14 +171,14 @@ Structured metadata field definitions configured in the Cloudinary product envir
 
 ## Live request costs
 
-Each table query performs at least one live API call to `https://api.cloudinary.com/v1_1/<cloud_name>`. Cursor-based pagination on `resources` and `upload_presets` may trigger additional calls when `LIMIT` exceeds a single page's results. See the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api) for rate limit details.
+Each table query performs at least one live API call to `https://api.cloudinary.com/v1_1/<cloud_name>`. Cursor-based pagination on `resources`, `folders`, and `upload_presets` may trigger additional calls when `LIMIT` exceeds a single page's results. See the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api) for rate limit details.
 
 ## Source scope
 
 - Targets the Cloudinary Admin API at `https://api.cloudinary.com/v1_1/<cloud_name>`.
 - Requires `CLOUDINARY_CLOUD_NAME` (base URL variable) and `CLOUDINARY_BASIC_AUTH` (HTTP Basic Auth header).
 - Covers read-only access: asset listing with filters, folder listing, upload preset listing, usage details, and metadata field definitions.
-- Cursor-based pagination (`next_cursor` query param) on `resources` and `upload_presets` — uses `response_cursor_path` for response cursor extraction. The `folders` table has no pagination (root folders only).
+- Cursor-based pagination (`next_cursor` query param) on `resources`, `folders`, and `upload_presets` — uses `response_cursor_path` for response cursor extraction.
 - The `usage` table exposes nested child objects (credits, storage, bandwidth, transformations, objects) as flat columns with nullable types — the API may omit deeply nested fields depending on plan.
 - 7 optional filters on `resources` for filtering by resource type (required), folder prefix, date range, sort direction, and inclusion of tags/context/metadata. The `type` response column is not used as a request filter (Cloudinary requires it as a URL path segment, available only when filtering by a specific resource type).
 - 2 declared test queries (resources + folders LIMIT 5) are source-independent and work on any account regardless of data.
