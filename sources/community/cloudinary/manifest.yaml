@@ -32,7 +32,7 @@ auth:
       template: "Basic {{input.CLOUDINARY_BASIC_AUTH}}"
 
 test_queries:
-  - SELECT resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
+  - SELECT public_id, resource_type, type, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
   - SELECT name FROM cloudinary.folders LIMIT 5
 
 tables:

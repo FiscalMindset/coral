@@ -224,7 +224,7 @@ Added source cloudinary
     Query tests
     2 declared · 2 passed · 0 failed
 
-    ✓ SELECT resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
+    ✓ SELECT public_id, resource_type, type, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
       5 rows
 
     ✓ SELECT name FROM cloudinary.folders LIMIT 5
