@@ -168,7 +168,7 @@ Structured metadata field definitions configured in the Cloudinary product envir
 | `label` | Utf8 | Display label for the metadata field |
 | `type` | Utf8 | Data type of the metadata field (integer, string, date, etc.) |
 | `mandatory` | Boolean | Whether the field is required when uploading assets |
-| `default_value` | Json | Default value(s). Single values are strings; multi-select fields return an array |
+| `default_value` | Json | Default value(s). Single values are JSON scalars (strings, numbers, etc.); multi-select fields return an array |
 | `validation` | Json | JSON object defining validation rules for the field |
 
 ## Live request costs
@@ -324,13 +324,13 @@ LIMIT 5;
 ```
 
 ```text
-+--------------+---------------+--------+--------+--------+-------+----------------------+
-| public_id    | resource_type | type   | format | bytes  | width | created_at           |
-+--------------+---------------+--------+--------+--------+-------+----------------------+
-| cld-sample-4 | image         | upload | jpg    | 818600 | 1870  | 2025-06-29T20:26:30Z |
-| cld-sample-3 | image         | upload | jpg    | 905834 | 1870  | 2025-06-29T20:26:30Z |
-| cld-sample-5 | image         | upload | jpg    | 379132 | 1870  | 2025-06-29T20:26:31Z |
-| cld-sample-2 | image         | upload | jpg    | 592235 | 1870  | 2025-06-29T20:26:30Z |
-| cld-sample   | image         | upload | jpg    | 476846 | 1870  | 2025-06-29T20:26:30Z |
-+--------------+---------------+--------+--------+--------+-------+----------------------+
++--------------+---------------+--------+--------+--------+-------+--------+----------------------+
+| public_id    | resource_type | type   | format | bytes  | width | height | created_at           |
++--------------+---------------+--------+--------+--------+-------+--------+----------------------+
+| cld-sample-4 | image         | upload | jpg    | 818600 | 1870  | 1250   | 2025-06-29T20:26:30Z |
+| cld-sample-3 | image         | upload | jpg    | 905834 | 1870  | 1250   | 2025-06-29T20:26:30Z |
+| cld-sample-5 | image         | upload | jpg    | 379132 | 1870  | 1250   | 2025-06-29T20:26:31Z |
+| cld-sample-2 | image         | upload | jpg    | 592235 | 1870  | 1250   | 2025-06-29T20:26:30Z |
+| cld-sample   | image         | upload | jpg    | 476846 | 1870  | 1250   | 2025-06-29T20:26:30Z |
++--------------+---------------+--------+--------+--------+-------+--------+----------------------+
 ```

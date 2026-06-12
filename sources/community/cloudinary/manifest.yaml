@@ -57,6 +57,9 @@ tables:
       Use WHERE prefix = 'my_public_id_prefix' to filter by public ID.
       Use WHERE asset_folder = 'folder_name' to filter by asset folder
       (dynamic folders mode — distinct from public ID prefix).
+      Both are URL path segments and must be URL-encoded if they contain
+      reserved characters. Accepted resource_type values: image, raw, video.
+      Accepted type values: upload, private, authenticated, etc.
       Use WHERE tags = true to include tag data (JSON array).
       Use WHERE context = true to include context metadata (JSON object).
       The `tags` column is a JSON array when returned; `context` is JSON.
@@ -534,7 +537,7 @@ tables:
       - name: default_value
         type: Json
         nullable: true
-        description: Default value(s). Single values are strings; multi-select fields return an array.
+        description: Default value(s). Single values are JSON scalars (strings, numbers, etc.); multi-select fields return an array.
         expr:
           kind: path
           path:
