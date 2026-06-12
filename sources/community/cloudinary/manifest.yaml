@@ -32,16 +32,16 @@ auth:
       template: "Basic {{input.CLOUDINARY_BASIC_AUTH}}"
 
 test_queries:
-  - SELECT public_id, resource_type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' LIMIT 5
+  - SELECT public_id, resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
   - SELECT name FROM cloudinary.folders LIMIT 5
 
 tables:
 
   # --------------------------------------------------------------------------
-  # cloudinary.resources — List assets by type
-  # GET /resources/:resource_type
+  # cloudinary.resources — List assets by resource type and delivery type
+  # GET /resources/:resource_type/:type
   # Paginated array at response.resources. Cursor pagination (next_cursor).
-  # The resource_type must be specified as a WHERE clause (image, raw, video).
+  # Both resource_type and type are required as URL path segments.
   # --------------------------------------------------------------------------
   - name: resources
     description: >-
@@ -49,20 +49,24 @@ tables:
       product environment. Returns metadata such as public ID, format,
       dimensions, file size, tags, and context.
     guide: |
-      resource_type is required (image, raw, or video). Start with:
-        SELECT public_id, resource_type, format, bytes, created_at
+      resource_type (image, raw, video) and type (upload, private,
+      authenticated, etc.) are both required. Start with:
+        SELECT public_id, resource_type, type, format, bytes, created_at
         FROM cloudinary.resources
-        WHERE resource_type = 'image' LIMIT 10
-      Use WHERE prefix = 'folder/subfolder' to list assets in a path.
+        WHERE resource_type = 'image' AND type = 'upload' LIMIT 10
+      Use WHERE prefix = 'my_public_id_prefix' to filter by public ID.
+      Use WHERE asset_folder = 'folder_name' to filter by asset folder
+      (dynamic folders mode — distinct from public ID prefix).
       Use WHERE tags = true to include tag data (JSON array).
       Use WHERE context = true to include context metadata (JSON object).
       The `tags` column is a JSON array when returned; `context` is JSON.
-      The `type` column is a response field (upload, private, etc.) and is
-      not used as a request filter.
     filters:
       - name: resource_type
         required: true
+      - name: type
+        required: true
       - name: prefix
+      - name: asset_folder
       - name: start_at
       - name: direction
       - name: tags
@@ -70,11 +74,14 @@ tables:
       - name: metadata
     request:
       method: GET
-      path: /resources/{{filter.resource_type}}
+      path: /resources/{{filter.resource_type}}/{{filter.type}}
       query:
         - name: prefix
           from: filter
           key: prefix
+        - name: asset_folder
+          from: filter
+          key: asset_folder
         - name: start_at
           from: filter
           key: start_at
@@ -247,7 +254,7 @@ tables:
   # --------------------------------------------------------------------------
   # cloudinary.folders — List root folders
   # GET /folders
-  # Paginated array at response.folders. Cursor pagination (next_cursor).
+  # Array at response.folders. No pagination (single response, up to 2000).
   # --------------------------------------------------------------------------
   - name: folders
     description: >-
@@ -266,15 +273,7 @@ tables:
       rows_path:
         - folders
     pagination:
-      mode: cursor_query
-      cursor_param: next_cursor
-      response_cursor_path:
-        - next_cursor
-      page_size:
-        default: 100
-        max: 500
-        query_param: max_results
-    fetch_limit_default: 100
+      mode: none
     columns:
       - name: name
         type: Utf8
@@ -533,9 +532,9 @@ tables:
           path:
             - mandatory
       - name: default_value
-        type: Utf8
+        type: Json
         nullable: true
-        description: Default value assigned when no value is provided.
+        description: Default value(s). Single values are strings; multi-select fields return an array.
         expr:
           kind: path
           path:

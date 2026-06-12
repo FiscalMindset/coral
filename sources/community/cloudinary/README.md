@@ -43,10 +43,10 @@ export CLOUDINARY_BASIC_AUTH="MTIzNDU2Nzg5MDEyMzQ1Njo3N0FCY2RlZnVnaGlqazAxMjM0NT
 SELECT plan, credits_usage, credits_limit, storage_bytes, bandwidth_bytes
 FROM cloudinary.usage;
 
--- List recent image assets
-SELECT public_id, resource_type, format, bytes, width, height, created_at
+-- List recent uploaded image assets
+SELECT public_id, resource_type, type, format, bytes, width, height, created_at
 FROM cloudinary.resources
-WHERE resource_type = 'image'
+WHERE resource_type = 'image' AND type = 'upload'
 LIMIT 10;
 
 -- List all top-level folders
@@ -73,7 +73,9 @@ Assets (images, videos, raw files, etc.) stored in your Cloudinary product envir
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `resource_type` | Utf8 | Yes | Filter by type (image, raw, video). Used as URL path segment |
-| `prefix` | Utf8 | | Filter by folder prefix (e.g. myfolder/subfolder) |
+| `type` | Utf8 | Yes | Filter by delivery type (upload, private, authenticated, etc.). Used as URL path segment |
+| `prefix` | Utf8 | | Filter by public ID prefix (not asset folder) |
+| `asset_folder` | Utf8 | | Filter by asset folder name (dynamic folders mode) |
 | `start_at` | Utf8 | | Filter by minimum created_at date (ISO 8601) |
 | `direction` | Utf8 | | Sort direction (asc or desc, default: desc by date) |
 | `tags` | Boolean | | Set to true to include tags JSON column |
@@ -166,21 +168,21 @@ Structured metadata field definitions configured in the Cloudinary product envir
 | `label` | Utf8 | Display label for the metadata field |
 | `type` | Utf8 | Data type of the metadata field (integer, string, date, etc.) |
 | `mandatory` | Boolean | Whether the field is required when uploading assets |
-| `default_value` | Utf8 | Default value assigned when no value is provided |
+| `default_value` | Json | Default value(s). Single values are strings; multi-select fields return an array |
 | `validation` | Json | JSON object defining validation rules for the field |
 
 ## Live request costs
 
-Each table query performs at least one live API call to `https://api.cloudinary.com/v1_1/<cloud_name>`. Cursor-based pagination on `resources`, `folders`, and `upload_presets` may trigger additional calls when `LIMIT` exceeds a single page's results. See the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api) for rate limit details.
+Each table query performs at least one live API call to `https://api.cloudinary.com/v1_1/<cloud_name>`. Cursor-based pagination on `resources` and `upload_presets` may trigger additional calls when `LIMIT` exceeds a single page's results. See the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api) for rate limit details.
 
 ## Source scope
 
 - Targets the Cloudinary Admin API at `https://api.cloudinary.com/v1_1/<cloud_name>`.
 - Requires `CLOUDINARY_CLOUD_NAME` (base URL variable) and `CLOUDINARY_BASIC_AUTH` (HTTP Basic Auth header).
 - Covers read-only access: asset listing with filters, folder listing, upload preset listing, usage details, and metadata field definitions.
-- Cursor-based pagination (`next_cursor` query param) on `resources`, `folders`, and `upload_presets` — uses `response_cursor_path` for response cursor extraction.
+- Cursor-based pagination (`next_cursor` query param) on `resources` and `upload_presets` — uses `response_cursor_path` for response cursor extraction. The `folders` table has no pagination (single response, up to 2000 root folders).
 - The `usage` table exposes nested child objects (credits, storage, bandwidth, transformations, objects) as flat columns with nullable types — the API may omit deeply nested fields depending on plan.
-- 7 optional filters on `resources` for filtering by resource type (required), folder prefix, date range, sort direction, and inclusion of tags/context/metadata. The `type` response column is not used as a request filter (Cloudinary requires it as a URL path segment, available only when filtering by a specific resource type).
+- 9 filters on `resources` including 2 required (`resource_type`, `type` as URL path segments) and optional (`prefix`, `asset_folder`, `start_at`, `direction`, `tags`, `context`, `metadata`).
 - 2 declared test queries (resources + folders LIMIT 5) are source-independent and work on any account regardless of data.
 - Column definitions are validated against the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api).
 
@@ -191,7 +193,7 @@ Each table query performs at least one live API call to `https://api.cloudinary.
 - The `folders` table returns only top-level folders. Subfolder navigation requires the `prefix` filter on `resources`.
 - `metadata_fields` has no pagination — the API returns all metadata fields in a single response (typically a small set).
 - The `usage` table has no pagination — it is a single-object response.
-- Cloudinary enforces plan-based rate limits. Free plan accounts have a limit of 500 credits per hour for Admin API calls.
+- Cloudinary enforces plan-based rate limits. Free plan accounts have a limit of 500 Admin API requests per hour.
 
 ## Provider docs
 
@@ -223,7 +225,7 @@ Added source cloudinary
     Query tests
     2 declared · 2 passed · 0 failed
 
-    ✓ SELECT public_id, resource_type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' LIMIT 5
+    ✓ SELECT public_id, resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
       5 rows
 
     ✓ SELECT name FROM cloudinary.folders LIMIT 5
@@ -240,15 +242,15 @@ ORDER BY table_name;
 ```
 
 ```text
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| table_name      | description                                                                                                                                                                          | required_filters |
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
-| folders         | Top-level asset folders in your Cloudinary product environment. Only returns folders, not subfolders (use the prefix filter on the resources table to browse subfolder contents).    |                  |
-| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.           |                  |
-| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.        | resource_type    |
-| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control. |                  |
-| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                     |                  |
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
++-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| table_name      | description                                                                                                                                                                          | required_filters   |
++-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| folders         | Top-level asset folders in your Cloudinary product environment. Only returns folders, not subfolders (use the prefix filter on the resources table to browse subfolder contents).    |                    |
+| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.           |                    |
+| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.        | resource_type,type |
+| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control. |                    |
+| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                     |                    |
++-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
 ```
 
 **Inputs introspection:**
@@ -315,20 +317,20 @@ FROM cloudinary.upload_presets;
 **Live resources proof:**
 
 ```sql
-SELECT public_id, resource_type, format, bytes, width, height, created_at
+SELECT public_id, resource_type, type, format, bytes, width, height, created_at
 FROM cloudinary.resources
-WHERE resource_type = 'image'
+WHERE resource_type = 'image' AND type = 'upload'
 LIMIT 5;
 ```
 
 ```text
-+--------------+---------------+--------+--------+-------+--------+----------------------+
-| public_id    | resource_type | format | bytes  | width | height | created_at           |
-+--------------+---------------+--------+--------+-------+--------+----------------------+
-| cld-sample-4 | image         | jpg    | 818600 | 1870  | 1250   | 2025-06-29T20:26:30Z |
-| cld-sample-3 | image         | jpg    | 905834 | 1870  | 1250   | 2025-06-29T20:26:30Z |
-| cld-sample-5 | image         | jpg    | 379132 | 1870  | 1250   | 2025-06-29T20:26:31Z |
-| cld-sample-2 | image         | jpg    | 592235 | 1870  | 1250   | 2025-06-29T20:26:30Z |
-| cld-sample   | image         | jpg    | 476846 | 1870  | 1250   | 2025-06-29T20:26:30Z |
-+--------------+---------------+--------+--------+-------+--------+----------------------+
++--------------+---------------+--------+--------+--------+-------+----------------------+
+| public_id    | resource_type | type   | format | bytes  | width | created_at           |
++--------------+---------------+--------+--------+--------+-------+----------------------+
+| cld-sample-4 | image         | upload | jpg    | 818600 | 1870  | 2025-06-29T20:26:30Z |
+| cld-sample-3 | image         | upload | jpg    | 905834 | 1870  | 2025-06-29T20:26:30Z |
+| cld-sample-5 | image         | upload | jpg    | 379132 | 1870  | 2025-06-29T20:26:31Z |
+| cld-sample-2 | image         | upload | jpg    | 592235 | 1870  | 2025-06-29T20:26:30Z |
+| cld-sample   | image         | upload | jpg    | 476846 | 1870  | 2025-06-29T20:26:30Z |
++--------------+---------------+--------+--------+--------+-------+----------------------+
 ```
