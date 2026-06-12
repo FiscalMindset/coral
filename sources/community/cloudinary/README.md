@@ -74,8 +74,7 @@ Assets (images, videos, raw files, etc.) stored in your Cloudinary product envir
 |--------|------|----------|-------------|
 | `resource_type` | Utf8 | Yes | Filter by type (image, raw, video). Used as URL path segment |
 | `type` | Utf8 | Yes | Filter by delivery type (upload, private, authenticated, etc.). Used as URL path segment |
-| `prefix` | Utf8 | | Filter by public ID prefix (not asset folder) |
-| `asset_folder` | Utf8 | | Filter by asset folder name (dynamic folders mode) |
+| `prefix` | Utf8 | | Filter by public ID prefix |
 | `start_at` | Utf8 | | Filter by minimum created_at date (ISO 8601) |
 | `direction` | Utf8 | | Sort direction (asc or desc, default: desc by date) |
 | `tags` | Boolean | | Set to true to include tags JSON column |
@@ -108,7 +107,7 @@ Assets (images, videos, raw files, etc.) stored in your Cloudinary product envir
 
 ### `folders`
 
-Top-level asset folders in your Cloudinary product environment. Only returns folders, not subfolders (use the `prefix` filter on the `resources` table to browse subfolder contents).
+Top-level asset folders in your Cloudinary product environment. Only returns root folders. Subfolder contents can be queried via the `resources` table using `WHERE prefix = 'folder_path/'`.
 
 **Columns**
 
@@ -182,7 +181,7 @@ Each table query performs at least one live API call to `https://api.cloudinary.
 - Covers read-only access: asset listing with filters, folder listing, upload preset listing, usage details, and metadata field definitions.
 - Cursor-based pagination (`next_cursor` query param) on `resources` and `upload_presets` — uses `response_cursor_path` for response cursor extraction. The `folders` table has no pagination (single response, up to 2000 root folders).
 - The `usage` table exposes nested child objects (credits, storage, bandwidth, transformations, objects) as flat columns with nullable types — the API may omit deeply nested fields depending on plan.
-- 9 filters on `resources` including 2 required (`resource_type`, `type` as URL path segments) and optional (`prefix`, `asset_folder`, `start_at`, `direction`, `tags`, `context`, `metadata`).
+- 8 filters on `resources` including 2 required (`resource_type`, `type` as URL path segments) and optional (`prefix`, `start_at`, `direction`, `tags`, `context`, `metadata`).
 - 2 declared test queries (resources + folders LIMIT 5) are source-independent and work on any account regardless of data.
 - Column definitions are validated against the [Cloudinary Admin API reference](https://cloudinary.com/documentation/admin_api).
 
@@ -190,7 +189,7 @@ Each table query performs at least one live API call to `https://api.cloudinary.
 
 - The source provides read-only access. Asset upload, deletion, transformation, and other mutating operations are intentionally out of scope.
 - The `tags` endpoint (`GET /tags`) is excluded — it returns `404 Not Found` on Free plan accounts. Tag data is still accessible via the `tags` boolean filter on the `resources` table.
-- The `folders` table returns only top-level folders. Subfolder navigation requires the `prefix` filter on `resources`.
+- The `folders` table returns only root folders. The `prefix` filter on `resources` filters by public ID prefix (not asset folder).
 - `metadata_fields` has no pagination — the API returns all metadata fields in a single response (typically a small set).
 - The `usage` table has no pagination — it is a single-object response.
 - Cloudinary enforces plan-based rate limits. Free plan accounts have a limit of 500 Admin API requests per hour.
@@ -225,7 +224,7 @@ Added source cloudinary
     Query tests
     2 declared · 2 passed · 0 failed
 
-    ✓ SELECT public_id, resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
+    ✓ SELECT resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
       5 rows
 
     ✓ SELECT name FROM cloudinary.folders LIMIT 5
@@ -242,15 +241,15 @@ ORDER BY table_name;
 ```
 
 ```text
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
-| table_name      | description                                                                                                                                                                          | required_filters   |
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
-| folders         | Top-level asset folders in your Cloudinary product environment. Only returns folders, not subfolders (use the prefix filter on the resources table to browse subfolder contents).    |                    |
-| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.           |                    |
-| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.        | resource_type,type |
-| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control. |                    |
-| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                     |                    |
-+-----------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
++-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| table_name      | description                                                                                                                                                                               | required_filters   |
++-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| folders         | Top-level asset folders in your Cloudinary product environment. Only returns root folders. Subfolder contents can be queried via the resources table using WHERE prefix = 'folder_path/'. |                    |
+| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.                |                    |
+| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.             | resource_type,type |
+| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control.      |                    |
+| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                          |                    |
++-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
 ```
 
 **Inputs introspection:**

@@ -32,7 +32,7 @@ auth:
       template: "Basic {{input.CLOUDINARY_BASIC_AUTH}}"
 
 test_queries:
-  - SELECT public_id, resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
+  - SELECT resource_type, type, format, bytes, created_at FROM cloudinary.resources WHERE resource_type = 'image' AND type = 'upload' LIMIT 5
   - SELECT name FROM cloudinary.folders LIMIT 5
 
 tables:
@@ -54,10 +54,9 @@ tables:
         SELECT public_id, resource_type, type, format, bytes, created_at
         FROM cloudinary.resources
         WHERE resource_type = 'image' AND type = 'upload' LIMIT 10
-      Use WHERE prefix = 'my_public_id_prefix' to filter by public ID.
-      Use WHERE asset_folder = 'folder_name' to filter by asset folder
-      (dynamic folders mode — distinct from public ID prefix).
-      Both are URL path segments and must be URL-encoded if they contain
+      Use WHERE prefix = 'my_public_id_prefix' to filter by public ID prefix.
+      Both resource_type and type are URL path segments and must be
+      URL-encoded if they contain
       reserved characters. Accepted resource_type values: image, raw, video.
       Accepted type values: upload, private, authenticated, etc.
       Use WHERE tags = true to include tag data (JSON array).
@@ -69,7 +68,6 @@ tables:
       - name: type
         required: true
       - name: prefix
-      - name: asset_folder
       - name: start_at
       - name: direction
       - name: tags
@@ -82,9 +80,6 @@ tables:
         - name: prefix
           from: filter
           key: prefix
-        - name: asset_folder
-          from: filter
-          key: asset_folder
         - name: start_at
           from: filter
           key: start_at
@@ -262,13 +257,13 @@ tables:
   - name: folders
     description: >-
       Top-level asset folders in your Cloudinary product environment.
-      Only returns folders, not subfolders (use the prefix filter
-      on the resources table to browse subfolder contents).
+      Only returns root folders. Subfolder contents can be queried via
+      the resources table using WHERE prefix = 'folder_path/'.
     guide: |
       No required filters. Start with:
         SELECT name, path FROM cloudinary.folders
-      Use the folder name with WHERE prefix = 'folder_name' on the
-      resources table to list assets inside a folder.
+      To list assets with a given public ID prefix, use WHERE prefix on
+      the resources table.
     request:
       method: GET
       path: /folders
