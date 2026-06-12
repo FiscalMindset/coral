@@ -161,7 +161,7 @@ Per-document summary metadata including table of contents, embedded files, page 
 - Table extraction uses PyMuPDF's built-in table detection — works well for bordered tables, may miss borderless ones.
 - Image binary data is not stored in JSONL — only references (xref, dimensions).
 - Annotation extraction covers visible annotations; hidden or empty annotations may be skipped.
-- OCR requires `ocrmypdf` to be installed separately and modifies the source PDF in-place (use on copies).
+- OCR requires `ocrmypdf` to be installed separately. The converter processes a temporary copy and leaves originals untouched.
 
 ## Source scope
 

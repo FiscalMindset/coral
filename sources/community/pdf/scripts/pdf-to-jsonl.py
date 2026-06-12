@@ -237,41 +237,22 @@ def extract_document_info(doc, pdf_path):
         "embedded_files": embedded,
         "page_labels": [
             {
-                "start_page": label[0],
-                "style": label[1],
-                "prefix": label[2],
-                "start": label[3],
+                "start_page": label["startpage"],
+                "style": label["style"],
+                "prefix": label["prefix"],
+                "start": label["firstpagenum"],
             }
             for label in page_labels
         ],
     }
 
 
-def run_ocr(pdf_path):
-    try:
-        subprocess.run(
-            ["ocrmypdf", "--force-ocr", str(pdf_path), str(pdf_path)],
-            check=True,
-            capture_output=True,
-        )
-        return True
-    except FileNotFoundError:
-        print(
-            "  OCR requested but ocrmypdf not installed. Install: pip install ocrmypdf",
-            file=sys.stderr,
-        )
-        return False
-    except subprocess.CalledProcessError as e:
-        print(f"  OCR failed for {pdf_path}: {e.stderr.decode()}", file=sys.stderr)
-        return False
-
-
 def extract_pdf(pdf_path, ocr=False):
     rows = []
-    doc_info = None
+    doc = None
+    temp_dir = None
     try:
         path = pdf_path
-        temp_dir = None
         if ocr:
             temp_dir = tempfile.mkdtemp()
             ocr_path = Path(temp_dir) / pdf_path.name
@@ -314,12 +295,6 @@ def extract_pdf(pdf_path, ocr=False):
             )
 
         docs_rows = [extract_document_info(doc, pdf_path)]
-        doc.close()
-
-        if temp_dir:
-            import shutil
-
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
     except Exception as e:
         print(f"Error processing {pdf_path}: {e}", file=sys.stderr)
@@ -335,6 +310,13 @@ def extract_pdf(pdf_path, ocr=False):
                 "page_labels": [],
             }
         ]
+    finally:
+        if doc:
+            doc.close()
+        if temp_dir:
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     return rows, docs_rows
 
@@ -378,6 +360,7 @@ def main():
     pages_path = Path(args.out)
     docs_path = Path(args.out_documents)
     pages_path.parent.mkdir(parents=True, exist_ok=True)
+    docs_path.parent.mkdir(parents=True, exist_ok=True)
 
     total_pages = 0
     with open(pages_path, "w") as pf, open(docs_path, "w") as df:
