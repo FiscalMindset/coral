@@ -107,7 +107,7 @@ Assets (images, videos, raw files, etc.) stored in your Cloudinary product envir
 
 ### `folders`
 
-Top-level asset folders in your Cloudinary product environment. Only returns root folders. Subfolder contents can be queried via the `resources` table using `WHERE prefix = 'folder_path/'`.
+Top-level asset folders in your Cloudinary product environment. The `prefix` filter on the `resources` table filters by public ID prefix, not by asset folder. Dynamic asset-folder content lookup is not supported in this version.
 
 **Columns**
 
@@ -176,7 +176,7 @@ Each table query performs at least one live API call to `https://api.cloudinary.
 
 ## Source scope
 
-- Targets the Cloudinary Admin API at `https://api.cloudinary.com/v1_1/<cloud_name>`.
+- Targets the Cloudinary Admin API at `https://api.cloudinary.com/v1_1/<cloud_name>` (US default data center endpoint; EU and AP data center endpoints are not supported in this version).
 - Requires `CLOUDINARY_CLOUD_NAME` (base URL variable) and `CLOUDINARY_BASIC_AUTH` (HTTP Basic Auth header).
 - Covers read-only access: asset listing with filters, folder listing, upload preset listing, usage details, and metadata field definitions.
 - Cursor-based pagination (`next_cursor` query param) on `resources` and `upload_presets` — uses `response_cursor_path` for response cursor extraction. The `folders` table has no pagination (single response, up to 2000 root folders).
@@ -193,6 +193,7 @@ Each table query performs at least one live API call to `https://api.cloudinary.
 - `metadata_fields` has no pagination — the API returns all metadata fields in a single response (typically a small set).
 - The `usage` table has no pagination — it is a single-object response.
 - Cloudinary enforces plan-based rate limits. Free plan accounts have a limit of 500 Admin API requests per hour.
+- The API base URL is hard-coded to the US default data center endpoint (`https://api.cloudinary.com`). EU (`api-eu.cloudinary.com`) and AP (`api-ap.cloudinary.com`) data center endpoints are not supported in this version.
 
 ## Provider docs
 
@@ -241,15 +242,15 @@ ORDER BY table_name;
 ```
 
 ```text
-+-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
-| table_name      | description                                                                                                                                                                               | required_filters   |
-+-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
-| folders         | Top-level asset folders in your Cloudinary product environment. Only returns root folders. Subfolder contents can be queried via the resources table using WHERE prefix = 'folder_path/'. |                    |
-| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.                |                    |
-| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.             | resource_type,type |
-| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control.      |                    |
-| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                          |                    |
-+-----------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
++-----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| table_name      | description                                                                                                                                                                                                                      | required_filters   |
++-----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
+| folders         | Top-level asset folders in your Cloudinary product environment. The prefix filter on the resources table filters by public ID prefix, not by asset folder. Dynamic asset-folder content lookup is not supported in this version. |                    |
+| metadata_fields | Structured metadata field definitions configured in the Cloudinary product environment. Includes field type, label, default value, validation rules, and mandatory status.                                                       |                    |
+| resources       | Assets (images, videos, raw files, etc.) stored in your Cloudinary product environment. Returns metadata such as public ID, format, dimensions, file size, tags, and context.                                                    | resource_type,type |
+| upload_presets  | Upload presets configured in your Cloudinary product environment. Each preset defines default settings for uploaded assets such as transformation, folder, tags, and access control.                                             |                    |
+| usage           | Current usage details for the Cloudinary product environment, including plan type, credits consumption, storage usage, bandwidth, and transformations performed.                                                                 |                    |
++-----------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------+
 ```
 
 **Inputs introspection:**

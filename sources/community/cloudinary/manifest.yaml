@@ -257,13 +257,14 @@ tables:
   - name: folders
     description: >-
       Top-level asset folders in your Cloudinary product environment.
-      Only returns root folders. Subfolder contents can be queried via
-      the resources table using WHERE prefix = 'folder_path/'.
+      The prefix filter on the resources table filters by public ID
+      prefix, not by asset folder. Dynamic asset-folder content lookup
+      is not supported in this version.
     guide: |
       No required filters. Start with:
         SELECT name, path FROM cloudinary.folders
-      To list assets with a given public ID prefix, use WHERE prefix on
-      the resources table.
+      Use WHERE prefix on the resources table to filter by public ID
+      prefix (not by asset folder).
     request:
       method: GET
       path: /folders
