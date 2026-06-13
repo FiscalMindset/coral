@@ -46,7 +46,7 @@ tables:
       - name: file_name
         type: Utf8
         nullable: false
-        description: File name of the source PDF (e.g. resume.pdf).
+        description: File name of the source PDF (e.g. sample_report.pdf).
       - name: path
         type: Utf8
         nullable: false
@@ -118,7 +118,7 @@ tables:
       - name: file_name
         type: Utf8
         nullable: false
-        description: File name of the source PDF (e.g. resume.pdf).
+        description: File name of the source PDF (e.g. sample_report.pdf).
       - name: path
         type: Utf8
         nullable: false

@@ -128,7 +128,7 @@ Text, tables, images, links, annotations, and form fields extracted from PDF doc
 
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
-| `file_name` | Utf8 | false | File name of the source PDF (e.g. resume.pdf). |
+| `file_name` | Utf8 | false | File name of the source PDF (e.g. sample_report.pdf). |
 | `path` | Utf8 | false | Absolute filesystem path to the source PDF. |
 | `page` | Int64 | false | Page number within the PDF (1-indexed). |
 | `page_count` | Int64 | false | Total number of pages in the document. |
@@ -149,7 +149,7 @@ Per-document summary metadata including table of contents, embedded files, page 
 
 | Column | Type | Nullable | Description |
 |--------|------|----------|-------------|
-| `file_name` | Utf8 | false | File name of the source PDF (e.g. resume.pdf). |
+| `file_name` | Utf8 | false | File name of the source PDF (e.g. sample_report.pdf). |
 | `path` | Utf8 | false | Absolute filesystem path to the source PDF. |
 | `file_size` | Int64 | false | File size in bytes. |
 | `page_count` | Int64 | false | Total number of pages in the document. |
@@ -201,10 +201,10 @@ Manifest is valid
 ```
 
 ```bash
-$ coral source add --file manifest.yaml
-Added source pdf
+$ coral source test pdf
 
   ✓ pdf connected successfully
+  Secrets: none
 
     pdf (2 tables)
     ├─ documents
@@ -247,7 +247,7 @@ ORDER BY ordinal_position;
 +-------------+-----------+-------------+--------------------------------------------------------------------------------------------------+
 | column_name | data_type | is_nullable | description                                                                                      |
 +-------------+-----------+-------------+--------------------------------------------------------------------------------------------------+
-| file_name   | Utf8      | false       | File name of the source PDF (e.g. report.pdf).                                                   |
+| file_name   | Utf8      | false       | File name of the source PDF (e.g. sample_report.pdf).                                            |
 | path        | Utf8      | false       | Absolute filesystem path to the source PDF.                                                      |
 | page        | Int64     | false       | Page number within the PDF (1-indexed).                                                          |
 | page_count  | Int64     | false       | Total number of pages in the document.                                                           |
@@ -275,7 +275,7 @@ ORDER BY ordinal_position;
 +----------------+-----------+-------------+----------------------------------------------------------------------------------------+
 | column_name    | data_type | is_nullable | description                                                                            |
 +----------------+-----------+-------------+----------------------------------------------------------------------------------------+
-| file_name      | Utf8      | false       | File name of the source PDF (e.g. report.pdf).                                         |
+| file_name      | Utf8      | false       | File name of the source PDF (e.g. sample_report.pdf).                                  |
 | path           | Utf8      | false       | Absolute filesystem path to the source PDF.                                            |
 | file_size      | Int64     | false       | File size in bytes.                                                                    |
 | page_count     | Int64     | false       | Total number of pages in the document.                                                 |
@@ -298,9 +298,9 @@ ORDER BY page;
 +-------------------+------+------------+----------+
 | file_name         | page | page_count | text_len |
 +-------------------+------+------------+----------+
-| sample_report.pdf | 1    | 3          | 811      |
-| sample_report.pdf | 2    | 3          | 540      |
-| sample_report.pdf | 3    | 3          | 902      |
+| sample_report.pdf | 1    | 3          | 290      |
+| sample_report.pdf | 2    | 3          | 145      |
+| sample_report.pdf | 3    | 3          | 459      |
 +-------------------+------+------------+----------+
 ```
 
@@ -315,7 +315,7 @@ FROM pdf.documents;
 +-------------------+------------+-----------+----------------------+
 | file_name         | page_count | file_size | metadata             |
 +-------------------+------------+-----------+----------------------+
-| sample_report.pdf | 3          | 852607    | {"format":"PDF 1.7"} |
+| sample_report.pdf | 3          | 5165      | {"format":"PDF 1.7"} |
 +-------------------+------------+-----------+----------------------+
 ```
 
@@ -328,46 +328,16 @@ WHERE page = 1;
 ```
 
 ```text
-+-------------------+------+--------------------------------------------------------------------------------+
-| file_name         | page | text_preview                                                                   |
-+-------------------+------+--------------------------------------------------------------------------------+
-| sample_report.pdf | 1    | Quarterly Business Report Q1 2026                                              |
-|                   |      | Acme Corporation                                                               |
-|                   |      | Executive Summary                                                              |
-|                   |      | Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor |
-|                   |      | incididunt ut labore et dolore magna aliqua. Ut enim                           |
-+-------------------+------+--------------------------------------------------------------------------------+
-```
-
-**Live content proof — table of contents:**
-
-```sql
-SELECT file_name, toc
-FROM pdf.documents;
-```
-
-```text
-+-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
-| file_name         | toc                                                                                                                                                       |
-+-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
-| sample_report.pdf | [{"level":1,"title":"Executive Summary","page":1},{"level":1,"title":"Regional Breakdown","page":2},{"level":1,"title":"Appendix: Methodology","page":3}] |
-+-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
-```
-
-**Live content proof — links:**
-
-```sql
-SELECT file_name, page, links
-FROM pdf.pages
-WHERE length(links::text) > 2;
-```
-
-```text
-+-------------------+------+----------------------------------------------------------------------------------------------------------------------+
-| file_name         | page | links                                                                                                                |
-+-------------------+------+----------------------------------------------------------------------------------------------------------------------+
-| sample_report.pdf | 1    | [{"kind":2,"kind_name":"uri","bbox":{...},"uri":"https://example.com/report"}]                                       |
-+-------------------+------+----------------------------------------------------------------------------------------------------------------------+
++-------------------+------+--------------------------------------------------------------------------------------------------------------+
+| file_name         | page | text_preview                                                                                                 |
++-------------------+------+--------------------------------------------------------------------------------------------------------------+
+| sample_report.pdf | 1    | Quarterly Business Report Q1 2026                                                                            |
+|                   |      | Acme Corporation                                                                                             |
+|                   |      | Executive Summary                                                                                            |
+|                   |      | Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolor |
+|                   |      | Key Metrics                                                                                                  |
+|                   |      | Revenue gr                                                                                                   |
++-------------------+------+--------------------------------------------------------------------------------------------------------------+
 ```
 
 ## Provider docs
