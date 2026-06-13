@@ -16,37 +16,58 @@ Optional — for scanned PDFs:
 pip install ocrmypdf
 ```
 
+OCRmyPDF requires additional system dependencies:
+- **Tesseract OCR** (`tesseract` package with language data)
+- **PDF/A support** (`ghostscript`, `qpdf`, `pngquant`)
+
+See [OCRmyPDF installation docs](https://ocrmypdf.readthedocs.io/en/latest/installation.html#requirements-for-pip-and-head-install) for platform-specific instructions.
+
+Note: `--ocr` mode uses [`--force-ocr`](https://ocrmypdf.readthedocs.io/en/latest/advanced.html#ocr-processing-mode) which rasterizes pages and flattens interactive objects (form fields, annotations, layers). It produces a searchable PDF but may alter the original page structure.
+
 ## Setup
 
-### 1. Convert PDFs to JSONL
+### 1. Get the converter script
 
-Use the included `scripts/pdf-to-jsonl.py` converter:
+The source manifest reads pre-converted JSONL files, so you need the `pdf-to-jsonl.py` converter to process your PDFs.
+
+**From a repo checkout:**
+```bash
+git clone https://github.com/withcoral/coral.git
+cd coral
+```
+
+**Or download standalone:**
+```bash
+curl -O https://raw.githubusercontent.com/withcoral/coral/main/sources/community/pdf/scripts/pdf-to-jsonl.py
+```
+
+### 2. Convert PDFs to JSONL
 
 ```bash
 # Process all PDFs in a directory
-python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/
+python pdf-to-jsonl.py --dir ~/pdfs/
 
 # Process specific files
-python sources/community/pdf/scripts/pdf-to-jsonl.py --files doc1.pdf doc2.pdf
+python pdf-to-jsonl.py --files doc1.pdf doc2.pdf
 
 # Scan recursively
-python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --recursive
+python pdf-to-jsonl.py --dir ~/pdfs/ --recursive
 
 # Run OCR on scanned PDFs before extraction
-python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --ocr
+python pdf-to-jsonl.py --dir ~/pdfs/ --ocr
 
 # Custom output paths (default: ~/.coral/pdf/pages.jsonl + documents.jsonl)
-python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ \
+python pdf-to-jsonl.py --dir ~/pdfs/ \
   --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
 ```
 
-### 2. Add the source
+### 3. Add the source
 
 ```bash
 coral source add --file sources/community/pdf/manifest.yaml
 ```
 
-### 3. Query
+### 4. Query
 
 ```sql
 -- List all indexed PDFs
@@ -191,7 +212,7 @@ Added source pdf
     1 declared · 1 passed · 0 failed
 
     ✓ SELECT file_name, page, page_count, length(text) AS char_count FROM pdf.pages LIMIT 5
-      1 row
+      3 rows
 ```
 
 **Table introspection:**
@@ -225,7 +246,7 @@ ORDER BY ordinal_position;
 +-------------+-----------+-------------+--------------------------------------------------------------------------------------------------+
 | column_name | data_type | is_nullable | description                                                                                      |
 +-------------+-----------+-------------+--------------------------------------------------------------------------------------------------+
-| file_name   | Utf8      | false       | File name of the source PDF (e.g. resume.pdf).                                                   |
+| file_name   | Utf8      | false       | File name of the source PDF (e.g. report.pdf).                                                   |
 | path        | Utf8      | false       | Absolute filesystem path to the source PDF.                                                      |
 | page        | Int64     | false       | Page number within the PDF (1-indexed).                                                          |
 | page_count  | Int64     | false       | Total number of pages in the document.                                                           |
@@ -253,7 +274,7 @@ ORDER BY ordinal_position;
 +----------------+-----------+-------------+----------------------------------------------------------------------------------------+
 | column_name    | data_type | is_nullable | description                                                                            |
 +----------------+-----------+-------------+----------------------------------------------------------------------------------------+
-| file_name      | Utf8      | false       | File name of the source PDF (e.g. resume.pdf).                                         |
+| file_name      | Utf8      | false       | File name of the source PDF (e.g. report.pdf).                                         |
 | path           | Utf8      | false       | Absolute filesystem path to the source PDF.                                            |
 | file_size      | Int64     | false       | File size in bytes.                                                                    |
 | page_count     | Int64     | false       | Total number of pages in the document.                                                 |
@@ -267,16 +288,19 @@ ORDER BY ordinal_position;
 **Live pages query:**
 
 ```sql
-SELECT file_name, page, page_count, length(text) AS text_len, links
-FROM pdf.pages;
+SELECT file_name, page, page_count, length(text) AS text_len
+FROM pdf.pages
+ORDER BY page;
 ```
 
 ```text
-+-----------------------------+------+------------+----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| file_name                   | page | page_count | text_len | links                                                                                                                                                                           |
-+-----------------------------+------+------------+----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| vicky_software_engineer.pdf | 1    | 1          | 5532     | [{"kind":2,"kind_name":"uri","bbox":{...},"uri":"mailto:npdimagine@gmail.com"},{"kind":2,...},{"kind":2,...},{"kind":3,...},{"kind":2,...}]                                      |
-+-----------------------------+------+------------+----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
++-------------------+------+------------+----------+
+| file_name         | page | page_count | text_len |
++-------------------+------+------------+----------+
+| sample_report.pdf | 1    | 3          | 811      |
+| sample_report.pdf | 2    | 3          | 540      |
+| sample_report.pdf | 3    | 3          | 902      |
++-------------------+------+------------+----------+
 ```
 
 **Live documents query:**
@@ -287,15 +311,66 @@ FROM pdf.documents;
 ```
 
 ```text
-+-----------------------------+------------+-----------+------------------------------------------------------------------------------------------------------+
-| file_name                   | page_count | file_size | metadata                                                                                             |
-+-----------------------------+------------+-----------+------------------------------------------------------------------------------------------------------+
-| vicky_software_engineer.pdf | 1          | 90408     | {"format":"PDF 1.3","creator":"react-pdf","producer":"react-pdf","creationDate":"D:20260313032815Z"} |
-+-----------------------------+------------+-----------+------------------------------------------------------------------------------------------------------+
++-------------------+------------+-----------+----------------------+
+| file_name         | page_count | file_size | metadata             |
++-------------------+------------+-----------+----------------------+
+| sample_report.pdf | 3          | 852607    | {"format":"PDF 1.7"} |
++-------------------+------------+-----------+----------------------+
+```
+
+**Live content proof — extracted text:**
+
+```sql
+SELECT file_name, page, substr(text, 1, 200) AS text_preview
+FROM pdf.pages
+WHERE page = 1;
+```
+
+```text
++-------------------+------+--------------------------------------------------------------------------------+
+| file_name         | page | text_preview                                                                   |
++-------------------+------+--------------------------------------------------------------------------------+
+| sample_report.pdf | 1    | Quarterly Business Report Q1 2026                                              |
+|                   |      | Acme Corporation                                                               |
+|                   |      | Executive Summary                                                              |
+|                   |      | Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor |
+|                   |      | incididunt ut labore et dolore magna aliqua. Ut enim                           |
++-------------------+------+--------------------------------------------------------------------------------+
+```
+
+**Live content proof — table of contents:**
+
+```sql
+SELECT file_name, toc
+FROM pdf.documents;
+```
+
+```text
++-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
+| file_name         | toc                                                                                                                                                       |
++-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
+| sample_report.pdf | [{"level":1,"title":"Executive Summary","page":1},{"level":1,"title":"Regional Breakdown","page":2},{"level":1,"title":"Appendix: Methodology","page":3}] |
++-------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------+
+```
+
+**Live content proof — links:**
+
+```sql
+SELECT file_name, page, links
+FROM pdf.pages
+WHERE length(links::text) > 2;
+```
+
+```text
++-------------------+------+----------------------------------------------------------------------------------------------------------------------+
+| file_name         | page | links                                                                                                                |
++-------------------+------+----------------------------------------------------------------------------------------------------------------------+
+| sample_report.pdf | 1    | [{"kind":2,"kind_name":"uri","bbox":{...},"uri":"https://example.com/report"}]                                       |
++-------------------+------+----------------------------------------------------------------------------------------------------------------------+
 ```
 
 ## Provider docs
 
 - PyMuPDF: https://pymupdf.readthedocs.io/
 - OCRmyPDF: https://ocrmypdf.readthedocs.io/
-- Coral source spec reference: https://opencode.ai
+- Coral source spec reference: https://withcoral.com/docs/reference/source-spec-reference
