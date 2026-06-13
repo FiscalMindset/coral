@@ -4,7 +4,7 @@ Query text, tables, images, links, annotations, form fields, and document metada
 
 ## Prerequisites
 
-- Python 3.8+ with PyMuPDF installed
+- Python 3.9+ with PyMuPDF installed
 - Coral (latest)
 
 ```bash
@@ -94,11 +94,11 @@ WHERE links LIKE '%linkedin%';
 
 -- Pages with annotations (comments, highlights, etc.)
 SELECT file_name, page, annotations FROM pdf.pages
-WHERE annotations IS NOT NULL AND annotations != '[]';
+WHERE json_length(annotations) > 0;
 
 -- Pages with form fields
 SELECT file_name, page, widgets FROM pdf.pages
-WHERE widgets IS NOT NULL AND widgets != '[]';
+WHERE json_length(widgets) > 0;
 
 -- Find pages containing tables
 SELECT file_name, page FROM pdf.pages
@@ -111,11 +111,11 @@ ORDER BY file_size DESC;
 
 -- Documents with table of contents
 SELECT file_name, toc FROM pdf.documents
-WHERE toc IS NOT NULL AND toc != '[]';
+WHERE json_length(toc) > 0;
 
 -- Documents with embedded files
 SELECT file_name, embedded_files FROM pdf.documents
-WHERE embedded_files IS NOT NULL AND embedded_files != '[]';
+WHERE json_length(embedded_files) > 0;
 ```
 
 ## Tables

@@ -363,9 +363,12 @@ def main():
     docs_path.parent.mkdir(parents=True, exist_ok=True)
 
     total_pages = 0
+    failures = []
     with open(pages_path, "w") as pf, open(docs_path, "w") as df:
         for pdf_path in pdf_paths:
             page_rows, doc_rows = extract_pdf(pdf_path, ocr=args.ocr)
+            if not page_rows and doc_rows and doc_rows[0].get("page_count", -1) == 0:
+                failures.append(pdf_path.name)
             for row in page_rows:
                 pf.write(json.dumps(row, ensure_ascii=False) + "\n")
             for row in doc_rows:
@@ -377,6 +380,13 @@ def main():
 
     print(f"\nWrote {total_pages} page row(s) to {pages_path}")
     print(f"Wrote {len(pdf_paths)} document row(s) to {docs_path}")
+
+    if failures:
+        print(
+            f"\nERROR: {len(failures)} PDF(s) could not be converted: {', '.join(failures)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

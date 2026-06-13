@@ -31,7 +31,7 @@ tables:
 
         -- Pages with annotations
         SELECT file_name, page, annotations FROM pdf.pages
-        WHERE json_array_length(annotations) > 0
+        WHERE json_length(annotations) > 0
 
         -- Document-level info
         SELECT file_name, page_count, file_size, metadata
@@ -106,11 +106,11 @@ tables:
 
         -- Table of contents
         SELECT file_name, toc FROM pdf.documents
-        WHERE json_array_length(toc) > 0
+        WHERE json_length(toc) > 0
 
         -- Embedded files
         SELECT file_name, embedded_files FROM pdf.documents
-        WHERE json_array_length(embedded_files) > 0
+        WHERE json_length(embedded_files) > 0
     source:
       location: file://~/.coral/pdf/
       glob: documents.jsonl
