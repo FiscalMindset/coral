@@ -76,12 +76,12 @@ SELECT DISTINCT file_name FROM pdf.pages;
 
 -- Full text of a specific document
 SELECT page, text FROM pdf.pages
-WHERE file_name = 'resume.pdf'
+WHERE file_name = 'sample_report.pdf'
 ORDER BY page;
 
 -- Structured markdown
 SELECT page, markdown FROM pdf.pages
-WHERE file_name = 'report.pdf'
+WHERE file_name = 'sample_report.pdf'
 ORDER BY page;
 
 -- Search across all documents

@@ -27,7 +27,7 @@ tables:
 
         -- Find links in documents
         SELECT file_name, page, links FROM pdf.pages
-        WHERE file_name = 'report.pdf'
+        WHERE file_name = 'sample_report.pdf'
 
         -- Pages with annotations
         SELECT file_name, page, annotations FROM pdf.pages
