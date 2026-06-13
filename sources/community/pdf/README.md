@@ -34,6 +34,7 @@ The source manifest reads pre-converted JSONL files, so you need the `pdf-to-jso
 ```bash
 git clone https://github.com/withcoral/coral.git
 cd coral
+# The script is at sources/community/pdf/scripts/pdf-to-jsonl.py
 ```
 
 **Or download standalone:**
@@ -43,22 +44,22 @@ curl -O https://raw.githubusercontent.com/withcoral/coral/main/sources/community
 
 ### 2. Convert PDFs to JSONL
 
+**From a repo checkout** (script at `sources/community/pdf/scripts/pdf-to-jsonl.py`):
 ```bash
-# Process all PDFs in a directory
+python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/
+python sources/community/pdf/scripts/pdf-to-jsonl.py --files doc1.pdf doc2.pdf
+python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --recursive
+python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --ocr
+python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
+```
+
+**From a standalone download** (script in current directory):
+```bash
 python pdf-to-jsonl.py --dir ~/pdfs/
-
-# Process specific files
 python pdf-to-jsonl.py --files doc1.pdf doc2.pdf
-
-# Scan recursively
 python pdf-to-jsonl.py --dir ~/pdfs/ --recursive
-
-# Run OCR on scanned PDFs before extraction
 python pdf-to-jsonl.py --dir ~/pdfs/ --ocr
-
-# Custom output paths (default: ~/.coral/pdf/pages.jsonl + documents.jsonl)
-python pdf-to-jsonl.py --dir ~/pdfs/ \
-  --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
+python pdf-to-jsonl.py --dir ~/pdfs/ --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
 ```
 
 ### 3. Add the source
