@@ -4,7 +4,7 @@ Query text, tables, images, links, annotations, form fields, and document metada
 
 ## Prerequisites
 
-- Python 3.9+ with PyMuPDF installed
+- Python 3.10+ with [PyMuPDF](https://pypi.org/project/PyMuPDF/) installed
 - Coral (latest)
 
 ```bash

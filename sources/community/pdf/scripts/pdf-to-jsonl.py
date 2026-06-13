@@ -294,22 +294,8 @@ def extract_pdf(pdf_path, ocr=False):
                 }
             )
 
-        docs_rows = [extract_document_info(doc, pdf_path)]
+        doc_rows = [extract_document_info(doc, pdf_path)]
 
-    except Exception as e:
-        print(f"Error processing {pdf_path}: {e}", file=sys.stderr)
-        docs_rows = [
-            {
-                "file_name": pdf_path.name,
-                "path": str(pdf_path.resolve()),
-                "file_size": pdf_path.stat().st_size if pdf_path.exists() else 0,
-                "page_count": 0,
-                "metadata": {},
-                "toc": [],
-                "embedded_files": [],
-                "page_labels": [],
-            }
-        ]
     finally:
         if doc:
             doc.close()
@@ -318,7 +304,7 @@ def extract_pdf(pdf_path, ocr=False):
 
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    return rows, docs_rows
+    return rows, doc_rows
 
 
 def main():
@@ -366,9 +352,26 @@ def main():
     failures = []
     with open(pages_path, "w") as pf, open(docs_path, "w") as df:
         for pdf_path in pdf_paths:
-            page_rows, doc_rows = extract_pdf(pdf_path, ocr=args.ocr)
-            if not page_rows and doc_rows and doc_rows[0].get("page_count", -1) == 0:
+            try:
+                page_rows, doc_rows = extract_pdf(pdf_path, ocr=args.ocr)
+            except Exception as e:
+                print(f"Error processing {pdf_path}: {e}", file=sys.stderr)
                 failures.append(pdf_path.name)
+                doc_rows = [
+                    {
+                        "file_name": pdf_path.name,
+                        "path": str(pdf_path.resolve()),
+                        "file_size": pdf_path.stat().st_size
+                        if pdf_path.exists()
+                        else 0,
+                        "page_count": 0,
+                        "metadata": {},
+                        "toc": [],
+                        "embedded_files": [],
+                        "page_labels": [],
+                    }
+                ]
+                page_rows = []
             for row in page_rows:
                 pf.write(json.dumps(row, ensure_ascii=False) + "\n")
             for row in doc_rows:
