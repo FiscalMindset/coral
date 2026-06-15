@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coral Source PRs — Advanced Analytics</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --pink: #f778ba;
+    --cyan: #79c0ff;
+    --border: #30363d;
+    --card: #161b22;
+    --muted: #8b949e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .header .coral-logo {
+    width: 44px; height: 44px; border-radius: 10px;
+    border: 1px solid var(--border); flex-shrink: 0;
+  }
+  .header .title-area { flex: 1; min-width: 200px; }
+  .header .title-area h1 { font-size: 1.3em; letter-spacing: -0.3px; line-height: 1.3; }
+  .header .title-area .sub { color: var(--muted); font-size: 0.82em; margin-top: 2px; }
+  .header .title-area .sub a { color: var(--accent); }
+  .header .title-area .header-tags { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .header .title-area .header-tags .htag {
+    font-size: 0.7em; padding: 2px 10px; border-radius: 10px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .header .title-area .header-tags .htag.m { background: #2a1a3a; color: var(--purple); border: 1px solid var(--purple); }
+  .header .title-area .header-tags .htag.a { background: #1a3a2a; color: var(--green); border: 1px solid var(--green); }
+  .header .title-area .header-tags .htag.o { background: #3a2a1a; color: var(--yellow); border: 1px solid var(--yellow); }
+  .header .title-area .header-tags .htag.s { background: #1a2a3a; color: var(--accent); border: 1px solid var(--accent); }
+  .header .title-area .header-tags .htag.r { background: #2a1a1a; color: var(--pink); border: 1px solid var(--pink); }
+  .header .profile {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 50px;
+    padding: 4px 14px 4px 4px; flex-shrink: 0;
+  }
+  .header .profile img { width: 28px; height: 28px; border-radius: 50%; }
+  .header .profile .name { font-size: 0.8em; font-weight: 600; white-space: nowrap; }
+  .header .profile .handle { font-size: 0.7em; color: var(--muted); white-space: nowrap; }
+  @media (max-width: 600px) {
+    .header .title-area h1 { font-size: 1.1em; }
+    .header .profile { width: 100%; justify-content: center; }
+  }
+
+  /* STATS GRID */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .stats-grid .s {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .stats-grid .s .num { font-size: 1.6em; font-weight: 700; position: relative; z-index: 1; }
+  .stats-grid .s .lbl { font-size: 0.7em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 1px; position: relative; z-index: 1; }
+  .stats-grid .s .bar-bg {
+    position: absolute; bottom: 0; left: 0; height: 3px;
+    border-radius: 0 2px 0 0;
+  }
+  .stats-grid .s.purple .num { color: var(--purple); }
+  .stats-grid .s.purple .bar-bg { background: var(--purple); }
+  .stats-grid .s.green .num { color: var(--green); }
+  .stats-grid .s.green .bar-bg { background: var(--green); }
+  .stats-grid .s.yellow .num { color: var(--yellow); }
+  .stats-grid .s.yellow .bar-bg { background: var(--yellow); }
+  .stats-grid .s.blue .num { color: var(--accent); }
+  .stats-grid .s.blue .bar-bg { background: var(--accent); }
+  .stats-grid .s.orange .num { color: var(--orange); }
+  .stats-grid .s.orange .bar-bg { background: var(--orange); }
+  .stats-grid .s.pink .num { color: var(--pink); }
+  .stats-grid .s.pink .bar-bg { background: var(--pink); }
+
+  /* FILTER TABS */
+  .filter-bar {
+    display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .filter-bar .ftab {
+    font-size: 0.78em; padding: 6px 16px; border-radius: 20px; font-weight: 500;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .filter-bar .ftab:hover { border-color: var(--muted); color: var(--fg); }
+  .filter-bar .ftab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filter-bar .ftab .fc { font-size: 0.75em; opacity: 0.7; margin-left: 4px; }
+
+  /* SCROLL REVEAL */
+  .pr-card, .cc, .s { transition: opacity 0.5s ease, transform 0.5s ease; }
+  .pr-card { opacity: 0; transform: translateY(20px); }
+  .pr-card.revealed { opacity: 1; transform: translateY(0); }
+  .cc, .s { opacity: 0; transform: translateY(15px); }
+  .cc.revealed, .s.revealed { opacity: 1; transform: translateY(0); }
+
+  /* FILTER HIDE */
+  .pr-card.hidden { display: none; }
+
+  /* CHARTS ROW */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .charts-grid .cc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .charts-grid .cc h3 {
+    font-size: 0.8em;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .charts-grid .cc svg { display: block; margin: 0 auto; max-width: 100%; }
+  .charts-grid .cc.full { grid-column: 1 / -1; }
+
+  /* PR CARDS */
+  .section-title {
+    font-size: 1.2em;
+    margin: 32px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .count-badge {
+    font-size: 0.65em;
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 2px 10px;
+    border-radius: 12px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .pr-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .pr-card:hover {
+    border-color: #484f58;
+    box-shadow: 0 0 0 1px rgba(88,166,255,0.1);
+  }
+  .pr-card .top {
+    display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+  }
+  .pr-card .num { font-size: 1em; font-weight: 600; min-width: 55px; }
+  .pr-card .num a { color: var(--accent); }
+  .pr-card .title { flex: 1; font-size: 1em; }
+  .pr-card .tag {
+    font-size: 0.7em; padding: 2px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap;
+  }
+  .pr-card .tag.merged { background: #2a1a3a; color: var(--purple); border: 1px solid var(--purple); }
+  .pr-card .tag.approved { background: #1a3a2a; color: var(--green); border: 1px solid var(--green); }
+  .pr-card .tag.open { background: #3a2a1a; color: var(--yellow); border: 1px solid var(--yellow); }
+  .pr-card .meta {
+    display: flex; align-items: center; gap: 14px; margin-top: 8px;
+    font-size: 0.82em; color: var(--muted); flex-wrap: wrap;
+  }
+  .pr-card .meta .d { display: flex; align-items: center; gap: 4px; }
+  .pr-card .meta .d svg { opacity: 0.5; flex-shrink: 0; }
+  .pr-card .meta .src {
+    background: var(--bg); padding: 1px 7px; border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.85em;
+  }
+  .pr-card .meta .rv { display: flex; align-items: center; gap: 4px; }
+  .pr-card .meta .rv img { width: 16px; height: 16px; border-radius: 50%; }
+  .pr-card .detail {
+    margin-top: 7px; font-size: 0.83em; color: var(--muted); line-height: 1.5;
+  }
+  .pr-card .detail code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 0.9em;
+  }
+  .pr-card .detail .tbls { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+  .pr-card .detail .tbls code {
+    background: transparent; border: 1px solid var(--border); padding: 0 6px; font-size: 0.82em;
+  }
+
+  /* TOOLTIP */
+  .tip {
+    position: fixed;
+    background: #1c2333;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.8em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 100;
+    white-space: nowrap;
+  }
+  .tip.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="tip" id="tip"></div>
+
+<div class="container">
+
+<!-- HEADER -->
+<div class="header">
+  <img class="coral-logo" src="https://avatars.githubusercontent.com/u/269147539?v=4" alt="Coral">
+  <div class="title-area">
+    <h1>Coral Community Source PRs &mdash; Analytics</h1>
+    <div class="sub">SQL over APIs &mdash; 20 PRs across 18 community sources &mdash; 12 merged, 18 approved</div>
+    <div class="header-tags">
+      <span class="htag r">&#9679; <a href="https://github.com/withcoral/coral" style="color:inherit;text-decoration:none">github.com/withcoral/coral</a></span>
+      <span class="htag r">&#9679; <a href="https://withcoral.com" style="color:inherit;text-decoration:none">withcoral.com</a></span>
+      <span class="htag m">&#9679; 12 Merged</span>
+      <span class="htag a">&#9679; 18 Approved</span>
+      <span class="htag o">&#9679; 7 Open</span>
+      <span class="htag s">&#9679; 18 Sources</span>
+    </div>
+  </div>
+  <a href="https://github.com/FiscalMindset" style="text-decoration:none;color:inherit">
+    <div class="profile">
+      <img src="https://avatars.githubusercontent.com/u/254638087?v=4" alt="FiscalMindset">
+      <div>
+        <div class="name">FiscalMindset</div>
+        <div class="handle">@FiscalMindset</div>
+      </div>
+    </div>
+  </a>
+</div>
+
+<!-- STATS -->
+<div class="stats-grid">
+  <div class="s purple"><div class="num">20</div><div class="lbl">Our PRs</div><div class="bar-bg" style="width:100%"></div></div>
+  <div class="s purple"><div class="num">12</div><div class="lbl">Merged</div><div class="bar-bg" style="width:60%"></div></div>
+  <div class="s green"><div class="num">18</div><div class="lbl">Approved</div><div class="bar-bg" style="width:90%"></div></div>
+  <div class="s yellow"><div class="num">7</div><div class="lbl">Open</div><div class="bar-bg" style="width:35%"></div></div>
+  <div class="s blue"><div class="num">18</div><div class="lbl">Sources</div><div class="bar-bg" style="width:100%"></div></div>
+  <div class="s pink"><div class="num">22</div><div class="lbl">Files</div><div class="bar-bg" style="width:100%"></div></div>
+  <div class="s orange"><div class="num">1,011</div><div class="lbl">Total PRs</div><div class="bar-bg" style="width:100%;background:var(--orange)"></div></div>
+  <div class="s purple"><div class="num">612</div><div class="lbl">Repo Merged</div><div class="bar-bg" style="width:60%;background:var(--purple)"></div></div>
+  <div class="s yellow"><div class="num">223</div><div class="lbl">Repo Open</div><div class="bar-bg" style="width:22%;background:var(--yellow)"></div></div>
+  <div class="s green"><div class="num">1.7%</div><div class="lbl">Our Share</div><div class="bar-bg" style="width:2%;background:var(--green)"></div></div>
+  <div class="s blue"><div class="num">5.1k</div><div class="lbl">Stars</div><div class="bar-bg" style="width:100%;background:var(--accent)"></div></div>
+  <div class="s pink"><div class="num">212</div><div class="lbl">Forks</div><div class="bar-bg" style="width:100%;background:var(--pink)"></div></div>
+</div>
+
+<!-- FILTER TABS -->
+<div class="filter-bar">
+  <button class="ftab active" data-filter="all">All <span class="fc">20</span></button>
+  <button class="ftab" data-filter="merged">Merged <span class="fc">12</span></button>
+  <button class="ftab" data-filter="approved">Approved <span class="fc">6</span></button>
+  <button class="ftab" data-filter="open">Open <span class="fc">1</span></button>
+  <button class="ftab" data-filter="closed">Closed <span class="fc">1</span></button>
+</div>
+
+<!-- CHARTS -->
+<div class="charts-grid">
+  <!-- Donut: PR Status -->
+  <div class="cc">
+    <h3>PR Status Distribution</h3>
+    <svg width="260" height="210" viewBox="0 0 260 210">
+      <g transform="translate(130,95)">
+        <circle r="70" fill="none" stroke="#21262d" stroke-width="26"/>
+        <path d="M 0,-70 A 70,70 0 1,1 -41.1,56.6" fill="none" stroke="#bc8cff" stroke-width="26" stroke-linecap="round" class="chart-arc" data-label="Merged: 12" data-color="#bc8cff"/>
+        <path d="M -41.1,56.6 A 70,70 0 0,1 -41.1,-56.6" fill="none" stroke="#3fb950" stroke-width="26" stroke-linecap="round" class="chart-arc" data-label="Approved: 6" data-color="#3fb950"/>
+        <path d="M -41.1,-56.6 A 70,70 0 0,1 -21.6,-66.6" fill="none" stroke="#d29922" stroke-width="26" stroke-linecap="round" class="chart-arc" data-label="Needs Review: 1" data-color="#d29922"/>
+        <path d="M -21.6,-66.6 A 70,70 0 0,1 0,-70" fill="none" stroke="#f85149" stroke-width="26" stroke-linecap="round" class="chart-arc" data-label="Closed: 1" data-color="#f85149"/>
+        <text x="0" y="-5" fill="#e6edf3" font-size="18" text-anchor="middle" font-weight="700" font-family="-apple-system,sans-serif">20</text>
+        <text x="0" y="12" fill="#8b949e" font-size="10" text-anchor="middle" font-family="-apple-system,sans-serif">Total PRs</text>
+      </g>
+      <g transform="translate(10, 176)">
+        <rect x="0" y="0" width="10" height="10" rx="2" fill="#bc8cff"/>
+        <text x="16" y="9" fill="#8b949e" font-size="9" font-family="-apple-system,sans-serif">12 Merged</text>
+        <rect x="75" y="0" width="10" height="10" rx="2" fill="#3fb950"/>
+        <text x="91" y="9" fill="#8b949e" font-size="9" font-family="-apple-system,sans-serif">6 Approved</text>
+        <rect x="140" y="0" width="10" height="10" rx="2" fill="#d29922"/>
+        <text x="156" y="9" fill="#8b949e" font-size="9" font-family="-apple-system,sans-serif">1 Unreviewed</text>
+        <rect x="205" y="0" width="10" height="10" rx="2" fill="#f85149"/>
+        <text x="221" y="9" fill="#8b949e" font-size="9" font-family="-apple-system,sans-serif">1 Closed</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Bar: PRs per Day -->
+  <div class="cc">
+    <h3>PRs per Day</h3>
+    <svg width="580" height="210" viewBox="0 0 580 210">
+      <line x1="30" y1="20" x2="30" y2="175" stroke="#30363d" stroke-width="1"/>
+      <line x1="30" y1="25" x2="550" y2="25" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="30" y1="75" x2="550" y2="75" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="30" y1="125" x2="550" y2="125" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="30" y1="175" x2="550" y2="175" stroke="#30363d" stroke-width="1"/>
+      <text x="26" y="28" fill="#8b949e" font-size="8" text-anchor="end">3</text>
+      <text x="26" y="78" fill="#8b949e" font-size="8" text-anchor="end">2</text>
+      <text x="26" y="128" fill="#8b949e" font-size="8" text-anchor="end">1</text>
+      <text x="26" y="178" fill="#8b949e" font-size="8" text-anchor="end">0</text>
+      <text x="30" y="195" fill="#8b949e" font-size="7" text-anchor="middle">M25</text>
+      <text x="55" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T26</text>
+      <text x="80" y="195" fill="#8b949e" font-size="7" text-anchor="middle">W27</text>
+      <text x="104" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T28</text>
+      <text x="129" y="195" fill="#8b949e" font-size="7" text-anchor="middle">F29</text>
+      <text x="154" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S30</text>
+      <text x="179" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S31</text>
+      <text x="203" y="195" fill="#8b949e" font-size="7" text-anchor="middle">M1</text>
+      <text x="228" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T2</text>
+      <text x="253" y="195" fill="#8b949e" font-size="7" text-anchor="middle">W3</text>
+      <text x="278" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T4</text>
+      <text x="302" y="195" fill="#8b949e" font-size="7" text-anchor="middle">F5</text>
+      <text x="327" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S6</text>
+      <text x="352" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S7</text>
+      <text x="377" y="195" fill="#8b949e" font-size="7" text-anchor="middle">M8</text>
+      <text x="401" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T9</text>
+      <text x="426" y="195" fill="#8b949e" font-size="7" text-anchor="middle">W10</text>
+      <text x="451" y="195" fill="#8b949e" font-size="7" text-anchor="middle">T11</text>
+      <text x="476" y="195" fill="#8b949e" font-size="7" text-anchor="middle">F12</text>
+      <text x="500" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S13</text>
+      <text x="525" y="195" fill="#8b949e" font-size="7" text-anchor="middle">S14</text>
+      <text x="550" y="195" fill="#8b949e" font-size="7" text-anchor="middle">M15</text>
+      <rect x="23" y="125" width="14" height="50" rx="2" fill="#bc8cff" class="chart-bar" data-label="May 25: 1 PR" data-value="#754 Groq AI"/>
+      <rect x="48" y="125" width="14" height="50" rx="2" fill="#bc8cff" class="chart-bar" data-label="May 26: 1 PR" data-value="#798 Ollama"/>
+      <rect x="73" y="125" width="14" height="50" rx="2" fill="#bc8cff" class="chart-bar" data-label="May 27: 1 PR" data-value="#834 LM Studio"/>
+      <rect x="97" y="75" width="14" height="100" rx="2" fill="url(#g2)" class="chart-bar" data-label="May 28: 2 PRs" data-value="#882 OpenRouter, #958 NVIDIA NIM"/>
+      <rect x="122" y="75" width="14" height="100" rx="2" fill="#bc8cff" class="chart-bar" data-label="May 29: 2 PRs" data-value="#950 OpenRouter docs, #1011 Mistral AI"/>
+      <rect x="147" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="May 30: 0" data-value=""/>
+      <rect x="172" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="May 31: 0" data-value=""/>
+      <rect x="196" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 1: 0" data-value=""/>
+      <rect x="221" y="25" width="14" height="150" rx="2" fill="#bc8cff" class="chart-bar" data-label="Jun 2: 3 PRs" data-value="#1098 Cohere, #1112 Sarvam, #1115 Voyage"/>
+      <rect x="246" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 3: 0" data-value=""/>
+      <rect x="271" y="25" width="14" height="150" rx="2" fill="#3fb950" class="chart-bar" data-label="Jun 4: 3 PRs" data-value="#1118 Deepgram, #1173 PayPal, #1175 ElevenLabs"/>
+      <rect x="295" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 5: 0" data-value=""/>
+      <rect x="320" y="75" width="14" height="100" rx="2" fill="#3fb950" class="chart-bar" data-label="Jun 6: 2 PRs" data-value="#1204 Tavily, #1223 Blogger"/>
+      <rect x="345" y="125" width="14" height="50" rx="2" fill="#3fb950" class="chart-bar" data-label="Jun 7: 1 PR" data-value="#1230 Stream Video"/>
+      <rect x="370" y="125" width="14" height="50" rx="2" fill="#d29922" class="chart-bar" data-label="Jun 8: 1 PR" data-value="#1232 Razorpay"/>
+      <rect x="394" y="75" width="14" height="100" rx="2" fill="#3fb950" class="chart-bar" data-label="Jun 9: 2 PRs" data-value="#1240/#1242 Cloudinary"/>
+      <rect x="419" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 10: 0" data-value=""/>
+      <rect x="444" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 11: 0" data-value=""/>
+      <rect x="469" y="75" width="14" height="100" rx="2" fill="#bc8cff" class="chart-bar" data-label="Jun 12: 2 merged" data-value="#1118 Deepgram merged, #1204 Tavily merged"/>
+      <rect x="493" y="175" width="14" height="0" rx="2" fill="#21262d" class="chart-bar" data-label="Jun 13: 0" data-value=""/>
+      <rect x="518" y="125" width="14" height="50" rx="2" fill="#3fb950" class="chart-bar" data-label="Jun 14: 1 PR" data-value="#1260 PDF"/>
+      <rect x="543" y="75" width="14" height="100" rx="2" fill="#bc8cff" class="chart-bar" data-label="Jun 15: 2 events" data-value="#1242 Cloudinary merged, #1260 approved"/>
+      <polyline points="30,168 55,160 80,152 104,138 129,122 154,122 179,122 203,122 228,100 253,100 278,78 302,78 327,62 352,55 377,48 401,32 426,32 451,32 476,32 500,32 525,25 550,25"
+        fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="4,3" opacity="0.5"/>
+      <text x="560" y="40" fill="#58a6ff" font-size="8" opacity="0.6">cumulative</text>
+      <defs>
+        <linearGradient id="g2"><stop offset="0%" stop-color="#bc8cff"/><stop offset="100%" stop-color="#3fb950"/></linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <!-- Bar: Tables per Source -->
+  <div class="cc">
+    <h3>Tables per Source</h3>
+    <svg width="260" height="230" viewBox="0 0 260 230">
+      <line x1="90" y1="10" x2="90" y2="210" stroke="#30363d" stroke-width="1"/>
+      <line x1="90" y1="210" x2="240" y2="210" stroke="#30363d" stroke-width="1"/>
+      <line x1="90" y1="54" x2="240" y2="54" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="90" y1="106" x2="240" y2="106" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="90" y1="158" x2="240" y2="158" stroke="#21262d" stroke-width="0.5"/>
+      <text x="86" y="18" fill="#8b949e" font-size="8" text-anchor="end">PayPal</text>
+      <text x="86" y="38" fill="#8b949e" font-size="8" text-anchor="end">Cloudinary</text>
+      <text x="86" y="58" fill="#8b949e" font-size="8" text-anchor="end">Ollama</text>
+      <text x="86" y="78" fill="#8b949e" font-size="8" text-anchor="end">Blogger</text>
+      <text x="86" y="98" fill="#8b949e" font-size="8" text-anchor="end">Stream Vid</text>
+      <text x="86" y="118" fill="#8b949e" font-size="8" text-anchor="end">OpenRouter</text>
+      <text x="86" y="138" fill="#8b949e" font-size="8" text-anchor="end">Voyage AI</text>
+      <text x="86" y="158" fill="#8b949e" font-size="8" text-anchor="end">PDF</text>
+      <text x="86" y="178" fill="#8b949e" font-size="8" text-anchor="end">Most AI (2 ea)</text>
+      <text x="86" y="198" fill="#8b949e" font-size="8" text-anchor="end">ElevenLabs</text>
+      <text x="86" y="218" fill="#8b949e" font-size="8" text-anchor="end">Tavily</text>
+      <rect x="92" y="10" width="150" height="16" rx="2" fill="#f0883e" class="chart-bar" data-label="PayPal: 5 tables"/>
+      <rect x="92" y="28" width="150" height="16" rx="2" fill="#58a6ff" class="chart-bar" data-label="Cloudinary: 5 tables"/>
+      <rect x="92" y="48" width="120" height="16" rx="2" fill="#bc8cff" class="chart-bar" data-label="Ollama: 4 tables"/>
+      <rect x="92" y="68" width="120" height="16" rx="2" fill="#bc8cff" class="chart-bar" data-label="Blogger: 4 tables"/>
+      <rect x="92" y="88" width="120" height="16" rx="2" fill="#3fb950" class="chart-bar" data-label="Stream Video: 4 tables"/>
+      <rect x="92" y="108" width="90" height="16" rx="2" fill="#bc8cff" class="chart-bar" data-label="OpenRouter: 3 tables"/>
+      <rect x="92" y="128" width="90" height="16" rx="2" fill="#bc8cff" class="chart-bar" data-label="Voyage AI: 3 tables"/>
+      <rect x="92" y="148" width="60" height="16" rx="2" fill="#d29922" class="chart-bar" data-label="PDF: 2 tables"/>
+      <rect x="92" y="168" width="60" height="16" rx="2" fill="#79c0ff" class="chart-bar" data-label="Groq/LM/Mistral/Cohere/Sarvam/NVIDIA/Deepgram: 2 tables"/>
+      <rect x="92" y="188" width="60" height="16" rx="2" fill="#79c0ff" class="chart-bar" data-label="ElevenLabs: 2 tables"/>
+      <rect x="92" y="208" width="30" height="16" rx="2" fill="#3fb950" class="chart-bar" data-label="Tavily: 1 table (function)"/>
+    </svg>
+  </div>
+
+  <!-- Bar: Source Categories -->
+  <div class="cc">
+    <h3>Source Categories</h3>
+    <svg width="260" height="230" viewBox="0 0 260 230">
+      <line x1="100" y1="10" x2="100" y2="200" stroke="#30363d" stroke-width="1"/>
+      <line x1="100" y1="200" x2="240" y2="200" stroke="#30363d" stroke-width="1"/>
+      <text x="96" y="32" fill="#8b949e" font-size="9" text-anchor="end">LLM / Chat</text>
+      <text x="96" y="60" fill="#8b949e" font-size="9" text-anchor="end">Voice / Speech</text>
+      <text x="96" y="88" fill="#8b949e" font-size="9" text-anchor="end">Payments</text>
+      <text x="96" y="116" fill="#8b949e" font-size="9" text-anchor="end">Content / Blog</text>
+      <text x="96" y="144" fill="#8b949e" font-size="9" text-anchor="end">Video</text>
+      <text x="96" y="172" fill="#8b949e" font-size="9" text-anchor="end">Media Mgmt</text>
+      <text x="96" y="196" fill="#8b949e" font-size="9" text-anchor="end">Doc / Embed</text>
+      <rect x="102" y="18" width="130" height="20" rx="3" fill="#bc8cff" class="chart-bar" data-label="8 LLM sources"/>
+      <text x="240" y="33" fill="#bc8cff" font-size="9">8</text>
+      <rect x="102" y="46" width="33" height="20" rx="3" fill="#3fb950" class="chart-bar" data-label="2 Voice sources"/>
+      <text x="143" y="61" fill="#3fb950" font-size="9">2</text>
+      <rect x="102" y="74" width="33" height="20" rx="3" fill="#f0883e" class="chart-bar" data-label="2 Payment sources"/>
+      <text x="143" y="89" fill="#f0883e" font-size="9">2</text>
+      <rect x="102" y="102" width="16" height="20" rx="3" fill="#58a6ff" class="chart-bar" data-label="1 Content source"/>
+      <text x="126" y="117" fill="#58a6ff" font-size="9">1</text>
+      <rect x="102" y="130" width="16" height="20" rx="3" fill="#f778ba" class="chart-bar" data-label="1 Video source"/>
+      <text x="126" y="145" fill="#f778ba" font-size="9">1</text>
+      <rect x="102" y="158" width="16" height="20" rx="3" fill="#79c0ff" class="chart-bar" data-label="1 Media Mgmt source (Cloudinary)"/>
+      <text x="126" y="173" fill="#79c0ff" font-size="9">1</text>
+      <rect x="102" y="182" width="33" height="20" rx="3" fill="#d29922" class="chart-bar" data-label="2 Sources (PDF doc + Voyage embeddings)"/>
+      <text x="143" y="197" fill="#d29922" font-size="9">2</text>
+    </svg>
+  </div>
+
+  <!-- Full width: Review Cycles -->
+  <div class="cc full">
+    <h3>Review Cycles per PR</h3>
+    <svg width="100%" height="120" viewBox="0 0 900 120">
+      <line x1="20" y1="60" x2="880" y2="60" stroke="#30363d" stroke-width="1"/>
+      <text x="25" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#754</text>
+      <text x="70" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#798</text>
+      <text x="114" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#834</text>
+      <text x="159" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#882</text>
+      <text x="204" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#950</text>
+      <text x="249" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1011</text>
+      <text x="293" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1098</text>
+      <text x="338" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1112</text>
+      <text x="383" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1115</text>
+      <text x="428" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1118</text>
+      <text x="472" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1204</text>
+      <text x="517" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1242</text>
+      <text x="562" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#958</text>
+      <text x="607" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1173</text>
+      <text x="651" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1175</text>
+      <text x="696" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1223</text>
+      <text x="741" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1230</text>
+      <text x="786" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1260</text>
+      <text x="830" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1232</text>
+      <text x="875" y="18" fill="#8b949e" font-size="7" text-anchor="middle">#1240</text>
+      <text x="16" y="64" fill="#8b949e" font-size="8" text-anchor="end">0</text>
+      <text x="16" y="44" fill="#8b949e" font-size="8" text-anchor="end">1</text>
+      <text x="16" y="24" fill="#8b949e" font-size="8" text-anchor="end">2</text>
+      <text x="16" y="8" fill="#8b949e" font-size="8" text-anchor="end">3</text>
+      <circle cx="25" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#754: 0 rounds"/>
+      <circle cx="70" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#798: 0 rounds"/>
+      <circle cx="114" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#834: 0 rounds"/>
+      <circle cx="159" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#882: 0 rounds"/>
+      <circle cx="204" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#950: 0 rounds"/>
+      <circle cx="249" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#1011: 0 rounds"/>
+      <circle cx="293" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#1098: 0 rounds"/>
+      <circle cx="338" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#1112: 0 rounds"/>
+      <circle cx="383" cy="44" r="5" fill="#bc8cff" class="chart-dot" data-label="#1115: 0 rounds"/>
+      <circle cx="428" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1118: round 1"/>
+      <circle cx="428" cy="36" r="5" fill="#3fb950" class="chart-dot" data-label="#1118: round 2"/>
+      <circle cx="428" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1118: round 3"/>
+      <circle cx="428" cy="20" r="5" fill="#3fb950" class="chart-dot" data-label="#1118: round 4"/>
+      <circle cx="428" cy="8" r="5" fill="#3fb950" class="chart-dot" data-label="#1118: approved"/>
+      <circle cx="472" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1204: cubic r1"/>
+      <circle cx="472" cy="36" r="5" fill="#3fb950" class="chart-dot" data-label="#1204: r2"/>
+      <circle cx="472" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1204: approved"/>
+      <circle cx="517" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1242: round 1"/>
+      <circle cx="517" cy="36" r="5" fill="#3fb950" class="chart-dot" data-label="#1242: round 2"/>
+      <circle cx="517" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1242: round 3"/>
+      <circle cx="517" cy="20" r="5" fill="#3fb950" class="chart-dot" data-label="#1242: round 4"/>
+      <circle cx="517" cy="8" r="5" fill="#3fb950" class="chart-dot" data-label="#1242: approved"/>
+      <circle cx="562" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#958: cubic + r1"/>
+      <circle cx="562" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#958: approved"/>
+      <circle cx="607" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1173: cubic r1"/>
+      <circle cx="607" cy="36" r="5" fill="#3fb950" class="chart-dot" data-label="#1173: r2"/>
+      <circle cx="607" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1173: approved"/>
+      <circle cx="651" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1175: cubic + r1"/>
+      <circle cx="651" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1175: approved"/>
+      <circle cx="696" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1223: cubic r1"/>
+      <circle cx="696" cy="36" r="5" fill="#3fb950" class="chart-dot" data-label="#1223: r2"/>
+      <circle cx="696" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1223: approved"/>
+      <circle cx="741" cy="44" r="5" fill="#3fb950" class="chart-dot" data-label="#1230: r1"/>
+      <circle cx="741" cy="28" r="5" fill="#3fb950" class="chart-dot" data-label="#1230: approved"/>
+      <circle cx="786" cy="40" r="5" fill="#3fb950" class="chart-dot" data-label="#1260: cubic r1"/>
+      <circle cx="786" cy="32" r="5" fill="#3fb950" class="chart-dot" data-label="#1260: r2"/>
+      <circle cx="786" cy="24" r="5" fill="#3fb950" class="chart-dot" data-label="#1260: r3"/>
+      <circle cx="786" cy="16" r="5" fill="#3fb950" class="chart-dot" data-label="#1260: approved"/>
+      <circle cx="830" cy="52" r="5" fill="#d29922" class="chart-dot" data-label="#1232: cubic only"/>
+      <circle cx="875" cy="56" r="5" fill="#f85149" class="chart-dot" data-label="#1240: commented only"/>
+      <line x1="539" y1="0" x2="539" y2="120" stroke="#30363d" stroke-width="1" stroke-dasharray="4,4"/>
+      <text x="539" y="115" fill="#8b949e" font-size="8" text-anchor="middle">merged</text>
+      <text x="539" y="8" fill="#8b949e" font-size="8" text-anchor="middle">open / approved / closed</text>
+    </svg>
+  </div>
+
+  <!-- Full width: Cumulative Growth -->
+  <div class="cc full">
+    <h3>Cumulative PR Growth Over Time</h3>
+    <svg width="100%" height="180" viewBox="0 0 900 180">
+      <line x1="40" y1="20" x2="40" y2="155" stroke="#30363d" stroke-width="1"/>
+      <line x1="40" y1="155" x2="860" y2="155" stroke="#30363d" stroke-width="1"/>
+      <line x1="40" y1="20" x2="860" y2="20" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="40" y1="54" x2="860" y2="54" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="40" y1="88" x2="860" y2="88" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="40" y1="121" x2="860" y2="121" stroke="#21262d" stroke-width="0.5"/>
+      <line x1="40" y1="155" x2="860" y2="155" stroke="#21262d" stroke-width="0.5"/>
+      <text x="36" y="23" fill="#8b949e" font-size="8" text-anchor="end">20</text>
+      <text x="36" y="57" fill="#8b949e" font-size="8" text-anchor="end">15</text>
+      <text x="36" y="90" fill="#8b949e" font-size="8" text-anchor="end">10</text>
+      <text x="36" y="124" fill="#8b949e" font-size="8" text-anchor="end">5</text>
+      <text x="36" y="158" fill="#8b949e" font-size="8" text-anchor="end">0</text>
+      <text x="40" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">May 25</text>
+      <text x="103" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">May 27</text>
+      <text x="166" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">May 29</text>
+      <text x="229" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">May 31</text>
+      <text x="292" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 2</text>
+      <text x="355" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 3</text>
+      <text x="418" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 4</text>
+      <text x="482" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 5</text>
+      <text x="545" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 7</text>
+      <text x="608" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 8</text>
+      <text x="671" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 9</text>
+      <text x="734" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 12</text>
+      <text x="797" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 14</text>
+      <text x="860" y="168" fill="#8b949e" font-size="7.5" text-anchor="middle">Jun 15</text>
+      <polygon points="40,148 40,155 103,135 166,108 229,108 292,88 355,88 418,67 482,67 545,47 608,40 671,27 734,27 797,20 860,20 860,155"
+        fill="url(#areaGrad)" opacity="0.3"/>
+      <polyline points="40,148 103,135 166,108 229,108 292,88 355,88 418,67 482,67 545,47 608,40 671,27 734,27 797,20 860,20"
+        fill="none" stroke="#58a6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+        class="chart-line"/>
+      <circle cx="40" cy="148" r="4" fill="#58a6ff" class="chart-dot" data-label="May 25: 1 PR (#754)"/>
+      <circle cx="103" cy="135" r="4" fill="#58a6ff" class="chart-dot" data-label="May 27: 3 PRs"/>
+      <circle cx="166" cy="108" r="4" fill="#58a6ff" class="chart-dot" data-label="May 29: 7 PRs"/>
+      <circle cx="229" cy="108" r="4" fill="#58a6ff" class="chart-dot" data-label="May 31: 7 PRs (pause)"/>
+      <circle cx="292" cy="88" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 2: 10 PRs (mass merge)"/>
+      <circle cx="355" cy="88" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 3: 10 PRs"/>
+      <circle cx="418" cy="67" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 4: 13 PRs (approval day)"/>
+      <circle cx="482" cy="67" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 5: 13 PRs"/>
+      <circle cx="545" cy="47" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 7: 16 PRs (Blogger approved)"/>
+      <circle cx="608" cy="40" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 8: 17 PRs (Razorpay)"/>
+      <circle cx="671" cy="27" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 9: 19 PRs (Cloudinary)"/>
+      <circle cx="734" cy="27" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 12: 19 PRs (Deepgram+Tavily merged)"/>
+      <circle cx="797" cy="20" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 14: 20 PRs (PDF)"/>
+      <circle cx="860" cy="20" r="4" fill="#58a6ff" class="chart-dot" data-label="Jun 15: 20 PRs (#1242 merged)"/>
+      <defs>
+        <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#58a6ff" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<!-- PR LIST -->
+<div class="section-title">
+  <span style="background:#2a1a3a;color:var(--purple);border:1px solid var(--purple);padding:2px 10px;border-radius:10px;font-size:0.7em;font-weight:600">MERGED</span>
+  Merged
+  <span class="count-badge">12</span>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/754">#754</a></div>
+    <div class="title">feat(sources/community/groq_ai): add Groq AI community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 25</span>
+    <span class="src">groq_ai</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">First PR. Established the live-inference source pattern with required positive token bound.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/798">#798</a></div>
+    <div class="title">feat(sources/community/ollama): add Ollama community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 26</span>
+    <span class="src">ollama</span>
+    <span><span class="tbls"><code>models</code> <code>key</code> <code>version</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">Established local-only scope pattern. First source with key/version metadata tables.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/834">#834</a></div>
+    <div class="title">feat(sources/community/lm_studio): add LM Studio community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 27</span>
+    <span class="src">lm_studio</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">Local model server source. Standard two-table LLM pattern.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/882">#882</a></div>
+    <div class="title">feat(sources/community/openrouter): add OpenRouter community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 28</span>
+    <span class="src">openrouter</span>
+    <span><span class="tbls"><code>models</code> <code>key</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">First source with credits/rate-limit introspection via <code>key</code> table. Established metadata-table pattern.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/950">#950</a></div>
+    <div class="title">docs(sources/community/openrouter): update provider docs links</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 29</span>
+    <span class="src">openrouter</span>
+    <span>Docs-only PR</span>
+  </div>
+  <div class="detail">Simple docs update fixing stale provider documentation links.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1011">#1011</a></div>
+    <div class="title">feat(sources/community/mistral_ai): add Mistral AI community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> May 29</span>
+    <span class="src">mistral_ai</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">OpenAI-compatible chat completions. Standard two-table structure.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1098">#1098</a></div>
+    <div class="title">feat(sources/community/cohere_ai): add Cohere AI community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Jun 2</span>
+    <span class="src">cohere_ai</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">Merged alongside Sarvam AI and Voyage AI &mdash; three-source merge day.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1112">#1112</a></div>
+    <div class="title">feat(sources/community/sarvam_ai): add Sarvam AI community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Jun 2</span>
+    <span class="src">sarvam_ai</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+  </div>
+  <div class="detail">Indian language AI API. Standard model+chat structure.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1115">#1115</a></div>
+    <div class="title">feat(sources/community/voyage_ai): add Voyage AI community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Jun 2</span>
+    <span class="src">voyage_ai</span>
+    <span><span class="tbls"><code>models</code> <code>key</code> <code>embeddings</code></span></span>
+  </div>
+  <div class="detail">First embeddings source. Used vector preview pattern for large arrays.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1118">#1118</a></div>
+    <div class="title">feat(sources/community/deepgram): add Deepgram ASR community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Merged Jun 12</span>
+    <span class="src">deepgram</span>
+    <span><span class="tbls"><code>models</code> <code>transcriptions</code></span></span>
+  </div>
+  <div class="detail">5 review rounds &mdash; most complex by far. Request/body placement, response paths, legacy params, multichannel, permissions.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1204">#1204</a></div>
+    <div class="title">feat(sources/community/tavily): add Tavily community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Merged Jun 12</span>
+    <span class="src">tavily</span>
+    <span><span class="tbls"><code>search</code> (function)</span></span>
+  </div>
+  <div class="detail">First <code>kind: search</code> function source. Fixed filter-column mismatches (include_answer, favicon). max_results vs LIMIT docs.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1242">#1242</a></div>
+    <div class="title">feat(sources/community): add Cloudinary community source</div>
+    <span class="tag merged">MERGED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Merged Jun 15</span>
+    <span class="src">cloudinary</span>
+    <span><span class="tbls"><code>resources</code> <code>folders</code> <code>upload_presets</code> <code>usage</code> <code>metadata_fields</code></span></span>
+  </div>
+  <div class="detail">5-table asset management source. 884 additions. Superseded #1240. Basic auth via <code>api_key:api_secret</code> Base64 token.</div>
+</div>
+
+<div class="section-title">
+  <span style="background:#1a3a2a;color:var(--green);border:1px solid var(--green);padding:2px 10px;border-radius:10px;font-size:0.7em;font-weight:600">APPROVED</span>
+  Approved (Open)
+  <span class="count-badge">6</span>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1260">#1260</a></div>
+    <div class="title">feat(sources/community/pdf): add PDF community source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved Jun 15</span>
+    <span class="src">pdf</span>
+    <span><span class="tbls"><code>pages</code> <code>documents</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">File-backed JSONL source. PyMuPDF extraction (text, tables, images, links, annotations, form fields). OCR via OCRmyPDF. Fixed backend/JSONL schema, PII/sample data, json_length, error exits, Python deps, OCR prerequisites, mutable URLs &mdash; 4 review rounds.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/958">#958</a></div>
+    <div class="title">feat(sources/community/nvidia_nim): add NVIDIA NIM community source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved May 28</span>
+    <span class="src">nvidia_nim</span>
+    <span><span class="tbls"><code>models</code> <code>chat_completions</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">Async endpoints (HTTP 202 polling) removed. Embeddings removed (model-specific bodies). Constrained to sync-only model list + bounded chat.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1173">#1173</a></div>
+    <div class="title">feat(sources/community/paypal): add PayPal community source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved Jun 4</span>
+    <span class="src">paypal</span>
+    <span><span class="tbls"><code>balances</code> <code>balance_summary</code> <code>transaction_search</code> <code>invoices</code> <code>webhooks</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">Largest source (5 tables, 1277 additions). Row-normalized transactions, exact OAuth scope URIs, balance shape fixes.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1175">#1175</a></div>
+    <div class="title">feat(sources/community/elevenlabs): add ElevenLabs community source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved Jun 4</span>
+    <span class="src">elevenlabs</span>
+    <span><span class="tbls"><code>models</code> <code>voices</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">Migrated from legacy v1/voices to v2/voices with cursor pagination. Fixed docs link. Added performance flag.</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1223">#1223</a></div>
+    <div class="title">feat(sources/community/blogger): add Blogger community source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved Jun 7</span>
+    <span class="src">blogger</span>
+    <span><span class="tbls"><code>blogs</code> <code>posts</code> <code>comments</code> <code>posts_search</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">Public-only boundary doc, removed unsupported search pagination, Timestamp/Int64 types, P0 column path fix (post.id vs blog.id).</div>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1230">#1230</a></div>
+    <div class="title">feat(sources/community): add Stream Video source</div>
+    <span class="tag approved">APPROVED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Approved Jun 9</span>
+    <span class="src">stream_video</span>
+    <span><span class="tbls"><code>app</code> <code>calls</code> <code>call</code> <code>call_members</code></span></span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">jsummerfield</span>
+  </div>
+  <div class="detail">Nanosecond timestamps (not microseconds), <code>[user, name]</code> path, removed hardcoded call IDs, page_size config.</div>
+</div>
+
+<div class="section-title">
+  <span style="background:#3a2a1a;color:var(--yellow);border:1px solid var(--yellow);padding:2px 10px;border-radius:10px;font-size:0.7em;font-weight:600">OPEN</span>
+  Needs Review
+  <span class="count-badge">1</span>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1232">#1232</a></div>
+    <div class="title">feat(sources/community/razorpay): add Razorpay community source</div>
+    <span class="tag open">OPEN</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Opened Jun 8</span>
+    <span class="src">razorpay</span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">Awaiting jsummerfield</span>
+  </div>
+  <div class="detail">Only cubic-dev-ai reviewed so far. Awaiting human review from jsummerfield. Last commit: payment link filters.</div>
+</div>
+
+<div class="section-title">
+  <span style="background:#2a1a1a;color:var(--pink);border:1px solid var(--pink);padding:2px 10px;border-radius:10px;font-size:0.7em;font-weight:600">CLOSED</span>
+  Closed (Not Merged)
+  <span class="count-badge">1</span>
+</div>
+
+<div class="pr-card">
+  <div class="top">
+    <div class="num"><a href="https://github.com/withcoral/coral/pull/1240">#1240</a></div>
+    <div class="title">feat(sources/community/cloudinary): add Cloudinary community source</div>
+    <span class="tag open" style="background:#2a1a1a;color:var(--pink);border-color:var(--pink)">CLOSED</span>
+  </div>
+  <div class="meta">
+    <span class="d"><svg width="14" height="14" viewBox="0 0 16 16" fill="#8b949e"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm0 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.5 4v5h4V7.5H9V4H7.5z"/></svg> Opened &amp; closed Jun 9</span>
+    <span class="src">cloudinary</span>
+    <span class="rv"><img src="https://avatars.githubusercontent.com/u/269147539?v=4">Superseded by #1242</span>
+  </div>
+  <div class="detail">First Cloudinary attempt closed in favor of the improved <a href="https://github.com/withcoral/coral/pull/1242" style="color:var(--accent);text-decoration:none">#1242</a>. Got COMMENTED from cubic-dev-ai only.</div>
+</div>
+
+</div>
+
+<script>
+(function() {
+  var tip = document.getElementById('tip');
+  function showTip(e, text) {
+    if (!text) return;
+    tip.textContent = text;
+    tip.style.left = (e.clientX + 12) + 'px';
+    tip.style.top = (e.clientY - 8) + 'px';
+    tip.classList.add('show');
+  }
+  function hideTip() { tip.classList.remove('show'); }
+
+  var bars = document.querySelectorAll('.chart-bar, .chart-dot, .chart-arc, .chart-line');
+  bars.forEach(function(el) {
+    el.addEventListener('mousemove', function(e) {
+      var label = el.getAttribute('data-label') || '';
+      showTip(e, label);
+    });
+    el.addEventListener('mouseleave', hideTip);
+  });
+  var arcs = document.querySelectorAll('.chart-arc');
+  arcs.forEach(function(el) {
+    el.addEventListener('mousemove', function(e) {
+      showTip(e, el.getAttribute('data-label'));
+    });
+  });
+
+  // FILTER TABS
+  var tabs = document.querySelectorAll('.ftab');
+  var allCards = document.querySelectorAll('.pr-card');
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      tabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      var filter = tab.getAttribute('data-filter');
+      allCards.forEach(function(card) {
+        if (filter === 'all') {
+          card.classList.remove('hidden');
+        } else {
+          var tag = card.querySelector('.tag');
+          var match = tag && tag.textContent.trim().toLowerCase() === filter;
+          if (match) { card.classList.remove('hidden'); }
+          else { card.classList.add('hidden'); }
+        }
+      });
+    });
+  });
+
+  // COUNT-UP
+  var nums = document.querySelectorAll('.s .num');
+  function animateCount(el, target) {
+    var clean = target.replace(/[^0-9.]/g, '');
+    var isPercent = target.indexOf('%') !== -1;
+    var hasComma = target.indexOf(',') !== -1;
+    var end = parseFloat(clean) || 0;
+    var dur = 800;
+    var startTime = null;
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      var p = Math.min((ts - startTime) / dur, 1);
+      var current = Math.round(p * end);
+      var display = hasComma ? current.toLocaleString() : String(current);
+      if (isPercent) display = current + '%';
+      if (end >= 1000 && !hasComma) display = String(current);
+      el.textContent = display;
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  nums.forEach(function(el) {
+    var target = el.textContent;
+    animateCount(el, target);
+  });
+
+  // SCROLL REVEAL
+  var revealEls = document.querySelectorAll('.pr-card, .cc, .s');
+  if ('IntersectionObserver' in window) {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('revealed');
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+    revealEls.forEach(function(el) { obs.observe(el); });
+  } else {
+    revealEls.forEach(function(el) { el.classList.add('revealed'); });
+  }
+})();
+</script>
+
+</body>
+</html>

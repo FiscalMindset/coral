@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coral Source PRs — Agent Workflow Reference</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --border: #30363d;
+    --code-bg: #161b22;
+    --heading: #f0f6fc;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    padding: 0;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+  h1 { color: var(--heading); font-size: 2em; margin: 24px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h2 { color: var(--heading); font-size: 1.5em; margin: 32px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { color: var(--accent); font-size: 1.15em; margin: 24px 0 8px; }
+  p, li { margin: 6px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 0.85em;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 0.9em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  th { background: #161b22; color: var(--accent); font-weight: 600; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+  }
+  .badge-green { background: #1a3a2a; color: var(--green); border: 1px solid var(--green); }
+  .badge-red { background: #3a1a1a; color: var(--red); border: 1px solid var(--red); }
+  .badge-yellow { background: #3a2a1a; color: var(--yellow); border: 1px solid var(--yellow); }
+  .badge-purple { background: #2a1a3a; color: #bc8cff; border: 1px solid #bc8cff; }
+  .card {
+    background: #161b22;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 12px 0;
+  }
+  .card-title { font-weight: 600; margin-bottom: 8px; color: var(--accent); }
+  .nav { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 8px 24px; z-index: 100; }
+  .nav a { margin-right: 16px; font-size: 0.9em; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  ul { padding-left: 24px; }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a href="#structure">Directory</a>
+  <a href="#workflow">Workflow</a>
+  <a href="#skills">Skills</a>
+  <a href="#prs">All PRs</a>
+  <a href="#review-patterns">Review Patterns</a>
+  <a href="#rules">Rules</a>
+</div>
+
+<div class="container">
+
+<h1>Coral Source PRs — Agent Workflow Reference</h1>
+
+<div class="card">
+<p><strong>Goal:</strong> Any coding agent reading this should be able to create a Coral community source PR from scratch. This file explains the workflow, directory structure, skills to load, and patterns from 17 past PRs.</p>
+</div>
+
+<!-- =================== DIRECTORY =================== -->
+<h2 id="structure">Directory Structure</h2>
+
+<pre>
+~/coral/
+  |
+  coral-pr-work/                  # FORK CLONE of FiscalMindset/coral
+  |   origin → FiscalMindset/coral
+  |   upstream → withcoral/coral
+  |   coral CLI already installed
+  |
+  |── sources/community/&lt;source&gt;/   # ONLY 2 FILES PER PR:
+  |   ├── manifest.yaml              # Source spec
+  |   └── README.md                  # Documentation
+  |
+  output_proof/                     # LOCAL ONLY — .env with API keys
+</pre>
+
+<h3>Branch naming</h3>
+<pre>add-&lt;name&gt;--source           # e.g. add-stream-video-source</pre>
+
+<h3>Start a new source</h3>
+<pre>cd ~/coral/coral-pr-work
+git switch main
+git fetch upstream
+git merge --ff-only upstream/main
+git checkout -b add-&lt;source&gt;-source</pre>
+
+<h3>API Keys (.env)</h3>
+<pre>Location: ~/coral/output_proof/.env
+Format:   &lt;PROVIDER&gt;_API_KEY=xxx
+
+Examples:
+  DEEPGRAM_API_KEY=your_deepgram_key
+  STREAM_API_KEY=your_stream_key
+  STREAM_SERVER_TOKEN=your_stream_token
+
+The agent needs to export these before running coral commands.
+Never commit .env or any real key values.</pre>
+
+<h3>PR title format</h3>
+<pre>feat(sources/community/&lt;source_name&gt;): add &lt;Provider&gt; community source</pre>
+
+<!-- =================== WORKFLOW =================== -->
+<h2 id="workflow">Workflow (Step by Step)</h2>
+
+<div class="card">
+<h3>Phase 1: Load Skills</h3>
+<p>Before writing anything, load both skills:</p>
+<pre>Skill: coral-create-source-spec  (~/.agents/skills/coral-create-source-spec/SKILL.md)
+Skill: coral-review-source-spec  (~/.agents/skills/coral-review-source-spec/SKILL.md)</pre>
+<p>The create skill has detailed instructions for building manifest.yaml. The review skill has the review checklist.</p>
+</div>
+
+<div class="card">
+<h3>Phase 2: Analyze the API</h3>
+<ol>
+  <li>Read the provider's API docs</li>
+  <li>Determine: base URL, auth method (API key, Bearer, OAuth, etc.), required headers, response JSON shape, pagination style (if any), rate limits, deprecated fields</li>
+  <li>Decide which endpoints to model as tables — each table maps to one API endpoint</li>
+  <li>Decide columns based on the API response JSON paths</li>
+  <li>Decide required filters (filters the API requires vs optional ones)</li>
+  <li>Decide pagination (does the API support it? what mode? cursor vs offset vs page?)</li>
+  <li>Check if IDs contain <code>/</code>, <code>:</code>, or other path-sensitive characters</li>
+</ol>
+<p><strong>Key:</strong> Everything depends on the API. No hard rules about pagination, page_size, filters, columns — they all depend on what the provider's API actually does.</p>
+</div>
+
+<div class="card">
+<h3>Phase 3: Create manifest.yaml</h3>
+<p>Located at <code>sources/community/&lt;source&gt;/manifest.yaml</code></p>
+<p>Follow the <code>coral-create-source-spec</code> skill instructions. Typical sections:</p>
+<ul>
+  <li><code>name</code>, <code>version</code>, <code>dsl_version</code></li>
+  <li><code>backend</code> (usually <code>http</code>)</li>
+  <li><code>base_url</code></li>
+  <li><code>inputs</code> — secrets (API keys) and variables (non-secret config)</li>
+  <li><code>auth</code> — header auth, query param auth, etc.</li>
+  <li><code>tables</code> — each with method, path, filters, columns, rows_path, pagination (if applicable)</li>
+  <li><code>test_queries</code> — safe, source-independent SQL tests</li>
+</ul>
+</div>
+
+<div class="card">
+<h3>Phase 4: Write README.md</h3>
+<p>Located at <code>sources/community/&lt;source&gt;/README.md</code></p>
+<p>Sections: Summary, Authentication, Live Request Costs (if billable), Provider Docs (links), Source Shape, Tables (with columns), Validation (lint + add + test + live SQL output), Scope &amp; Limitations.</p>
+<p>Text proof only. Redact real identifiers. No AI wording, no local paths, no WSL.</p>
+</div>
+
+<div class="card">
+<h3>Phase 5: Validate Locally</h3>
+<p>First export API keys from <code>output_proof/.env</code>:</p>
+<pre>export $(grep -v '^\s*#' ~/coral/output_proof/.env | xargs)</pre>
+<p>Run validation. Capture output for README and PR body. Every table needs live SQL proof, not just the test queries.</p>
+
+<pre># 1. Lint
+coral source lint sources/community/&lt;source&gt;/manifest.yaml
+
+# 2. Add source (shows tables + test query results)
+coral source add --file sources/community/&lt;source&gt;/manifest.yaml
+
+# 3. Source test
+coral source test &lt;source&gt;
+
+# 4. Table introspection
+coral sql "SELECT table_name FROM coral.tables WHERE schema_name = '&lt;source&gt;' ORDER BY table_name"
+
+# 5. Column introspection
+coral sql "SELECT table_name, column_name, data_type FROM coral.columns WHERE schema_name = '&lt;source&gt;' ORDER BY table_name, ordinal_position"
+
+# 6. Inputs introspection
+coral sql "SELECT key, kind, required FROM coral.inputs WHERE schema_name = '&lt;source&gt;' ORDER BY key"
+
+# 7. Live proof for EACH table — select real columns with LIMIT
+coral sql "SELECT col1, col2 FROM &lt;source&gt;.&lt;table1&gt; LIMIT 3"
+coral sql "SELECT col1, col2 FROM &lt;source&gt;.&lt;table2&gt; WHERE required_filter = 'val' LIMIT 3"
+</pre>
+
+<p>For README/PR body, present each command followed by its output in a code block. Redact identifiers but keep column shapes real. Example format:</p>
+
+<pre>```bash
+$ coral source lint sources/community/&lt;source&gt;/manifest.yaml
+Manifest is valid
+```
+
+```bash
+$ coral source add --file sources/community/&lt;source&gt;/manifest.yaml
+Added source &lt;source&gt;
+
+  ✓ &lt;source&gt; connected successfully
+
+    &lt;source&gt; (N tables)
+    ├─ table1
+    └─ table2
+    Query tests
+    N declared · N passed · 0 failed
+
+    ✓ SELECT ...
+      N rows
+```
+
+```bash
+$ coral sql "SELECT col1, col2 FROM &lt;source&gt;.&lt;table1&gt; LIMIT 3"
++---------+---------+
+| col1    | col2    |
++---------+---------+
+| val1    | val2    |
+| val3    | val4    |
++---------+---------+
+```</pre>
+</div>
+
+<div class="card">
+<h3>Phase 6: Create PR</h3>
+<pre>git add sources/community/&lt;source&gt;/
+git commit -m "feat(sources/community): add &lt;Provider&gt; source"
+git push origin add-&lt;source&gt;-source
+# Create PR via GitHub</pre>
+<p>PR body: Summary, Why this source, Provider docs, Source shape (tables), Source scope, Validation output (lint + add + test + live SQL), Closes #issue.</p>
+</div>
+
+<div class="card">
+<h3>Phase 7: Respond to Review</h3>
+<ul>
+  <li><strong>Do NOT reply</strong> to cubic-dev-ai[bot] — just fix issues silently</li>
+  <li><strong>DO reply</strong> to jsummerfield (human) with commit SHA + what changed + fresh validation proof</li>
+</ul>
+</div>
+
+<!-- =================== SKILLS =================== -->
+<h2 id="skills">Skills</h2>
+
+<p>These are the actual skill files — LOAD THEM before starting any source work.</p>
+
+<h3>coral-create-source-spec</h3>
+<p><code>~/.agents/skills/coral-create-source-spec/SKILL.md</code></p>
+<p>Follow this skill's workflow to create manifest.yaml and README.md. It covers: metadata, backend, base_url, auth, inputs, credential methods, tables, filters, response extraction, pagination, typed columns.</p>
+
+<h3>coral-review-source-spec</h3>
+<p><code>~/.agents/skills/coral-review-source-spec/SKILL.md</code></p>
+<p>Use this to review your own work before opening PR and after each review round. Covers: scope &amp; fit, setup &amp; documentation, query ergonomics, HTTP &amp; API semantics, column design, style consistency.</p>
+
+<!-- =================== ALL PRs =================== -->
+<h2 id="prs">All PRs (Reference)</h2>
+
+<table>
+  <tr><th>#</th><th>Source</th><th>PR</th><th>Status</th><th>Tables</th></tr>
+  <tr><td>1</td><td>Groq AI</td><td><a href="https://github.com/withcoral/coral/pull/754">#754</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>2</td><td>Ollama</td><td><a href="https://github.com/withcoral/coral/pull/798">#798</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>key</code>, <code>version</code>, <code>chat_completions</code></td></tr>
+  <tr><td>3</td><td>LM Studio</td><td><a href="https://github.com/withcoral/coral/pull/834">#834</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>4</td><td>OpenRouter</td><td><a href="https://github.com/withcoral/coral/pull/882">#882</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>key</code>, <code>chat_completions</code></td></tr>
+  <tr><td>5</td><td>OpenRouter docs</td><td><a href="https://github.com/withcoral/coral/pull/950">#950</a></td><td><span class="badge badge-purple">MERGED</span></td><td>— (docs only)</td></tr>
+  <tr><td>6</td><td>Mistral AI</td><td><a href="https://github.com/withcoral/coral/pull/1011">#1011</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>7</td><td>Cohere AI</td><td><a href="https://github.com/withcoral/coral/pull/1098">#1098</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>8</td><td>Sarvam AI</td><td><a href="https://github.com/withcoral/coral/pull/1112">#1112</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>9</td><td>Voyage AI</td><td><a href="https://github.com/withcoral/coral/pull/1115">#1115</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>key</code>, <code>embeddings</code></td></tr>
+  <tr><td>10</td><td>NVIDIA NIM</td><td><a href="https://github.com/withcoral/coral/pull/958">#958</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>11</td><td>Deepgram</td><td><a href="https://github.com/withcoral/coral/pull/1118">#1118</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>transcriptions</code></td></tr>
+  <tr><td>12</td><td>PayPal</td><td><a href="https://github.com/withcoral/coral/pull/1173">#1173</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>balances</code>, <code>balance_summary</code>, <code>transaction_search</code>, <code>invoices</code>, <code>webhooks</code></td></tr>
+  <tr><td>13</td><td>ElevenLabs</td><td><a href="https://github.com/withcoral/coral/pull/1175">#1175</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>voices</code></td></tr>
+  <tr><td>14</td><td>Tavily</td><td><a href="https://github.com/withcoral/coral/pull/1204">#1204</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>search</code> (function)</td></tr>
+  <tr><td>15</td><td>Blogger</td><td><a href="https://github.com/withcoral/coral/pull/1223">#1223</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>blogs</code>, <code>posts</code>, <code>comments</code>, <code>posts_search</code></td></tr>
+  <tr><td>16</td><td>Stream Video</td><td><a href="https://github.com/withcoral/coral/pull/1230">#1230</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>app</code>, <code>calls</code>, <code>call</code>, <code>call_members</code></td></tr>
+  <tr><td>17</td><td>Razorpay</td><td><a href="https://github.com/withcoral/coral/pull/1232">#1232</a></td><td><span class="badge badge-yellow">OPEN</span></td><td>—</td></tr>
+</table>
+
+<!-- =================== REVIEW PATTERNS =================== -->
+<h2 id="review-patterns">Review Patterns (From All 17 PRs)</h2>
+
+<p>These are <strong>patterns</strong>, not hard rules. Each API is different. But these are the things jsummerfield has flagged across multiple reviews:</p>
+
+<table>
+  <tr><th>What Got Flagged</th><th>PR Examples</th><th>Check</th></tr>
+  <tr><td>Filter sent but no matching output column</td><td>Tavily <code>include_answer</code> without <code>answer</code> column</td><td>Every filter that requests data should have a column to receive it</td></tr>
+  <tr><td>Output column but no filter to request it</td><td>Deepgram <code>paragraphs</code> column without <code>paragraphs</code> filter</td><td>Every optional output column should have a way to enable it</td></tr>
+  <tr><td>Array collapsed into single-row convenience fields</td><td>PayPal <code>first_transaction_*</code> instead of row-normalized</td><td>Model arrays as proper rows with pagination</td></tr>
+  <tr><td>Wrong JSON response paths</td><td>Deepgram intelligence paths, Stream Video <code>[name]</code> vs <code>[user, name]</code></td><td>Verify paths against real API response</td></tr>
+  <tr><td>Deprecated endpoints or params</td><td>ElevenLabs <code>v1/voices</code>, Deepgram <code>ner</code>/<code>numericalize</code></td><td>Check current provider docs</td></tr>
+  <tr><td>Timestamp type mismatch</td><td>Blogger RFC 3339 as Utf8, Stream Video nanoseconds as microseconds</td><td>Use correct type for actual API output</td></tr>
+  <tr><td>Async endpoints modeled as sync</td><td>NVIDIA NIM HTTP 202 polling</td><td>Constrain scope to sync endpoints only</td></tr>
+  <tr><td>Hardcoded test IDs</td><td>Stream Video call IDs in test_queries</td><td>Tests must be source-independent</td></tr>
+  <tr><td>Unsupported pagination declared</td><td>Blogger <code>posts_search</code> with <code>pageToken</code></td><td>Only declare pagination the API supports</td></tr>
+  <tr><td>Missing live proof for some tables</td><td>Stream Video <code>call</code>/<code>call_members</code></td><td>Every table should have live SQL proof</td></tr>
+  <tr><td>Unredacted identifiers</td><td>Real app/org/user IDs in README</td><td>Sanitize all identifying values</td></tr>
+</table>
+
+<!-- =================== RULES =================== -->
+<h2 id="rules">Rules</h2>
+
+<ul>
+  <li>Only 2 files per PR: <code>manifest.yaml</code> + <code>README.md</code> in <code>sources/community/&lt;source&gt;/</code></li>
+  <li>Coral CLI already installed. Git remotes already configured.</li>
+  <li>Load <code>coral-create-source-spec</code> skill before creating</li>
+  <li>Load <code>coral-review-source-spec</code> skill before reviewing</li>
+  <li>No AI/Codex/ChatGPT wording anywhere in public PRs</li>
+  <li>No WSL, local paths, or real API keys in public text</li>
+  <li>Redact identifiers: <code>your-app</code>, <code>user_abc123</code>, <code>call_abc123</code></li>
+  <li>Never commit <code>.env</code> or real API keys</li>
+  <li>Do NOT reply to cubic-dev-ai[bot]; DO reply to jsummerfield</li>
+  <li>Live tables require a positive bound (max_tokens etc.)</li>
+  <li>Document paid API costs near Authentication section</li>
+</ul>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coral Source Spec — Review & Workflow Guide</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --pink: #f778ba;
+    --cyan: #79c0ff;
+    --border: #30363d;
+    --card: #161b22;
+    --muted: #8b949e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+
+  .header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .header h1 { font-size: 1.4em; letter-spacing: -0.3px; }
+  .header .sub { color: var(--muted); font-size: 0.85em; margin-top: 2px; width: 100%; }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .step-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .step-head .num {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.85em; flex-shrink: 0;
+  }
+  .step-head .num.done { background: var(--green); color: #fff; }
+  .step-head .num.pending { background: var(--card); border: 2px solid var(--border); color: var(--muted); }
+  .step-head .num.active { background: var(--accent); color: #fff; }
+  .step-head .num.warn { background: var(--yellow); color: #000; }
+  .step-head .title { font-weight: 600; font-size: 1em; flex: 1; }
+  .step-head .status {
+    font-size: 0.75em; padding: 2px 10px; border-radius: 10px; font-weight: 600;
+  }
+  .step-head .status.ready { background: #1a3a2a; color: var(--green); border: 1px solid var(--green); }
+  .step-head .status.waiting { background: #3a2a1a; color: var(--yellow); border: 1px solid var(--yellow); }
+  .step-head .status.done { background: #1a2a3a; color: var(--accent); border: 1px solid var(--accent); }
+  .step-body {
+    padding: 0 20px 16px;
+    display: none;
+  }
+  .step-body.open { display: block; }
+
+  .step-body h4 {
+    font-size: 0.85em; color: var(--accent); margin: 14px 0 8px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .step-body p, .step-body li { font-size: 0.88em; color: var(--muted); line-height: 1.6; }
+  .step-body ul { padding-left: 18px; margin: 6px 0; }
+  .step-body li { margin-bottom: 4px; }
+
+  .cmd {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 14px; margin: 8px 0;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 0.82em;
+    overflow-x: auto; white-space: pre-wrap;
+  }
+  .cmd .prompt { color: var(--green); }
+  .cmd .comment { color: var(--muted); font-style: italic; }
+  .cmd .output { color: var(--cyan); }
+  .cmd .error { color: var(--red); }
+
+  .note {
+    background: #1a2a3a; border: 1px solid var(--accent); border-radius: 6px;
+    padding: 10px 14px; margin: 8px 0; font-size: 0.85em; color: var(--cyan);
+  }
+  .note strong { color: var(--accent); }
+  .note.warn {
+    background: #2a2a1a; border-color: var(--yellow); color: var(--yellow);
+  }
+  .note.warn strong { color: var(--orange); }
+  .note.err {
+    background: #2a1a1a; border-color: var(--red); color: var(--red);
+  }
+  .note.err strong { color: var(--pink); }
+  .note.good {
+    background: #1a2a1a; border-color: var(--green); color: var(--green);
+  }
+  .note.good strong { color: #fff; }
+
+  .checklist { list-style: none; padding: 0; margin: 8px 0; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0; font-size: 0.88em; color: var(--muted);
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist li .cb {
+    width: 16px; height: 16px; border: 2px solid var(--border); border-radius: 3px;
+    flex-shrink: 0; margin-top: 3px; cursor: pointer;
+  }
+  .checklist li .cb.checked {
+    background: var(--green); border-color: var(--green);
+    position: relative;
+  }
+  .checklist li .cb.checked::after {
+    content: ''; position: absolute;
+    left: 4px; top: 1px; width: 5px; height: 8px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+
+  .tbl {
+    width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.85em;
+  }
+  .tbl th {
+    text-align: left; padding: 6px 10px; background: var(--bg);
+    border-bottom: 1px solid var(--border); color: var(--muted);
+    font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .tbl td { padding: 6px 10px; border-bottom: 1px solid rgba(48,54,61,0.5); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl code {
+    background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 0.9em;
+  }
+
+  .skills-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px; margin: 10px 0;
+  }
+  .skills-grid .skill-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .skills-grid .skill-card .sname {
+    font-weight: 600; font-size: 0.9em; color: var(--accent);
+  }
+  .skills-grid .skill-card .sdesc {
+    font-size: 0.8em; color: var(--muted); margin-top: 4px;
+  }
+
+  .progress-bar {
+    height: 4px; background: var(--border); border-radius: 2px; margin: 20px 0 0;
+    overflow: hidden;
+  }
+  .progress-bar .fill {
+    height: 100%; background: var(--green); border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--fg); font-size: 0.8em;
+    font-weight: 600; cursor: pointer; transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn:active { transform: scale(0.96); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+  .copy-btn .icon { font-size: 1.1em; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #000; padding: 8px 20px; border-radius: 8px;
+    font-weight: 600; font-size: 0.85em; z-index: 999;
+    opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 600px) {
+    .container { padding: 16px 12px; }
+    .step-head { padding: 10px 14px; }
+    .step-body { padding: 0 14px 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="header">
+  <h1>Coral Source Spec — Review &amp; Workflow Guide</h1>
+  <div class="sub">End-to-end checklist for creating, testing, and shipping a Coral community source via PR</div>
+  <button class="copy-btn" onclick="copyPrompt()" title="Copy a complete agent prompt based on this guide">
+    <span class="icon">⎘</span> Copy as agent prompt
+  </button>
+</div>
+
+<div class="toast" id="toast">✓ Copied to clipboard</div>
+
+<!-- STEP 0 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">0</div>
+    <div class="title">Prerequisites &amp; environment setup</div>
+    <span class="status waiting">Setup</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Ensure the environment is ready — Coral installed, git remotes configured, skills loaded, working directory correct. A coding agent follows these steps automatically.</p>
+
+    <h4>1. Install &amp; load the Coral skills</h4>
+    <p>The agent needs three skills. <strong>Install</strong> them first via CLI, then <strong>load</strong> them with the <code>skill</code> tool in each session:</p>
+
+    <h4>Install (one-time)</h4>
+    <div class="cmd"><span class="prompt">$</span> npx skills add withcoral/skills</div>
+    <p>This installs all Coral skills from the <code>withcoral/skills</code> registry — including source creation, review, and general Coral querying.</p>
+
+    <div class="note warn"><strong>After install,</strong> the skills are available at <code>~/.agents/skills/</code> with names <code>coral</code>, <code>coral-create-source-spec</code>, and <code>coral-review-source-spec</code>.</div>
+
+    <h4>Load (each session / agent context)</h4>
+    <p>Once installed, load them in the agent's context using the <code>skill</code> tool (not a CLI command):</p>
+    <table class="tbl">
+      <tr><th>Skill name</th><th>Purpose</th></tr>
+      <tr><td><code>coral</code></td><td>Query live sources via MCP, run <code>coral sql</code>, manage sources</td></tr>
+      <tr><td><code>coral-create-source-spec</code></td><td>Create or update a source spec YAML — manifest structure, inputs, tables, columns</td></tr>
+      <tr><td><code>coral-review-source-spec</code></td><td>Review a source for style, product fit, query ergonomics, and consistency</td></tr>
+    </table>
+
+    <div class="note err"><strong>If skills fail to load:</strong> Run <code>npx skills add withcoral/skills</code> again to ensure they're installed. Without these skills, the agent lacks domain knowledge about Coral source conventions (YAML structure, review criteria, query patterns).</div>
+
+    <h4>2. Check or install Coral CLI</h4>
+    <p>First check if Coral CLI is already installed. If not, install it:</p>
+    <div class="cmd"><span class="prompt">$</span> which coral && coral --version || echo "NOT_INSTALLED"
+<span class="comment"># If installed — you'll see the version:</span>
+<span class="output">/opt/homebrew/bin/coral
+coral 0.4.2+8147372</span>
+<span class="comment"># If NOT installed — run this (one-time):</span>
+<span class="prompt">$</span> brew install withcoral/tap/coral</div>
+    <div class="note warn"><strong>After installing,</strong> verify with <code>coral --version</code>. You may need to restart your terminal session.</div>
+
+    <h4>3. Auto-detect the Coral repo clone</h4>
+    <p>The agent should <strong>auto-detect</strong> the <code>withcoral/coral</code> clone — don't assume a fixed directory name. The clone could be named anything (e.g. <code>coral</code>, <code>coral-clone</code>, or the user's own name).</p>
+    <div class="cmd"><span class="comment"># Find the coral repo by checking common locations or detecting it from context:</span>
+<span class="prompt">$</span> ls -d */ 2>/dev/null | head -5   <span class="comment"># look around</span>
+<span class="prompt">$</span> git remote -v                       <span class="comment"># if already inside the repo</span></div>
+
+    <h4>4. Check git remote setup</h4>
+    <p>Once inside the repo root, verify the fork setup. You need <strong>two remotes</strong> — <code>origin</code> (your fork) and <code>upstream</code> (withcoral/coral):</p>
+    <div class="cmd"><span class="prompt">$</span> git remote -v
+<span class="output">origin	  https://github.com/&lt;YOUR_USERNAME&gt;/coral.git (fetch)
+origin	  https://github.com/&lt;YOUR_USERNAME&gt;/coral.git (push)
+upstream  https://github.com/withcoral/coral.git (fetch)
+upstream  https://github.com/withcoral/coral.git (push)</span></div>
+
+    <div class="note err"><strong>Missing <code>upstream</code>?</strong> Add it: <code>git remote add upstream https://github.com/withcoral/coral.git</code></div>
+    <div class="note err"><strong>Wrong <code>origin</code>?</strong> Your origin should point to your fork, not the upstream repo. Fork first on GitHub, then update: <code>git remote set-url origin https://github.com/&lt;YOUR_USERNAME&gt;/coral.git</code></div>
+
+    <h4>5. Verify the repo root</h4>
+    <p>Confirm you're inside the coral repo by checking for the <code>sources/community/</code> directory:</p>
+    <div class="cmd"><span class="prompt">$</span> ls sources/community/
+<span class="output">blogger/    elevenlabs/  nvidia_nim/  pdf/  ...</span></div>
+
+    <h4>6. Locate the PR workspace</h4>
+    <p>PR contribution files (dashboard, workflow guide, notes) live in a <strong>PR workspace directory</strong> — typically <code>coral-pr-work/</code> inside the repo root. This is where <code>pr.html</code>, <code>review.html</code>, and related files are kept.</p>
+    <div class="cmd"><span class="prompt">$</span> ls coral-pr-work/
+<span class="comment"># or if using a different naming convention:</span>
+<span class="prompt">$</span> find . -maxdepth 2 -name "pr.html" -o -name "review.html" 2>/dev/null</div>
+
+    <h4>7. Verify forking &amp; sync</h4>
+    <p>Make sure your fork is logged in and up to date:</p>
+    <div class="cmd"><span class="prompt">$</span> gh auth status
+<span class="output">✓ Logged in to github.com as &lt;YOUR_USERNAME&gt;</span>
+<span class="prompt">$</span> git fetch upstream
+<span class="prompt">$</span> git checkout main && git merge upstream/main</div>
+
+    <div class="note good"><strong>All set?</strong> You're ready to create a source. Proceed to Step 1.</div>
+  </div>
+</div>
+
+<!-- STEP 1 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">1</div>
+    <div class="title">Understand the source and check existing specs</div>
+    <span class="status waiting">Pre-flight</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Verify the provider's API is suitable and no existing Coral source covers it.</p>
+
+    <div class="note warn"><strong>Coding agent:</strong> Step 0 auto-detected the coral repo clone (it may not be named <code>coral</code>). If you skipped Step 0, run <code>git remote -v</code> inside the repo root to confirm both <code>origin</code> (your fork) and <code>upstream</code> (withcoral/coral) are configured.</div>
+
+    <h4>Checklist</h4>
+    <ul class="checklist">
+      <li><span class="cb"></span> Identify the provider's public API documentation</li>
+      <li><span class="cb"></span> Verify the API has a stable, documented REST or GraphQL endpoint</li>
+      <li><span class="cb"></span> Check <code>sources/core/</code> and <code>sources/community/</code> for existing coverage — use <code>ls sources/community/</code></li>
+      <li><span class="cb"></span> Check if an open issue or feature request exists for this source</li>
+      <li><span class="cb"></span> Determine auth type: none, API key (secret), OAuth, or bearer token</li>
+      <li><span class="cb"></span> Determine backend type: HTTP API (<code>backend: http</code>) or local file (<code>backend: file</code> + <code>format: jsonl</code>)</li>
+    </ul>
+
+    <h4>Commands</h4>
+    <div class="cmd"><span class="comment"># List existing community sources to check for duplicates</span>
+ls sources/community/
+<span class="comment"># Check open issues for feature requests</span>
+gh issue list --repo withcoral/coral --label source-request --state open</div>
+
+    <h4>Existing Community Sources</h4>
+    <table class="tbl">
+      <tr><th>Source</th><th>Tables</th><th>Auth</th><th>Status</th></tr>
+      <tr><td><code>cloudinary</code></td><td><code>resources</code>, <code>folders</code>, <code>upload_presets</code>, <code>usage</code>, <code>metadata_fields</code></td><td>Basic auth</td><td><span style="color:var(--green)">Merged</span></td></tr>
+      <tr><td><code>deepgram</code></td><td><code>models</code>, <code>transcriptions</code></td><td>API key</td><td><span style="color:var(--green)">Merged</span></td></tr>
+      <tr><td><code>pdf</code></td><td><code>pages</code>, <code>documents</code></td><td>none (file)</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>nvidia_nim</code></td><td><code>models</code>, <code>chat_completions</code></td><td>API key</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>paypal</code></td><td><code>balances</code>, <code>invoices</code>, <code>transaction_search</code>, <code>webhooks</code>, <code>balance_summary</code></td><td>OAuth</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>elevenlabs</code></td><td><code>models</code>, <code>voices</code></td><td>API key</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>blogger</code></td><td><code>blogs</code>, <code>posts</code>, <code>comments</code>, <code>posts_search</code></td><td>OAuth</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>stream_video</code></td><td><code>app</code>, <code>calls</code>, <code>call</code>, <code>call_members</code></td><td>API key</td><td><span style="color:var(--green)">Approved</span></td></tr>
+      <tr><td><code>razorpay</code></td><td>payments, payment_links, +</td><td>API key</td><td><span style="color:var(--yellow)">Open</span></td></tr>
+    </table>
+    <p>See <code>pr.html</code> for the full dashboard of all 20 PRs (12 merged, 6 approved, 1 open, 1 closed).</p>
+
+    <div class="note"><strong>Tip:</strong> If the API already has a Coral source, contribute improvements instead of creating a new one.</div>
+  </div>
+</div>
+
+<!-- STEP 2 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">2</div>
+    <div class="title">Set up the source directory and manifest</div>
+    <span class="status waiting">Creation</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Create the <code>manifest.yaml</code> and directory structure for your source.</p>
+
+    <h4>Directory structure</h4>
+    <div class="cmd">sources/community/&lt;name&gt;/
+├── manifest.yaml        <span class="comment"># Coral source manifest (required)</span>
+├── README.md            <span class="comment"># Documentation (required for non-trivial sources)</span>
+└── scripts/             <span class="comment"># Optional: helper scripts for file-backed sources</span>
+    └── &lt;script&gt;.py</div>
+
+    <h4>Manifest template (HTTP-backed)</h4>
+    <div class="cmd"><span class="comment"># sources/community/&lt;name&gt;/manifest.yaml</span>
+name: &lt;name&gt;
+version: 0.1.0
+dsl_version: 3
+backend: http
+description: &lt;Short user-facing description of what this source queries&gt;
+base_url: https://api.provider.com/v1
+<a href="https://withcoral.com/docs/reference/source-spec-reference" target="_blank" style="color:var(--accent)">inputs</a>:
+  - name: API_TOKEN
+    description: API token from the provider dashboard
+    kind: secret
+    <span class="comment"># For OAuth, add credential.methods with device-code or authorization-code flow</span>
+<a href="https://withcoral.com/docs/reference/source-spec-reference" target="_blank" style="color:var(--accent)">tables</a>:
+  - name: &lt;table_name&gt;
+    description: &lt;What this table returns, row semantics&gt;
+    <a href="https://withcoral.com/docs/reference/source-spec-reference" target="_blank" style="color:var(--accent)">filters</a>:
+      - name: &lt;filter_name&gt;
+        <span class="comment"># required: true  # if the endpoint needs it</span>
+    request:
+      method: GET
+      path: /&lt;endpoint&gt;
+      <span class="comment"># query:    # URL query parameters</span>
+      <span class="comment"># headers:  # custom headers (API version, etc.)</span>
+    response:
+      rows_path: [&lt;path to array in response&gt;]
+    pagination:
+      mode: page  <span class="comment"># or cursor, offset, page_number, none</span>
+      page_param: page
+      page_start: 1
+      page_step: 1
+      page_size:
+        default: 100
+        max: 1000
+        query_param: per_page
+    columns:
+      - name: &lt;column_name&gt;
+        type: Utf8  <span class="comment"># Utf8, Int64, Float64, Timestamp, Json</span>
+        nullable: false
+        description: &lt;User-facing description&gt;
+        <span class="comment"># expr:  # only needed if API key != column name</span>
+<a href="https://withcoral.com/docs/reference/source-spec-reference" target="_blank" style="color:var(--accent)">test_queries</a>:
+  - SELECT * FROM &lt;name&gt;.&lt;table&gt; LIMIT 1</div>
+
+    <h4>Key rules</h4>
+    <ul>
+      <li>Source name must be lowercase, stable, and match the SQL schema users will type</li>
+      <li><code>version</code> starts at <code>0.1.0</code> for new sources; bump when user-visible behavior changes</li>
+      <li><code>description</code> must say <strong>what users can query</strong>, not just what vendor API is wrapped</li>
+      <li>Credentials must use <code>kind: secret</code>, never <code>kind: variable</code></li>
+      <li>Column names must be <code>snake_case</code></li>
+      <li>Use <code>Json</code> type for nested objects instead of brittle flattening</li>
+      <li>Every table needs at least one <code>test_queries</code> entry</li>
+    </ul>
+
+    <div class="note warn"><strong>Common mistake:</strong> File-backed sources need <code>backend: file</code> with <code>format: jsonl</code> on <strong>each table</strong>, not at the source level.</div>
+
+    <div class="note good"><strong>Reference implementation:</strong> See <code>sources/community/pdf/manifest.yaml</code> for a complete approved manifest with <code>backend: file</code>, <code>format: jsonl</code> per table, synthetic sample data, and 2-table document schema.</div>
+
+    <div class="note warn"><strong>Coding agent:</strong> Before writing the manifest, install (<code>npx skills add withcoral/skills</code>) and load the <code>coral</code>, <code>coral-create-source-spec</code>, and <code>coral-review-source-spec</code> skills (see Step 0). Without them, the agent will lack Coral-specific YAML conventions and may produce an invalid spec.</div>
+  </div>
+</div>
+
+<!-- STEP 3 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">3</div>
+    <div class="title">Create the README documentation</div>
+    <span class="status waiting">Docs</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Write clear documentation so users can set up and query the source immediately.</p>
+
+    <h4>README structure (follow existing sources)</h4>
+    <div class="cmd"><span class="comment"># &lt;Provider Name&gt; (&lt;source_name&gt;)</span>
+
+<span class="comment">## Prerequisites</span>
+<span class="comment"># - Required accounts, API keys, OAuth setup</span>
+<span class="comment"># - Software dependencies (Python version, pip packages)</span>
+<span class="comment"># - Split by feature path (basic vs advanced/OCR)</span>
+
+<span class="comment">## Quick start / Setup</span>
+<span class="comment"># 1. coral source add --file sources/community/&lt;name&gt;/manifest.yaml</span>
+<span class="comment"># 2. Set environment variables for secrets</span>
+<span class="comment"># 3. Run example queries</span>
+
+<span class="comment">## Tables</span>
+<span class="comment"># | Table | Description | Filters |</span>
+<span class="comment"># Describe each table with columns, types, and examples</span>
+
+<span class="comment">## Example queries</span>
+<span class="comment"># - Common use cases with real SQL</span>
+
+<span class="comment">## Notes / Limitations</span>
+<span class="comment"># - Rate limits, pagination limits, known issues</span>
+
+<span class="comment">## Validation</span>
+<span class="comment"># - Live output from coral source lint and coral source test</span>
+<span class="comment"># - Table introspection output</span>
+<span class="comment"># - Column introspection output</span>
+<span class="comment"># - Live query results with sample data</span></div>
+
+    <h4>Rules</h4>
+    <ul>
+      <li>Always include <strong>live validation output</strong> (lint, test, introspection, queries)</li>
+      <li>Use sanitized/synthetic sample data — never real PII or credentials</li>
+      <li>Do not use mutable URLs (e.g. <code>raw.githubusercontent.com/.../main/...</code>) — pin to repo checkout or release tag</li>
+      <li>Document OCR or optional deps with clear Python version requirements</li>
+      <li>Reference provider docs for auth setup (token type, scopes, where to get credentials)</li>
+    </ul>
+
+    <div class="note good"><strong>Reference:</strong> See <code>sources/community/pdf/README.md</code> for a complete example of a non-trivial README. The PDF source is a file-backed source with PyMuPDF extraction, OCR support, and comprehensive validation — approved after 4 review rounds.</div>
+  </div>
+</div>
+
+<!-- STEP 4 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">4</div>
+    <div class="title">Write helper scripts (if needed)</div>
+    <span class="status waiting">Scripts</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>For file-backed sources, create converter scripts that turn raw data into JSONL.</p>
+
+    <h4>Script requirements</h4>
+    <ul>
+      <li>CLI with <code>argparse</code> — <code>--dir</code>, <code>--files</code>, <code>--out</code>, <code>--ocr</code> etc.</li>
+      <li>JSONL output matching the manifest column definitions exactly</li>
+      <li>Must exit <strong>non-zero</strong> on conversion failures</li>
+      <li>Use <code>ensure_ascii=False</code> for JSON output to preserve non-ASCII text</li>
+      <li>Document Python version requirements in script comments</li>
+      <li>Handle edge cases: empty PDFs, encrypted files, corrupt files, missing OCR</li>
+    </ul>
+
+    <h4>Pattern: error handling</h4>
+    <div class="cmd"><span class="comment"># DO: let exceptions propagate, track failures, exit nonzero</span>
+failures = []
+for pdf_path in pdfs:
+    try:
+        extract_pdf(pdf_path, ...)
+    except Exception as e:
+        print(f"Error processing {pdf_path}: {e}", file=sys.stderr)
+        failures.append(pdf_path.name)
+        <span class="comment"># Write a fallback document row</span>
+if failures:
+    print(f"ERROR: {len(failures)} PDF(s) failed: {failures}", file=sys.stderr)
+    sys.exit(1)</div>
+
+    <div class="note warn"><strong>DO NOT</strong> swallow exceptions and return <code>page_count: 0</code> — genuine failures must signal the caller.</div>
+  </div>
+</div>
+
+<!-- STEP 5 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">5</div>
+    <div class="title">Test the source locally</div>
+    <span class="status waiting">Testing</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Validate the manifest, test connectivity, and verify all queries work with real data.</p>
+
+    <h4>Commands</h4>
+
+    <h4>1. Lint the manifest</h4>
+    <div class="cmd">coral source lint manifest.yaml</div>
+    <div class="note err"><strong>Must pass.</strong> If it fails, fix errors before proceeding. Common issues: invalid backend, missing fields, wrong dsl_version.</div>
+
+    <h4>2. Add the source</h4>
+    <div class="cmd">coral source add --file sources/community/&lt;name&gt;/manifest.yaml</div>
+    <div class="note"><strong>Tip:</strong> Run <code>echo "y" | coral source remove &lt;name&gt; && coral source add --file manifest.yaml</code> to re-add after manifest changes to refresh column descriptions.</div>
+
+    <h4>3. Run tests</h4>
+    <div class="cmd">coral source test &lt;name&gt;
+<span class="output">  ✓ &lt;name&gt; connected successfully
+    &lt;name&gt; (&lt;N&gt; tables)
+    ├─ table1
+    └─ table2
+    Query tests
+    N declared · N passed · 0 failed</span></div>
+
+    <h4>4. Verify table introspection</h4>
+    <div class="cmd">coral sql "SELECT table_name, description, required_filters FROM coral.tables WHERE schema_name = '&lt;name&gt;' ORDER BY table_name;"</div>
+
+    <h4>5. Verify column introspection</h4>
+    <div class="cmd">coral sql "SELECT column_name, data_type, is_nullable, description FROM coral.columns WHERE schema_name = '&lt;name&gt;' AND table_name = '&lt;table&gt;' ORDER BY ordinal_position;"</div>
+
+    <h4>6. Run live queries</h4>
+    <div class="cmd">coral sql "SELECT * FROM &lt;name&gt;.&lt;table&gt; LIMIT 5"</div>
+
+    <div class="note good"><strong>All tests pass?</strong> You're ready to prepare the PR. Save the output for the README validation section.</div>
+  </div>
+</div>
+
+<!-- STEP 6 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">6</div>
+    <div class="title">Commit, push, and create the PR</div>
+    <span class="status waiting">PR</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Push your branch and open a pull request against <code>withcoral/coral</code>.</p>
+
+    <h4>Workflow</h4>
+
+    <h4>1. Set up your fork</h4>
+    <div class="cmd">git remote add upstream https://github.com/withcoral/coral.git
+git fetch upstream
+git checkout -b add-community-&lt;name&gt;-source</div>
+
+    <h4>2. Add and commit</h4>
+    <div class="cmd">git add sources/community/&lt;name&gt;/
+git commit -m "feat(sources/community/&lt;name&gt;): add &lt;Name&gt; community source"</div>
+
+    <h4>3. Push and create PR</h4>
+    <div class="cmd">git push origin add-community-&lt;name&gt;-source
+gh pr create --repo withcoral/coral \
+  --title "feat(sources/community/&lt;name&gt;): add &lt;Name&gt; community source" \
+  --body "## Summary
+
+Add a &lt;Name&gt; community source for querying ...
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| \`sources/community/&lt;name&gt;/manifest.yaml\` | Manifest |
+| \`sources/community/&lt;name&gt;/README.md\` | Documentation |
+| \`sources/community/&lt;name&gt;/scripts/...\` | Helper script |
+
+## Tables
+
+...
+
+## Validation
+
+\`\`\`
+coral source lint manifest.yaml
+Manifest is valid
+\`\`\`
+
+\`\`\`
+coral source test &lt;name&gt;
+...
+\`\`\`
+
+Closes #..."</div>
+
+    <h4>PR body must include</h4>
+    <ul>
+      <li>Summary of what the source does</li>
+      <li>Files contributed table</li>
+      <li>Source shape (tables, columns, filters)</li>
+      <li>Backend type (HTTP/file) and auth info</li>
+      <li>Full validation output (lint + test + introspection + live queries)</li>
+      <li>Provider docs links</li>
+      <li><code>Closes #&lt;issue&gt;</code> if applicable</li>
+    </ul>
+
+    <div class="note warn"><strong>Important:</strong> Update the PR body whenever the source changes — keep validation output fresh. Do NOT use <code>raw.githubusercontent.com/.../main/...</code> URLs in the README or manifest guide.</div>
+  </div>
+</div>
+
+<!-- STEP 7 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">7</div>
+    <div class="title">Handle reviews (cubic-dev-ai)</div>
+    <span class="status waiting">Reviews</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Respond to automated code review from <strong>cubic-dev-ai</strong> bot.</p>
+
+    <h4>Rules</h4>
+    <ul>
+      <li><strong>NEVER reply to cubic-dev-ai bot</strong> — only fix the issues it flags</li>
+      <li>Read each violation carefully and determine if it's valid</li>
+      <li>Fix valid issues and push to the same branch</li>
+      <li>False positives can be ignored — cubic will re-check on next commit</li>
+      <li>To re-trigger cubic review after fixes, use the "Re-trigger cubic" link in its comment, or push a new commit</li>
+    </ul>
+
+    <h4>Common cubic issues (from experience)</h4>
+    <table class="tbl">
+      <tr><th>Issue</th><th>Fix</th></tr>
+      <tr><td>"Missing README.md"</td><td>Create a README.md (this is often a false positive if it exists — check carefully)</td></tr>
+      <tr><td>OCR deps out of sync</td><td>Check current PyPI <code>requires_python</code> and OCRmyPDF docs for exact deps</td></tr>
+      <tr><td>System dep vs Python package confusion</td><td>Label clearly: <code>(system binary)</code> vs <code>(Python package)</code></td></tr>
+      <tr><td>Mutable URLs</td><td>Replace <code>/main/</code> with repo checkout or commit hash</td></tr>
+    </table>
+
+    <h4>cubic shadow auto-approve</h4>
+    <p>cubic will auto-approve when all issues are resolved and no unresolved issues from previous reviews remain. If blocked, check the "unresolved issues" section in cubic's latest comment.</p>
+
+    <div class="note warn"><strong>Remember:</strong> cubic's "unresolved issues" are tracked per-review — even if you fix everything, the old review still shows issues. Push a new commit to trigger a fresh review.</div>
+  </div>
+</div>
+
+<!-- STEP 8 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">8</div>
+    <div class="title">Handle reviews (jsummerfield — human)</div>
+    <span class="status waiting">Reviews</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Respond to human code review from the Coral maintainer.</p>
+
+    <h4>Review patterns (from experience)</h4>
+    <table class="tbl">
+      <tr><th>Category</th><th>What jsummerfield checks</th></tr>
+      <tr><td>Backend</td><td><code>backend: file</code> + <code>format: jsonl</code> on each table, not source-level</td></tr>
+      <tr><td>PII / Data</td><td>No real personal data in README, PR body, or sample files. Use synthetic data (Acme Corp, lorem ipsum).</td></tr>
+      <tr><td>JSON functions</td><td>Use Coral's <code>json_length()</code>, not <code>json_array_length()</code> or SQLite/Postgres JSON functions</td></tr>
+      <tr><td>Error handling</td><td>Scripts must exit non-zero on failure; don't swallow exceptions</td></tr>
+      <tr><td>Python version</td><td>Check <code>requires_python</code> on PyPI for each dependency; document exact minimums</td></tr>
+      <tr><td>OCR prereqs</td><td>Split PyMuPDF (3.10+) vs OCRmyPDF (3.11+). List exact deps from OCRmyPDF docs.</td></tr>
+      <tr><td>Mutable URLs</td><td>No <code>raw.githubusercontent.com/.../main/...</code>. Use repo checkout or tagged URL.</td></tr>
+    </table>
+
+    <h4>Response workflow</h4>
+    <ol>
+      <li>Read the review comment carefully — each finding has a severity (High/Medium/Low)</li>
+      <li>Fix the issue in the source code</li>
+      <li>Commit and push: <code>git commit -m "fix(...): describe the fix" && git push</code></li>
+      <li>Reply to the review comment on GitHub with a summary of what was fixed and validation proof</li>
+    </ol>
+
+    <h4>How to reply</h4>
+    <div class="cmd"><span class="comment"># Reply on the PR with a structured summary</span>
+gh api repos/withcoral/coral/issues/&lt;PR#&gt;/comments --method POST \
+  --field body="All issues fixed in commit &lt;hash&gt;:
+
+**Issue 1:** ...
+**Issue 2:** ...
+
+\`\`\`
+\$ coral source lint manifest.yaml
+Manifest is valid
+\`\`\`"</div>
+
+    <div class="note good"><strong>Tip:</strong> Include validation proof in every reply — lint passes, test passes, live query results. This shows the fix works.</div>
+  </div>
+</div>
+
+<!-- STEP 9 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">9</div>
+    <div class="title">Update PR body and track in dashboard</div>
+    <span class="status waiting">Finalize</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Keep the PR body current and reflect the source's state in the dashboard.</p>
+
+    <h4>When to update the PR body</h4>
+    <ul>
+      <li>After the source is reviewed and changes are made</li>
+      <li>When validation output changes (re-run queries and refresh)</li>
+      <li>When the PR is approved — clean up stale changelog sections</li>
+    </ul>
+
+    <h4>Update PR body via API</h4>
+    <div class="cmd"><span class="comment"># Write body to a file and PATCH</span>
+cat > /tmp/pr_body.json &lt;&lt; 'EOF'
+{"body": "..."}
+EOF
+gh api repos/withcoral/coral/pulls/&lt;PR#&gt; --method PATCH \
+  --input /tmp/pr_body.json</div>
+
+    <div class="note warn"><strong>Beware unicode!</strong> Use Python <code>json.dump(payload, ensure_ascii=False)</code> to avoid double-escaped unicode in test output. Bad: <code>\\u2713</code> — Good: <code>✓</code></div>
+
+    <h4>Update the PR dashboard</h4>
+    <p>After approval, add the PR to <code>pr.html</code>:</p>
+    <ul>
+      <li>Bump stats: Our PRs, Approved count</li>
+      <li>Add PR card in the Approved section</li>
+      <li>Update charts if needed (donut, review cycles)</li>
+      <li>Update header tags and filter tab counts</li>
+    </ul>
+  </div>
+</div>
+
+<!-- STEP 10 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">10</div>
+    <div class="title">Approved — next steps</div>
+    <span class="status waiting">Done</span>
+  </div>
+  <div class="step-body">
+    <h4>When jsummerfield approves the PR</h4>
+    <ul>
+      <li>The PR is ready to merge but still open — merging is done by the Coral maintainers</li>
+      <li>Update <code>pr.html</code> dashboard with the new PR details</li>
+      <li>Move on to the next source or address remaining open PRs</li>
+    </ul>
+
+    <h4>Currently approved (awaiting merge)</h4>
+    <table class="tbl">
+      <tr><th>PR</th><th>Source</th><th>Approved</th></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/1260" style="color:var(--accent)">#1260</a></td><td><code>pdf</code></td><td>Jun 15</td></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/958" style="color:var(--accent)">#958</a></td><td><code>nvidia_nim</code></td><td>May 28</td></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/1173" style="color:var(--accent)">#1173</a></td><td><code>paypal</code></td><td>Jun 4</td></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/1175" style="color:var(--accent)">#1175</a></td><td><code>elevenlabs</code></td><td>Jun 4</td></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/1223" style="color:var(--accent)">#1223</a></td><td><code>blogger</code></td><td>Jun 7</td></tr>
+      <tr><td><a href="https://github.com/withcoral/coral/pull/1230" style="color:var(--accent)">#1230</a></td><td><code>stream_video</code></td><td>Jun 9</td></tr>
+    </table>
+
+    <div class="note good"><strong>6 approved PRs waiting.</strong> All reviewed by jsummerfield, all passing lint + tests, all mergeable.</div>
+  </div>
+</div>
+
+<!-- STEP 11 -->
+<div class="step">
+  <div class="step-head" onclick="toggle(this)">
+    <div class="num pending">11</div>
+    <div class="title">Case study: PDF source (#1260)</div>
+    <span class="status waiting">Case Study</span>
+  </div>
+  <div class="step-body">
+    <h4>Goal</h4>
+    <p>Walk through a real end-to-end review lifecycle — the <strong>PDF community source</strong> (<a href="https://github.com/withcoral/coral/pull/1260" style="color:var(--accent)">#1260</a>) — to see how all the steps above play out in practice.</p>
+
+    <h4>PR Overview</h4>
+    <table class="tbl">
+      <tr><th>Property</th><th>Value</th></tr>
+      <tr><td>Source</td><td><code>pdf</code> — file-backed, extracts text/tables/images/links/annotations from PDFs via PyMuPDF</td></tr>
+      <tr><td>Files</td><td><code>manifest.yaml</code>, <code>README.md</code>, <code>scripts/pdf-to-jsonl.py</code></td></tr>
+      <tr><td>Tables</td><td><code>pages</code> (per-page extraction), <code>documents</code> (per-document metadata)</td></tr>
+      <tr><td>Size</td><td>906 additions, 0 deletions</td></tr>
+      <tr><td>Created</td><td>Jun 12</td></tr>
+      <tr><td>Approved</td><td>Jun 15</td></tr>
+      <tr><td>Review cycles</td><td>3 cubic-dev-ai + 4 jsummerfield = 7 total review rounds</td></tr>
+      <tr><td>Commits on branch</td><td>10+ (including e6878a5, f0e5412, 9a4e3f0, 9707c34, e31393e, 8002386, 21fe937, c585b73, 00021f0, d337112)</td></tr>
+    </table>
+
+    <h4>What made this source non-trivial</h4>
+    <ul>
+      <li><strong>File-backed:</strong> Most sources use <code>backend: http</code>. This one uses <code>backend: file</code> with <code>format: jsonl</code> — requires a converter script, synthetic data generation, and <code>format</code> on each table (not source-level)</li>
+      <li><strong>Converter script:</strong> 400-line Python script using PyMuPDF with edge cases (encrypted PDFs, empty files, OCR fallback)</li>
+      <li><strong>OCR support:</strong> Optional OCRmyPDF integration with system deps (Tesseract, Ghostscript, qpdf) — splits user setup into two tracks</li>
+      <li><strong>Validation complexity:</strong> Need to verify both <code>coral source test</code> and script output correctness</li>
+    </ul>
+
+    <h4>Review lifecycle — full timeline</h4>
+
+    <h4>Round 1: Initial state (what the first submission got wrong)</h4>
+    <p>The PR was submitted with several blocking issues that would have prevented it from being added at all:</p>
+    <table class="tbl">
+      <tr><th>Issue</th><th>Severity</th><th>What was wrong</th></tr>
+      <tr><td><code>backend: jsonl</code></td><td>High</td><td>Coral only accepts <code>http</code>, <code>file</code>, and <code>mcp</code>. JSONL is a table <code>format</code> under <code>backend: file</code>. The source couldn't even pass <code>coral source lint</code>.</td></tr>
+      <tr><td>Real PII in sample data</td><td>High</td><td>Used a real resume PDF as sample data — personal information exposed in README and PR body.</td></tr>
+      <tr><td><code>json_array_length()</code></td><td>Medium</td><td>Table guides used <code>json_array_length()</code> (SQLite/Postgres function) instead of Coral's <code>json_length()</code>.</td></tr>
+      <tr><td>Mutable URLs</td><td>Medium</td><td>Converter download URL used <code>raw.githubusercontent.com/.../main/...</code> — schema-drift and remote-code-execution risk.</td></tr>
+      <tr><td>OCR prereqs understated</td><td>Medium</td><td>README presented OCR as <code>pip install ocrmypdf</code> — missing Tesseract, Ghostscript, qpdf system deps.</td></tr>
+      <tr><td>Converter path broken</td><td>Medium</td><td>Repo checkout instructions had wrong script path (<code>python pdf-to-jsonl.py</code> from repo root, but script lives in <code>sources/community/pdf/scripts/</code>).</td></tr>
+      <tr><td>Resource leak</td><td>P1</td><td><code>doc.close()</code> and <code>shutil.rmtree()</code> not in <code>finally</code> block — exceptions during extraction would leak temp files and PDF handles.</td></tr>
+      <tr><td>Dict vs tuple indexing</td><td>P1</td><td><code>get_page_labels()</code> returns dicts, not tuples — positional <code>label[0]</code>, <code>label[1]</code> would raise <code>KeyError</code>.</td></tr>
+      <tr><td>Unused <code>run_ocr</code> function</td><td>P2</td><td>Dead code duplicating OCR behavior inline.</td></tr>
+      <tr><td>Output dir not created</td><td>P2</td><td><code>--out-documents</code> fails when targeting a new directory — no <code>mkdir</code> call.</td></tr>
+    </table>
+
+    <h4>Round 2: Response to jsummerfield round 1</h4>
+    <p><strong>Changes requested:</strong> High: backend, High: PII, Medium: converter path, Medium: OCR prereqs, Low: URL</p>
+    <p><strong>Fix:</strong> Commit 9a4e3f0 — switched to <code>backend: file</code> + <code>format: jsonl</code>, replaced PII with synthetic <code>sample_report.pdf</code> (Acme Corp, lorem ipsum), split standalone vs repo-checkout install paths, documented full OCR deps, fixed URL to <code>withcoral.com/docs</code>.</p>
+
+    <h4>Round 3: cubic-dev-ai re-review + jsummerfield round 2</h4>
+    <p><strong>cubic found:</strong> Guide removed script download step, leaving incomplete instructions for users seeing guide via <code>coral describe</code>.</p>
+    <p><strong>jsummerfield found:</strong> Still using <code>json_array_length()</code> instead of <code>json_length()</code> in table guides — the fix in 9a4e3f0 missed some spots.</p>
+    <p><strong>Fix:</strong> Commits 9707c34 + e31393e — added curl download step back to manifest guide, replaced all <code>json_array_length()</code> with <code>json_length()</code>, validated with live queries showing <code>json_length(links) > 0</code> output.</p>
+
+    <h4>Round 4: cubic-dev-ai round 3</h4>
+    <p><strong>cubic found:</strong></p>
+    <ul>
+      <li>Failure detection can't distinguish a valid zero-page PDF from a conversion error</li>
+      <li>Python prerequisite bumped to 3.9+ without justification — PyMuPDF actually requires 3.10+</li>
+    </ul>
+    <p><strong>Fix:</strong> Commit 8002386 — made <code>extract_pdf()</code> propagate exceptions, added explicit <code>failures</code> list tracking, corrected Python to 3.10+ (3.11+ for OCR).</p>
+
+    <h4>Round 5: cubic-dev-ai round 4</h4>
+    <p><strong>cubic found:</strong></p>
+    <ul>
+      <li>Removed live content proof sections (TOC, links) from README, reducing documentation value</li>
+      <li>Example queries still reference old file names (<code>resume.pdf</code>, <code>report.pdf</code>) instead of <code>sample_report.pdf</code></li>
+    </ul>
+    <p><strong>Fix:</strong> Commits 21fe937 + c585b73 — restored TOC/links proof sections, renamed all examples to use <code>sample_report.pdf</code>.</p>
+
+    <h4>Round 6: jsummerfield round 3</h4>
+    <p><strong>Changes requested:</strong> OCR setup requirements still understated — README let users start with Python 3.10 for PyMuPDF then present OCR as a simple <code>pip install</code>, but actual OCRmyPDF needs Tesseract 5.x, Ghostscript 9.55+, qpdf. Also, the converter distribution path still needed work.</p>
+    <p><strong>Fix:</strong> Commit 00021f0 — split prerequisites into two clear sections (<strong>For plain-text PDFs:</strong> Python 3.10+ + PyMuPDF vs <strong>For scanned PDFs (OCR):</strong> Python 3.11+ + OCRmyPDF + full system deps). Removed standalone curl download; only repo checkout path documented.</p>
+
+    <h4>Round 7: jsummerfield round 4</h4>
+    <p><strong>Changes requested:</strong> <code>pypdfium2</code> mislabeled as system dependency instead of Python package in OCR deps list.</p>
+    <p><strong>Fix:</strong> Commit d337112 — added labels: <code>Ghostscript 9.54+ (system binary)</code> vs <code>pypdfium2 (Python package)</code>.</p>
+
+    <h4>Round 8: jsummerfield round 5 — Approved</h4>
+    <p>jsummerfield re-checked with <code>coral source lint</code>, <code>make lint-sources</code>, and <code>git diff --check</code>. All green. Approved with status: <code>approved</code>.</p>
+
+    <div class="note good"><strong>Key takeaway:</strong> It took <strong>7 review rounds</strong> and <strong>10+ commits</strong> to get this right. Every round addressed real issues — no trivial back-and-forth. The most impactful fixes were: fixing the backend field (source wouldn't load), removing PII (privacy), switching to <code>json_length()</code> (query correctness), and getting OCR deps right (user experience).</div>
+
+    <h4>Patterns and lessons learned</h4>
+    <table class="tbl">
+      <tr><th>Pattern</th><th>Lesson</th><th>Step to internalize</th></tr>
+      <tr><td><code>backend: jsonl</code></td><td>JSONL is a table-level <code>format</code>, not a source-level <code>backend</code></td><td>Step 2 — test with <code>coral source lint</code> <strong>before</strong> submitting PR</td></tr>
+      <tr><td>Real PII in samples</td><td>Always use synthetic data (Acme Corp, lorem ipsum, sample_report.pdf)</td><td>Step 2 — review all sample data before PR</td></tr>
+      <tr><td>Wrong JSON functions</td><td>Coral uses <code>json_length()</code>, <code>json_as_text()</code>, not SQLite/Postgres equivalents</td><td>Step 2 — verify all JSON functions in manifest guides against Coral docs</td></tr>
+      <tr><td>Mutable URLs</td><td>Never <code>/main/</code> in URLs — use repo checkout or tagged release</td><td>Step 3 — grep for <code>/main/</code> before PR</td></tr>
+      <tr><td>Under-documented deps</td><td>Split basic vs advanced setup paths; verify exact <code>requires_python</code> on PyPI</td><td>Step 3 — check PyPI for each dependency</td></tr>
+      <tr><td>Incomplete converter setup</td><td>Both manifest guide and README must be self-contained for their audience</td><td>Step 2 + Step 3 — verify guides from a fresh clone</td></tr>
+      <tr><td>Resource cleanup</td><td>Always use <code>try/finally</code> or context managers for files and temp dirs</td><td>Step 4 — review error handling paths</td></tr>
+      <tr><td>Removing validation proof</td><td>Never remove live query output from README — it's the most valuable documentation</td><td>Step 3 — keep all validation sections</td></tr>
+      <tr><td>System vs Python deps</td><td>Label each dependency: <code>(system binary)</code> vs <code>(Python package)</code></td><td>Step 3 — disambiguate dep categories</td></tr>
+      <tr><td>Inline guide completeness</td><td>Users seeing <code>coral describe</code> output need complete instructions in the guide itself</td><td>Step 2 — manifest guide must work standalone</td></tr>
+    </table>
+
+    <h4>Key metrics</h4>
+    <table class="tbl">
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Total review rounds</td><td>7 (3 cubic-dev-ai + 4 jsummerfield)</td></tr>
+      <tr><td>Commits</td><td>10+</td></tr>
+      <tr><td>Files changed</td><td>3 (manifest.yaml, README.md, pdf-to-jsonl.py)</td></tr>
+      <tr><td>Blocking issues found</td><td>2 High (backend, PII), 4 Medium (JSON functions, URLs, OCR deps, converter path)</td></tr>
+      <tr><td>cubic P1 issues</td><td>2 (resource leak, dict indexing)</td></tr>
+      <tr><td>cubic P2 issues</td><td>7+ (OCR claim, unused function, missing mkdir, missing README, mutable URL, broken path, missing download step, failure detection, Python version, missing proofs, old filenames, OCR deps sync, clone-vs-download, pypdfium2 labeling)</td></tr>
+      <tr><td>Time from PR to approval</td><td>3 days (Jun 12 → Jun 15)</td></tr>
+    </table>
+
+    <div class="note warn"><strong>Bottom line for coding agents:</strong> Run <code>coral source lint</code> before PR. Use synthetic data. Check every JSON function against Coral docs. Split deps by feature path. Label system vs Python deps. Keep validation proof in the README. Review your own PR through fresh eyes before asking for review — most cubic issues are self-fixable with careful pre-submission checks.</div>
+  </div>
+</div>
+
+<div class="progress-bar">
+  <div class="fill" style="width: 0%" id="progress"></div>
+</div>
+
+</div>
+
+<script>
+function toggle(el) {
+  var head = el;
+  var body = head.parentElement.querySelector('.step-body');
+  var status = head.querySelector('.status');
+  var num = head.querySelector('.num');
+
+  body.classList.toggle('open');
+
+  if (body.classList.contains('open')) {
+    num.classList.remove('pending');
+    num.classList.add('active');
+  }
+
+  updateProgress();
+}
+
+function updateProgress() {
+  var steps = document.querySelectorAll('.step');
+  var open = 0;
+  steps.forEach(function(s) {
+    var body = s.querySelector('.step-body');
+    if (body.classList.contains('open')) open++;
+  });
+  var pct = Math.round((open / steps.length) * 100);
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+var checkboxes = document.querySelectorAll('.checklist .cb');
+checkboxes.forEach(function(cb) {
+  cb.addEventListener('click', function() {
+    this.classList.toggle('checked');
+  });
+});
+
+function copyPrompt() {
+  var prompt = generatePrompt();
+  navigator.clipboard.writeText(prompt).then(function() {
+    var btn = document.querySelector('.copy-btn');
+    btn.classList.add('copied');
+    btn.innerHTML = '<span class="icon">✓</span> Copied!';
+    var toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(function() {
+      toast.classList.remove('show');
+      btn.classList.remove('copied');
+      btn.innerHTML = '<span class="icon">⎘</span> Copy as agent prompt';
+    }, 2500);
+  }).catch(function() {
+    var toast = document.getElementById('toast');
+    toast.textContent = '✗ Failed to copy';
+    toast.style.background = 'var(--red)';
+    toast.classList.add('show');
+    setTimeout(function() { toast.classList.remove('show'); }, 2500);
+  });
+}
+
+function generatePrompt() {
+  return `You are a coding agent helping me contribute a new community source to the withcoral/coral repository.
+
+## BEFORE YOU START
+
+1. Install Coral skills (one-time): run \`npx skills add withcoral/skills\`
+2. Load these 3 skills using the \`skill\` tool: \`coral\`, \`coral-create-source-spec\`, \`coral-review-source-spec\`
+3. Auto-detect the coral repo clone — it may not be named "coral". Look for sources/community/ directory.
+4. The PR workspace is typically \`coral-pr-work/\` inside the repo root — this is where \`review.html\` and \`pr.html\` live.
+5. Check/install Coral CLI: run \`which coral\`. If missing, install via \`brew install withcoral/tap/coral\`.
+6. Verify git remote has \`origin\` (my fork) + \`upstream\` (withcoral/coral) with \`git remote -v\`.
+7. Verify \`gh auth status\` is logged in.
+
+## WORKFLOW — follow these steps in order
+
+Read the full guide at \`coral-pr-work/review.html\` for complete details. Here is the condensed workflow:
+
+**Step 0** — Prerequisites (done above)
+**Step 1** — Understand the API: check sources/core/ and sources/community/ for duplicates, determine auth type and backend (http or file).
+**Step 2** — Create sources/community/<name>/manifest.yaml with: name, version 0.1.0, dsl_version 3, description, base_url (for http), inputs (secrets only), tables with filters/request/response/pagination/columns, test_queries.
+**Step 3** — Write README.md: prerequisites, quick start, tables docs, example queries, notes, live validation output.
+**Step 4** — Write helper scripts if file-backed (JSONL converter with argparse, error handling, nonzero exit on failure).
+**Step 5** — Test locally: \`coral source lint manifest.yaml\`, \`coral source add --file\`, \`coral source test <name>\`, verify introspection, run live queries.
+**Step 6** — Commit, push, open PR with full body (summary, files table, source shape, validation output, Closes #issue).
+**Step 7** — Handle cubic-dev-ai bot reviews: fix valid issues, ignore false positives, push new commits to re-trigger.
+**Step 8** — Handle jsummerfield human reviews: fix all findings, reply with structured summary + validation proof.
+**Step 9** — Update PR body after changes, track in pr.html dashboard.
+**Step 10** — After approval, the PR is ready to merge (maintainers handle merging).
+
+## HARD RULES — never violate these
+
+1. \`backend\` must be \`http\`, \`file\`, or \`mcp\` — never \`jsonl\` (JSONL is a table-level \`format\` under \`backend: file\`).
+2. Use synthetic sample data only — no real PII, no real names, no real emails. Use Acme Corp, lorem ipsum, sample_report.pdf.
+3. Column names must be \`snake_case\`.
+4. Use \`Json\` type for nested objects — don't flatten brittle structures.
+5. Use Coral JSON functions: \`json_length()\`, \`json_as_text()\` — never \`json_array_length()\` or Postgres/SQLite JSON functions.
+6. Never use mutable URLs pointing to \`/main/\` — use repo checkout or tagged release.
+7. Credentials must be \`kind: secret\`, never \`kind: variable\`.
+8. Every table needs at least one \`test_queries\` entry.
+9. File-backed sources: \`format: jsonl\` on each table, not at source level.
+10. Scripts must exit non-zero on conversion failures — don't swallow exceptions.
+11. Split deps by feature path (basic vs OCR) — label system binary vs Python package.
+12. Keep live validation proof in README — never remove query output sections.
+13. Manifest guides must be self-contained — users seeing \`coral describe\` need complete instructions.
+
+## REFERENCE CASE STUDY
+
+PR #1260 (PDF community source) went through 7 review rounds and 10+ commits. Study it at Step 11 in review.html for real patterns: wrong backend, PII in samples, wrong JSON functions, mutable URLs, under-documented deps, resource leaks, missing validation proof. Every issue maps to a rule above.
+
+## VALIDATION — before submitting PR
+
+- \`coral source lint manifest.yaml\` — must pass
+- \`coral source test <name>\` — all tests pass
+- \`coral sql "SELECT ... FROM coral.tables WHERE schema_name = '<name>'"\` — verify introspection
+- \`coral sql "SELECT ... FROM coral.columns WHERE schema_name = '<name>'"\` — verify columns
+- \`coral sql "SELECT * FROM <name>.<table> LIMIT 5"\` — live data works
+- grep for \`/main/\` in all files — none should exist
+- grep for \`json_array_length\` — none should exist
+- Review all sample data for PII — none should exist
+- Check \`requires_python\` on PyPI for each Python dependency
+
+## REFERENCE FILES
+
+- \`coral-pr-work/review.html\` — Full workflow guide with all steps and case study
+- \`coral-pr-work/pr.html\` — PR dashboard showing all contributed sources and their status
+- \`sources/community/pdf/\` — Reference implementation (file-backed, 2 tables, approved)`;
+}
+</script>
+
+</body>
+</html>
