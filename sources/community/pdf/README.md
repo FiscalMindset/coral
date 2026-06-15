@@ -4,21 +4,19 @@ Query text, tables, images, links, annotations, form fields, and document metada
 
 ## Prerequisites
 
-- Python 3.10+ with [PyMuPDF](https://pypi.org/project/PyMuPDF/) installed
-- Coral (latest)
+### For plain-text PDFs (basic extraction)
+- Python 3.10+ with [PyMuPDF](https://pypi.org/project/PyMuPDF/) (`pip install pymupdf`)
+- [Coral](https://withcoral.com) (latest)
 
-```bash
-pip install pymupdf
-```
-
-Optional — for scanned PDFs:
-```bash
-pip install ocrmypdf
-```
-
-OCRmyPDF requires additional system dependencies:
-- **Tesseract OCR** (`tesseract` package with language data)
-- **PDF/A support** (`ghostscript`, `qpdf`, `pngquant`)
+### For scanned PDFs (OCR support)
+- Everything above, plus Python 3.11+ (OCRmyPDF pip requires ≥3.11)
+- [OCRmyPDF](https://ocrmypdf.readthedocs.io/) (`pip install ocrmypdf`)
+- System dependencies per platform:
+  - **Tesseract OCR 5.x** — language packs for your documents
+  - **Ghostscript 9.55+** — PDF rasterization
+  - **qpdf** — PDF/A validation and output
+  - **pngquant** (optional) — lossy PNG compression
+  - **unpaper** (optional) — page deskewing and cleaning
 
 See [OCRmyPDF installation docs](https://ocrmypdf.readthedocs.io/en/latest/installation.html#requirements-for-pip-and-head-install) for platform-specific instructions.
 
@@ -37,29 +35,14 @@ cd coral
 # The script is at sources/community/pdf/scripts/pdf-to-jsonl.py
 ```
 
-**Or download standalone:**
-```bash
-curl -O https://raw.githubusercontent.com/withcoral/coral/main/sources/community/pdf/scripts/pdf-to-jsonl.py
-```
-
 ### 2. Convert PDFs to JSONL
 
-**From a repo checkout** (script at `sources/community/pdf/scripts/pdf-to-jsonl.py`):
 ```bash
 python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/
 python sources/community/pdf/scripts/pdf-to-jsonl.py --files doc1.pdf doc2.pdf
 python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --recursive
 python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --ocr
 python sources/community/pdf/scripts/pdf-to-jsonl.py --dir ~/pdfs/ --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
-```
-
-**From a standalone download** (script in current directory):
-```bash
-python pdf-to-jsonl.py --dir ~/pdfs/
-python pdf-to-jsonl.py --files doc1.pdf doc2.pdf
-python pdf-to-jsonl.py --dir ~/pdfs/ --recursive
-python pdf-to-jsonl.py --dir ~/pdfs/ --ocr
-python pdf-to-jsonl.py --dir ~/pdfs/ --out ~/mydata/pages.jsonl --out-documents ~/mydata/documents.jsonl
 ```
 
 ### 3. Add the source
