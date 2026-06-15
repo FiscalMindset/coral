@@ -13,7 +13,7 @@ Query text, tables, images, links, annotations, form fields, and document metada
 - [OCRmyPDF](https://ocrmypdf.readthedocs.io/) (`pip install ocrmypdf`; installs fpdf2 + uharfbuzz for text rendering)
 - System dependencies per platform:
   - **Tesseract OCR 4.1.1+** — language packs for your documents
-  - **Ghostscript 9.54+** or **pypdfium2** — PDF rasterization
+  - **Ghostscript 9.54+** (system binary) or **pypdfium2** (Python package) — PDF rasterization
   - **fonts-noto** (recommended) — font coverage for non-Latin scripts
   - **pngquant** (optional) — lossy PNG compression
   - **unpaper** (optional) — page deskewing and cleaning
