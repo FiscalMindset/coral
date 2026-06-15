@@ -9,16 +9,17 @@ Query text, tables, images, links, annotations, form fields, and document metada
 - [Coral](https://withcoral.com) (latest)
 
 ### For scanned PDFs (OCR support)
-- Everything above, plus Python 3.11+ (OCRmyPDF pip requires ≥3.11)
-- [OCRmyPDF](https://ocrmypdf.readthedocs.io/) (`pip install ocrmypdf`)
+- Everything above, plus Python 3.11+ (OCRmyPDF requires ≥3.11, 3.12+ recommended)
+- [OCRmyPDF](https://ocrmypdf.readthedocs.io/) (`pip install ocrmypdf`; installs fpdf2 + uharfbuzz for text rendering)
 - System dependencies per platform:
-  - **Tesseract OCR 5.x** — language packs for your documents
-  - **Ghostscript 9.55+** — PDF rasterization
-  - **qpdf** — PDF/A validation and output
+  - **Tesseract OCR 4.1.1+** — language packs for your documents
+  - **Ghostscript 9.54+** or **pypdfium2** — PDF rasterization
+  - **fonts-noto** (recommended) — font coverage for non-Latin scripts
   - **pngquant** (optional) — lossy PNG compression
   - **unpaper** (optional) — page deskewing and cleaning
+  - **jbig2enc** (optional) — monochrome image optimization
 
-See [OCRmyPDF installation docs](https://ocrmypdf.readthedocs.io/en/latest/installation.html#requirements-for-pip-and-head-install) for platform-specific instructions.
+See [OCRmyPDF installation docs](https://ocrmypdf.readthedocs.io/en/latest/installation.html) for platform-specific instructions.
 
 Note: `--ocr` mode uses [`--force-ocr`](https://ocrmypdf.readthedocs.io/en/latest/advanced.html#ocr-processing-mode) which rasterizes pages and flattens interactive objects (form fields, annotations, layers). It produces a searchable PDF but may alter the original page structure.
 
