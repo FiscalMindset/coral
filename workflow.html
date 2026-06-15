@@ -78,6 +78,22 @@
   .nav a { margin-right: 16px; font-size: 0.9em; }
   hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
   ul { padding-left: 24px; }
+  .copy-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--code-bg); color: var(--fg); font-size: 0.8em;
+    font-weight: 600; cursor: pointer; transition: all 0.15s ease;
+    white-space: nowrap; margin-left: 12px;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #000; padding: 8px 20px; border-radius: 8px;
+    font-weight: 600; font-size: 0.85em; z-index: 999;
+    opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -93,10 +109,14 @@
 
 <div class="container">
 
-<h1>Coral Source PRs — Agent Workflow Reference</h1>
+<h1>Coral Source PRs — Agent Workflow Reference
+  <button class="copy-btn" onclick="copyPrompt()">⎘ Copy as agent prompt</button>
+</h1>
+
+<div class="toast" id="toast">✓ Copied to clipboard</div>
 
 <div class="card">
-<p><strong>Goal:</strong> Any coding agent reading this should be able to create a Coral community source PR from scratch. This file explains the workflow, directory structure, skills to load, and patterns from 17 past PRs.</p>
+<p><strong>Goal:</strong> Any coding agent reading this should be able to create a Coral community source PR from scratch. This file explains the workflow, directory structure, skills to load, and patterns from 20 past PRs.</p>
 </div>
 
 <!-- =================== DIRECTORY =================== -->
@@ -121,7 +141,8 @@
 <pre>add-&lt;name&gt;--source           # e.g. add-stream-video-source</pre>
 
 <h3>Start a new source</h3>
-<pre>cd ~/coral/coral-pr-work
+<p>Auto-detect the coral repo clone first — it may not be named <code>coral</code>. Look for <code>sources/community/</code> or run <code>git remote -v</code> to confirm.</p>
+<pre>cd &lt;repo-root&gt;
 git switch main
 git fetch upstream
 git merge --ff-only upstream/main
@@ -146,11 +167,20 @@ Never commit .env or any real key values.</pre>
 <h2 id="workflow">Workflow (Step by Step)</h2>
 
 <div class="card">
-<h3>Phase 1: Load Skills</h3>
-<p>Before writing anything, load both skills:</p>
-<pre>Skill: coral-create-source-spec  (~/.agents/skills/coral-create-source-spec/SKILL.md)
-Skill: coral-review-source-spec  (~/.agents/skills/coral-review-source-spec/SKILL.md)</pre>
-<p>The create skill has detailed instructions for building manifest.yaml. The review skill has the review checklist.</p>
+<h3>Phase 0: Prerequisites</h3>
+<p><strong>Check Coral CLI:</strong></p>
+<pre>which coral && coral --version || brew install withcoral/tap/coral</pre>
+</div>
+
+<div class="card">
+<h3>Phase 1: Install &amp; Load Skills</h3>
+<p><strong>Install (one-time):</strong></p>
+<pre>npx skills add withcoral/skills</pre>
+<p><strong>Then load (each session):</strong></p>
+<pre>Skill: coral-create-source-spec
+Skill: coral-review-source-spec
+Skill: coral</pre>
+<p>The create skill has detailed instructions for building manifest.yaml. The review skill has the review checklist. The coral skill provides live query and source management via MCP.</p>
 </div>
 
 <div class="card">
@@ -296,18 +326,35 @@ git push origin add-&lt;source&gt;-source
   <tr><td>7</td><td>Cohere AI</td><td><a href="https://github.com/withcoral/coral/pull/1098">#1098</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
   <tr><td>8</td><td>Sarvam AI</td><td><a href="https://github.com/withcoral/coral/pull/1112">#1112</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
   <tr><td>9</td><td>Voyage AI</td><td><a href="https://github.com/withcoral/coral/pull/1115">#1115</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>key</code>, <code>embeddings</code></td></tr>
-  <tr><td>10</td><td>NVIDIA NIM</td><td><a href="https://github.com/withcoral/coral/pull/958">#958</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
-  <tr><td>11</td><td>Deepgram</td><td><a href="https://github.com/withcoral/coral/pull/1118">#1118</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>transcriptions</code></td></tr>
-  <tr><td>12</td><td>PayPal</td><td><a href="https://github.com/withcoral/coral/pull/1173">#1173</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>balances</code>, <code>balance_summary</code>, <code>transaction_search</code>, <code>invoices</code>, <code>webhooks</code></td></tr>
-  <tr><td>13</td><td>ElevenLabs</td><td><a href="https://github.com/withcoral/coral/pull/1175">#1175</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>voices</code></td></tr>
-  <tr><td>14</td><td>Tavily</td><td><a href="https://github.com/withcoral/coral/pull/1204">#1204</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>search</code> (function)</td></tr>
-  <tr><td>15</td><td>Blogger</td><td><a href="https://github.com/withcoral/coral/pull/1223">#1223</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>blogs</code>, <code>posts</code>, <code>comments</code>, <code>posts_search</code></td></tr>
-  <tr><td>16</td><td>Stream Video</td><td><a href="https://github.com/withcoral/coral/pull/1230">#1230</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>app</code>, <code>calls</code>, <code>call</code>, <code>call_members</code></td></tr>
-  <tr><td>17</td><td>Razorpay</td><td><a href="https://github.com/withcoral/coral/pull/1232">#1232</a></td><td><span class="badge badge-yellow">OPEN</span></td><td>—</td></tr>
+  <tr><td>10</td><td>Deepgram</td><td><a href="https://github.com/withcoral/coral/pull/1118">#1118</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>models</code>, <code>transcriptions</code></td></tr>
+  <tr><td>11</td><td>Tavily</td><td><a href="https://github.com/withcoral/coral/pull/1204">#1204</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>search</code> (function)</td></tr>
+  <tr><td>12</td><td>Cloudinary</td><td><a href="https://github.com/withcoral/coral/pull/1242">#1242</a></td><td><span class="badge badge-purple">MERGED</span></td><td><code>resources</code>, <code>folders</code>, <code>upload_presets</code>, <code>usage</code>, <code>metadata_fields</code></td></tr>
+  <tr><td>13</td><td>NVIDIA NIM</td><td><a href="https://github.com/withcoral/coral/pull/958">#958</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>chat_completions</code></td></tr>
+  <tr><td>14</td><td>PayPal</td><td><a href="https://github.com/withcoral/coral/pull/1173">#1173</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>balances</code>, <code>balance_summary</code>, <code>transaction_search</code>, <code>invoices</code>, <code>webhooks</code></td></tr>
+  <tr><td>15</td><td>ElevenLabs</td><td><a href="https://github.com/withcoral/coral/pull/1175">#1175</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>models</code>, <code>voices</code></td></tr>
+  <tr><td>16</td><td>Blogger</td><td><a href="https://github.com/withcoral/coral/pull/1223">#1223</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>blogs</code>, <code>posts</code>, <code>comments</code>, <code>posts_search</code></td></tr>
+  <tr><td>17</td><td>Stream Video</td><td><a href="https://github.com/withcoral/coral/pull/1230">#1230</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>app</code>, <code>calls</code>, <code>call</code>, <code>call_members</code></td></tr>
+  <tr><td>18</td><td>PDF</td><td><a href="https://github.com/withcoral/coral/pull/1260">#1260</a></td><td><span class="badge badge-green">APPROVED</span></td><td><code>pages</code>, <code>documents</code></td></tr>
+  <tr><td>19</td><td>Razorpay</td><td><a href="https://github.com/withcoral/coral/pull/1232">#1232</a></td><td><span class="badge badge-yellow">OPEN</span></td><td>—</td></tr>
+  <tr><td>20</td><td>Cloudinary (v1)</td><td><a href="https://github.com/withcoral/coral/pull/1240">#1240</a></td><td><span class="badge badge-red">CLOSED</span></td><td>Superseded by #1242</td></tr>
 </table>
 
+<!-- =================== CASE STUDY =================== -->
+<h2 id="case-study">Case Study: PDF Source (#1260)</h2>
+<p>A real end-to-end review lifecycle for a file-backed source. <a href="https://github.com/withcoral/coral/pull/1260">PR #1260</a> went through <strong>7 review rounds</strong> (3 cubic-dev-ai + 4 jsummerfield) and <strong>10+ commits</strong>. Key lessons:</p>
+<ul>
+  <li><strong>backend: jsonl</strong> is invalid — use <code>backend: file</code> + <code>format: jsonl</code> on each table</li>
+  <li><strong>Synthetic data only</strong> — real resume PII in samples was a High blocker</li>
+  <li><strong>Coral JSON functions</strong> — use <code>json_length()</code>, never <code>json_array_length()</code></li>
+  <li><strong>Mutable URLs</strong> — never <code>/main/</code> in download links; use repo checkout</li>
+  <li><strong>Split deps by feature</strong> — basic (3.10 + PyMuPDF) vs OCR (3.11 + OCRmyPDF + Tesseract + Ghostscript + qpdf)</li>
+  <li><strong>Label system vs Python deps</strong> — e.g. <code>Ghostscript (system binary)</code> vs <code>pypdfium2 (Python package)</code></li>
+  <li><strong>Keep validation proof</strong> — never remove live query output from README</li>
+</ul>
+<p>See <a href="review.html#step-11">Step 11 in review.html</a> for the full breakdown.</p>
+
 <!-- =================== REVIEW PATTERNS =================== -->
-<h2 id="review-patterns">Review Patterns (From All 17 PRs)</h2>
+<h2 id="review-patterns">Review Patterns (From All 20 PRs)</h2>
 
 <p>These are <strong>patterns</strong>, not hard rules. Each API is different. But these are the things jsummerfield has flagged across multiple reviews:</p>
 
@@ -331,9 +378,11 @@ git push origin add-&lt;source&gt;-source
 
 <ul>
   <li>Only 2 files per PR: <code>manifest.yaml</code> + <code>README.md</code> in <code>sources/community/&lt;source&gt;/</code></li>
-  <li>Coral CLI already installed. Git remotes already configured.</li>
-  <li>Load <code>coral-create-source-spec</code> skill before creating</li>
-  <li>Load <code>coral-review-source-spec</code> skill before reviewing</li>
+  <li>Check Coral CLI: <code>which coral && coral --version</code>; install if missing: <code>brew install withcoral/tap/coral</code></li>
+  <li>Install skills: <code>npx skills add withcoral/skills</code> (one-time); load via <code>skill</code> tool each session</li>
+  <li><code>backend</code> must be <code>http</code>, <code>file</code>, or <code>mcp</code> — never <code>jsonl</code></li>
+  <li>Use synthetic sample data only — no real PII, real names, or real emails</li>
+  <li>Use Coral JSON functions: <code>json_length()</code>, never <code>json_array_length()</code></li>
   <li>No AI/Codex/ChatGPT wording anywhere in public PRs</li>
   <li>No WSL, local paths, or real API keys in public text</li>
   <li>Redact identifiers: <code>your-app</code>, <code>user_abc123</code>, <code>call_abc123</code></li>
@@ -344,5 +393,61 @@ git push origin add-&lt;source&gt;-source
 </ul>
 
 </div>
+
+<script>
+function copyPrompt() {
+  var prompt = `You are a coding agent helping contribute a new community source to withcoral/coral.
+
+## BEFORE YOU START
+
+1. Check Coral CLI: run \`which coral && coral --version\`. If missing: \`brew install withcoral/tap/coral\`.
+2. Install skills: \`npx skills add withcoral/skills\` (one-time).
+3. Load skills using the \`skill\` tool: \`coral\`, \`coral-create-source-spec\`, \`coral-review-source-spec\`.
+4. Auto-detect the coral repo clone — look for \`sources/community/\` directory. It may not be named "coral".
+5. Verify git remotes: \`origin\` = your fork, \`upstream\` = withcoral/coral.
+6. Verify \`gh auth status\` is logged in.
+
+## QUICK WORKFLOW
+
+**Phase 0** — Prerequisites (done above)
+**Phase 1** — Load skills
+**Phase 2** — Analyze the API: docs, auth, pagination, decide which endpoints to model
+**Phase 3** — Create \`sources/community/<name>/manifest.yaml\`: name, version 0.1.0, dsl_version 3, backend, base_url, inputs (secrets only), tables with filters/request/response/pagination/columns, test_queries
+**Phase 4** — Write \`README.md\`: prerequisites, quick start, tables, queries, validation output
+**Phase 5** — Validate locally: lint, add, test, introspection, live queries for every table
+**Phase 6** — Open PR with full body (summary, files, source shape, validation output)
+**Phase 7** — Respond to review: fix cubic issues silently; reply to jsummerfield with commit SHA + validation proof
+
+## HARD RULES
+
+1. \`backend\` must be \`http\`, \`file\`, or \`mcp\` — never \`jsonl\`
+2. Synthetic sample data only — no real PII
+3. Use Coral JSON functions: \`json_length()\`, never \`json_array_length()\`
+4. Never use mutable URLs pointing to \`/main/\`
+5. Split deps by feature path; label system binary vs Python package
+6. Keep live validation proof in README
+7. Manifest guides must be self-contained for \`coral describe\` users
+
+## REFERENCE
+
+- Full guide: review.html
+- PR dashboard: pr.html
+- Case study: PR #1260 (PDF source, 7 review rounds, 10+ commits)`;
+
+  navigator.clipboard.writeText(prompt).then(function() {
+    var btn = document.querySelector('.copy-btn');
+    btn.classList.add('copied');
+    btn.textContent = '✓ Copied!';
+    var toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(function() {
+      toast.classList.remove('show');
+      btn.classList.remove('copied');
+      btn.textContent = '⎘ Copy as agent prompt';
+    }, 2500);
+  });
+}
+</script>
+
 </body>
 </html>
