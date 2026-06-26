@@ -4,7 +4,7 @@
 **Backend:** HTTP
 **Functions:** 3
 
-Scrape web pages, search the web, and discover site URLs using Firecrawl. Returns clean markdown content, ranked search results, and website URL maps.
+Query web content, search results, and site URL maps from Firecrawl. Scrape any URL for clean markdown, search the web for ranked results, and discover all URLs on a website.
 
 ## Installation
 
