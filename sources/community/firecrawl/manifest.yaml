@@ -235,7 +235,7 @@ functions:
     pagination:
       mode: none
       page_size:
-        default: 5000
+        default: 100
         max: 100000
         body_path:
           - limit
