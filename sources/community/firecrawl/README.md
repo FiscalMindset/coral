@@ -29,7 +29,7 @@ export FIRECRAWL_API_KEY="fc-your-api-key"
 
 ## Live request costs
 
-Each function call performs one live `POST` request to `https://api.firecrawl.dev/v2`. Firecrawl charges per credit; refer to [firecrawl.dev/pricing](https://www.firecrawl.dev/pricing) for current rates. `scrape` costs 1 credit per page. `search` costs 1 credit per 10 results. `map` costs 1 credit per call. SQL `LIMIT` only caps rows after Coral receives the response.
+Each function call performs one live `POST` request to `https://api.firecrawl.dev/v2`. Firecrawl charges per credit; refer to [firecrawl.dev/pricing](https://www.firecrawl.dev/pricing) for current rates. `scrape` costs 1 credit per page. `search` costs 2 credits per 10 results. `map` costs 1 credit per page. SQL `LIMIT` is pushed to the Firecrawl request via the page-size mechanism, controlling how many results the API returns.
 
 ## Quick Start
 
@@ -70,7 +70,6 @@ Search the web using Firecrawl. Pass the query as a named argument with `q => '<
 | Argument | Type | Description |
 |----------|------|-------------|
 | `q` | Utf8 | (Required) Search query |
-| `limit` | Int64 | Maximum number of results (default 5, max 100) |
 | `tbs` | Utf8 | Time-based search filter (`qdr:h`, `qdr:d`, `qdr:w`, `qdr:m`, `qdr:y`) |
 | `country` | Utf8 | ISO country code for geo-targeting (default `US`) |
 
@@ -118,7 +117,6 @@ Discover all URLs on a website. Returns discovered pages with titles and descrip
 |----------|------|-------------|
 | `url` | Utf8 | (Required) Base URL to discover pages from |
 | `search` | Utf8 | Filter discovered URLs by relevance to this query |
-| `limit` | Int64 | Maximum number of URLs to return (default 100, max 100000) |
 | `include_subdomains` | Boolean | Include subdomains (default true) |
 
 **Result columns**
@@ -134,8 +132,8 @@ Discover all URLs on a website. Returns discovered pages with titles and descrip
 - Targets the Firecrawl hosted API at `https://api.firecrawl.dev/v2`.
 - Requires `FIRECRAWL_API_KEY` authentication as a Bearer token.
 - The `q` argument is required for `search`. The `url` argument is required for `scrape` and `map`.
-- `search` defaults to 5 results via `fetch_limit_default`. Pass `limit => N` to control how many results Firecrawl returns (max 100).
-- `map` defaults to 100 results via `fetch_limit_default`. Pass `limit => N` to control how many URLs Firecrawl returns (max 100000).
+- `search` defaults to 5 results via `fetch_limit_default`. SQL `LIMIT N` pushes into the Firecrawl request body via page-size (API default 10, max 100).
+- `map` defaults to 100 results via `fetch_limit_default`. SQL `LIMIT N` pushes into the Firecrawl request body via page-size (API default 5000, max 100000).
 - `scrape` always returns exactly one row per URL.
 - No pagination — each function makes a single API call per SQL query.
 - 1 declared test query (`search`) is source-independent.
@@ -147,7 +145,7 @@ Discover all URLs on a website. Returns discovered pages with titles and descrip
 - `scrape` returns markdown by default. Other output formats (HTML, screenshots, structured JSON extraction) are not exposed in this version.
 - `search` returns web results only. Image and news result sources are not exposed in this version.
 - `map` returns URLs discovered via sitemap and link crawling. Results depend on the target site's structure.
-- Rate limits apply based on your Firecrawl plan. Free tier includes 500 credits.
+- Rate limits apply based on your Firecrawl plan. Free plan includes 1,000 credits/month.
 
 ## Provider docs
 

@@ -149,9 +149,6 @@ functions:
         required: true
         bind:
           arg: q
-      - name: limit
-        bind:
-          arg: limit
       - name: tbs
         bind:
           arg: tbs
@@ -165,9 +162,6 @@ functions:
         - path: [query]
           from: arg
           key: q
-        - path: [limit]
-          from: arg
-          key: limit
         - path: [tbs]
           from: arg
           key: tbs
@@ -180,6 +174,11 @@ functions:
         - web
     pagination:
       mode: none
+      page_size:
+        default: 10
+        max: 100
+        body_path:
+          - limit
     columns:
       - name: url
         type: Utf8
@@ -214,9 +213,6 @@ functions:
       - name: search
         bind:
           arg: search
-      - name: limit
-        bind:
-          arg: limit
       - name: include_subdomains
         bind:
           arg: include_subdomains
@@ -230,9 +226,6 @@ functions:
         - path: [search]
           from: arg
           key: search
-        - path: [limit]
-          from: arg
-          key: limit
         - path: [includeSubdomains]
           from: arg
           key: include_subdomains
@@ -241,6 +234,11 @@ functions:
         - links
     pagination:
       mode: none
+      page_size:
+        default: 5000
+        max: 100000
+        body_path:
+          - limit
     columns:
       - name: url
         type: Utf8
