@@ -70,7 +70,7 @@ Search the web using Firecrawl. Pass the query as a named argument with `q => '<
 | Argument | Type | Description |
 |----------|------|-------------|
 | `q` | Utf8 | (Required) Search query |
-| `limit` | Int64 | Maximum number of results (default 10, max 100) |
+| `limit` | Int64 | Maximum number of results (default 5, max 100) |
 | `tbs` | Utf8 | Time-based search filter (`qdr:h`, `qdr:d`, `qdr:w`, `qdr:m`, `qdr:y`) |
 | `country` | Utf8 | ISO country code for geo-targeting (default `US`) |
 
@@ -118,7 +118,7 @@ Discover all URLs on a website. Returns discovered pages with titles and descrip
 |----------|------|-------------|
 | `url` | Utf8 | (Required) Base URL to discover pages from |
 | `search` | Utf8 | Filter discovered URLs by relevance to this query |
-| `limit` | Int64 | Maximum number of URLs to return (default 5000, max 100000) |
+| `limit` | Int64 | Maximum number of URLs to return (default 100, max 100000) |
 | `include_subdomains` | Boolean | Include subdomains (default true) |
 
 **Result columns**
