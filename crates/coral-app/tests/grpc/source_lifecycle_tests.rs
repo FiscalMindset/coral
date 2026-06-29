@@ -304,6 +304,9 @@ async fn list_catalog_supports_table_kind_and_pagination() {
     assert_eq!(page_pagination.offset, 0);
     assert!(page_pagination.has_more);
     assert_eq!(page_pagination.next_offset, 2);
+    let counts = page.counts.as_ref().expect("catalog counts");
+    assert_eq!(counts.table_count, 3);
+    assert_eq!(counts.table_function_count, 0);
     assert_eq!(
         page.items
             .iter()
@@ -334,6 +337,9 @@ async fn list_catalog_supports_table_kind_and_pagination() {
         .as_ref()
         .expect("unknown schema pagination");
     assert_eq!(unknown_schema_pagination.total_count, 0);
+    let unknown_counts = unknown_schema.counts.as_ref().expect("catalog counts");
+    assert_eq!(unknown_counts.table_count, 0);
+    assert_eq!(unknown_counts.table_function_count, 0);
     assert!(unknown_schema.items.is_empty());
     assert!(!unknown_schema_pagination.has_more);
 }
@@ -1494,6 +1500,11 @@ origin = "imported"
 "#,
     )
     .expect("write initial config");
+    let demo_manifest = fixture_manifest_yaml(temp.path()).replace("local_messages", "demo");
+    let demo_manifest_path = source_dir(&config_dir, "demo").join("manifest.yaml");
+    fs::create_dir_all(demo_manifest_path.parent().expect("manifest parent"))
+        .expect("create demo source dir");
+    fs::write(demo_manifest_path, demo_manifest).expect("write demo manifest");
 
     let harness = GrpcHarness::start_with_config_dir(config_dir.clone()).await;
     let manifest_yaml = fixture_manifest_yaml(temp.path());
