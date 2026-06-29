@@ -86,7 +86,7 @@ Search the web using Exa's AI-powered search engine. Pass the query as a named a
 
 ## Limitations
 
-- The source models `POST /search` only. The `findSimilar` endpoint is deprecated by Exa and excluded. The contents endpoint (`POST /contents`), answer endpoint (`POST /answer`), agent API, and websets API are intentionally out of scope.
+- The source models `POST /search` only. The contents endpoint (`POST /contents`), answer endpoint (`POST /answer`), agent API, and websets API are intentionally out of scope.
 - `search` returns basic result metadata only. Page text, highlights, and summaries require the `contents` option which is not exposed in this version.
 - `score` may be empty for some search types.
 - The `people` and `company` categories have limited filter support — `startPublishedDate`, `endPublishedDate`, `startCrawlDate`, `endCrawlDate`, and `excludeDomains` are not supported for these categories.
