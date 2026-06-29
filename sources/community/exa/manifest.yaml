@@ -4,7 +4,7 @@ dsl_version: 3
 backend: http
 description: >-
   Query AI-powered web search results from Exa. Returns ranked results
-  with titles, URLs, published dates, authors, and relevance scores.
+  with titles, URLs, published dates, and authors.
 base_url: https://api.exa.ai
 
 inputs:
@@ -25,7 +25,7 @@ auth:
       template: "{{input.EXA_API_KEY}}"
 
 test_queries:
-  - SELECT url, title, score FROM exa.search(q => 'Coral SQL') LIMIT 2
+  - SELECT url, title, published_date FROM exa.search(q => 'Coral SQL') LIMIT 2
 
 functions:
 
@@ -39,8 +39,7 @@ functions:
     description: >-
       Search the web using Exa's AI-powered search engine. Pass the
       query as a named argument with `q => '<query>'`. Returns ranked
-      results with titles, URLs, published dates, authors, and relevance
-      scores.
+      results with titles, URLs, published dates, and authors.
     fetch_limit_default: 5
     search_limits:
       default_top_k: 5
@@ -105,8 +104,3 @@ functions:
         type: Utf8
         nullable: true
         description: Author of the page.
-      - name: score
-        type: Float64
-        nullable: true
-        description: Relevance score of the result.
-

@@ -4,7 +4,7 @@
 **Backend:** HTTP
 **Functions:** 1
 
-Query AI-powered web search results from Exa. Returns ranked results with titles, URLs, published dates, authors, and relevance scores.
+Query AI-powered web search results from Exa. Returns ranked results with titles, URLs, published dates, and authors.
 
 ## Installation
 
@@ -35,7 +35,7 @@ Each function call performs one live `POST` request to `https://api.exa.ai`. Exa
 
 ```sql
 -- Search the web
-SELECT url, title, published_date, score
+SELECT url, title, published_date
 FROM exa.search(q => 'Coral SQL')
 LIMIT 5;
 
@@ -73,7 +73,6 @@ Search the web using Exa's AI-powered search engine. Pass the query as a named a
 | `id` | Utf8 | Unique identifier for the result |
 | `published_date` | Utf8 | Published date of the page (ISO 8601) |
 | `author` | Utf8 | Author of the page |
-| `score` | Float64 | Relevance score (may be empty for some search types) |
 
 ## Source scope
 
@@ -88,7 +87,6 @@ Search the web using Exa's AI-powered search engine. Pass the query as a named a
 
 - The source models `POST /search` only. The contents endpoint (`POST /contents`), answer endpoint (`POST /answer`), agent API, and websets API are intentionally out of scope.
 - `search` returns basic result metadata only. Page text, highlights, and summaries require the `contents` option which is not exposed in this version.
-- `score` may be empty for some search types.
 - The `people` and `company` categories have limited filter support — `startPublishedDate`, `endPublishedDate`, `startCrawlDate`, `endCrawlDate`, and `excludeDomains` are not supported for these categories.
 - Rate limits apply based on your Exa plan.
 
@@ -116,7 +114,7 @@ Added source exa
     Query tests
     1 declared · 1 passed · 0 failed
 
-    ✓ SELECT url, title, score FROM exa.search(q => 'Coral SQL') LIMIT 2
+    ✓ SELECT url, title, published_date FROM exa.search(q => 'Coral SQL') LIMIT 2
       2 rows
 ```
 
@@ -161,26 +159,24 @@ $ coral source test exa
     Query tests
     1 declared · 1 passed · 0 failed
 
-    ✓ SELECT url, title, score FROM exa.search(q => 'Coral SQL') LIMIT 2
+    ✓ SELECT url, title, published_date FROM exa.search(q => 'Coral SQL') LIMIT 2
       2 rows
 ```
 
 **Live search proof:**
 
 ```sql
-SELECT url, title, published_date, score
+SELECT url, title, published_date
 FROM exa.search(q => 'Coral SQL')
 LIMIT 3;
 ```
 
 ```text
-+------------------------------------+---------------------------------------------------------------------------+--------------------------+-------+
-| url                                | title                                                                     | published_date           | score |
-+------------------------------------+---------------------------------------------------------------------------+--------------------------+-------+
-| https://github.com/withcoral/coral | withcoral/coral: One SQL interface over APIs, files, and live sources ... | 2026-06-27T00:28:42.026Z |       |
-| https://withcoral.com/             | Coral — The data engine for enterprise AI                                 |                          |       |
-| https://withcoral.com/docs         | Introduction to Coral - Coral Docs                                        |                          |       |
-+------------------------------------+---------------------------------------------------------------------------+--------------------------+-------+
++------------------------------------+---------------------------------------------------------------------------+--------------------------+
+| url                                | title                                                                     | published_date           |
++------------------------------------+---------------------------------------------------------------------------+--------------------------+
+| https://github.com/withcoral/coral | withcoral/coral: One SQL interface over APIs, files, and live sources ... | 2026-06-27T00:28:42.026Z |
+| https://withcoral.com/             | Coral — The data engine for enterprise AI                                 |                          |
+| https://withcoral.com/docs         | Introduction to Coral - Coral Docs                                        |                          |
++------------------------------------+---------------------------------------------------------------------------+--------------------------+
 ```
-
-
