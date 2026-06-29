@@ -2,9 +2,9 @@
 
 **Version:** 0.1.0
 **Backend:** HTTP
-**Functions:** 2
+**Functions:** 1
 
-Query AI-powered web search results and find similar pages from Exa. Returns ranked results with titles, URLs, published dates, authors, and relevance scores.
+Query AI-powered web search results from Exa. Returns ranked results with titles, URLs, published dates, authors, and relevance scores.
 
 ## Installation
 
@@ -44,15 +44,10 @@ SELECT url, title, author, published_date
 FROM exa.search(q => 'large language models', category => 'research paper')
 LIMIT 5;
 
--- Find pages similar to a URL
-SELECT url, title, score
-FROM exa.find_similar(url => 'https://withcoral.com')
-LIMIT 5;
-
--- Find similar company pages
-SELECT url, title, score
-FROM exa.find_similar(url => 'https://withcoral.com', category => 'company')
-LIMIT 5;
+-- Search with instant mode for lowest latency
+SELECT url, title
+FROM exa.search(q => 'Coral SQL', type => 'instant')
+LIMIT 3;
 ```
 
 ## Functions
@@ -80,45 +75,20 @@ Search the web using Exa's AI-powered search engine. Pass the query as a named a
 | `author` | Utf8 | Author of the page |
 | `score` | Float64 | Relevance score (may be empty for some search types) |
 
----
-
-### `exa.find_similar`
-
-Find pages similar to a given URL using Exa. Pass the URL as a named argument with `url => '<url>'`. Returns similar pages with relevance scores.
-
-**Arguments**
-
-| Argument | Type | Description |
-|----------|------|-------------|
-| `url` | Utf8 | (Required) URL to find similar pages for |
-| `category` | Utf8 | Category filter: `company`, `research paper`, `news`, `personal site`, `financial report`, `people` |
-
-**Result columns**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `url` | Utf8 | URL of the similar page |
-| `title` | Utf8 | Title of the similar page |
-| `id` | Utf8 | Unique identifier for the result |
-| `published_date` | Utf8 | Published date of the page (ISO 8601) |
-| `author` | Utf8 | Author of the page |
-| `score` | Float64 | Relevance score of the result |
-
 ## Source scope
 
 - Targets the Exa hosted API at `https://api.exa.ai`.
 - Requires `EXA_API_KEY` authentication via `x-api-key` header.
-- The `q` argument is required for `search`. The `url` argument is required for `find_similar`.
+- The `q` argument is required for `search`.
 - `search` defaults to 5 results via `fetch_limit_default`. SQL `LIMIT N` pushes into the Exa request body via page-size (API default 10, max 100).
-- `find_similar` defaults to 5 results via `fetch_limit_default`. SQL `LIMIT N` pushes into the Exa request body via page-size (API default 10, max 100).
 - No pagination — each function makes a single API call per SQL query.
 - 1 declared test query (`search`) is source-independent.
 
 ## Limitations
 
-- The source models `POST /search` and `POST /findSimilar` only. The contents endpoint (`POST /contents`), answer endpoint (`POST /answer`), agent API, and websets API are intentionally out of scope.
+- The source models `POST /search` only. The `findSimilar` endpoint is deprecated by Exa and excluded. The contents endpoint (`POST /contents`), answer endpoint (`POST /answer`), agent API, and websets API are intentionally out of scope.
 - `search` returns basic result metadata only. Page text, highlights, and summaries require the `contents` option which is not exposed in this version.
-- `score` may be empty for some search types; it is consistently populated for `find_similar` results.
+- `score` may be empty for some search types.
 - The `people` and `company` categories have limited filter support — `startPublishedDate`, `endPublishedDate`, `startCrawlDate`, `endCrawlDate`, and `excludeDomains` are not supported for these categories.
 - Rate limits apply based on your Exa plan.
 
@@ -163,7 +133,6 @@ ORDER BY function_name;
 +---------------+--------+------------------------------------------------------------------------------------------------------------------------------------------+
 | function_name | kind   | arguments_json                                                                                                                           |
 +---------------+--------+------------------------------------------------------------------------------------------------------------------------------------------+
-| find_similar  | table  | [{"name":"url","required":true,"values":[]},{"name":"category","required":false,"values":[]}]                                            |
 | search        | search | [{"name":"q","required":true,"values":[]},{"name":"type","required":false,"values":[]},{"name":"category","required":false,"values":[]}] |
 +---------------+--------+------------------------------------------------------------------------------------------------------------------------------------------+
 ```
@@ -214,19 +183,4 @@ LIMIT 3;
 +------------------------------------+---------------------------------------------------------------------------+--------------------------+-------+
 ```
 
-**Live find_similar proof:**
 
-```sql
-SELECT url, title, score
-FROM exa.find_similar(url => 'https://withcoral.com')
-LIMIT 3;
-```
-
-```text
-+------------------------------------+-----------------+--------------------+
-| url                                | title           | score              |
-+------------------------------------+-----------------+--------------------+
-| https://withcoral.com/docs         |                 | 0.923824429512024  |
-| https://github.com/withcoral/coral | withcoral/coral | 0.8985017538070679 |
-+------------------------------------+-----------------+--------------------+
-```

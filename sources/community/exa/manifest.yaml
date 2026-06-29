@@ -3,9 +3,8 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Query AI-powered web search results and find similar pages from Exa.
-  Returns ranked results with titles, URLs, published dates, authors,
-  and relevance scores.
+  Query AI-powered web search results from Exa. Returns ranked results
+  with titles, URLs, published dates, authors, and relevance scores.
 base_url: https://api.exa.ai
 
 inputs:
@@ -111,72 +110,3 @@ functions:
         nullable: true
         description: Relevance score of the result.
 
-  # --------------------------------------------------------------------------
-  # exa.find_similar — Find pages similar to a URL
-  # POST /findSimilar
-  # Array at response.results. No pagination (single response).
-  # --------------------------------------------------------------------------
-  - name: find_similar
-    kind: table
-    description: >-
-      Find pages similar to a given URL using Exa. Pass the URL as a
-      named argument with `url => '<url>'`. Returns similar pages with
-      titles, URLs, published dates, and relevance scores.
-    fetch_limit_default: 5
-    args:
-      - name: url
-        required: true
-        bind:
-          arg: url
-      - name: category
-        bind:
-          arg: category
-    request:
-      method: POST
-      path: /findSimilar
-      body:
-        - path: [url]
-          from: arg
-          key: url
-        - path: [category]
-          from: arg
-          key: category
-    response:
-      rows_path:
-        - results
-    pagination:
-      mode: none
-      page_size:
-        default: 10
-        max: 100
-        body_path:
-          - numResults
-    columns:
-      - name: url
-        type: Utf8
-        nullable: false
-        description: URL of the similar page.
-      - name: title
-        type: Utf8
-        nullable: true
-        description: Title of the similar page.
-      - name: id
-        type: Utf8
-        nullable: true
-        description: Unique identifier for the result.
-      - name: published_date
-        type: Utf8
-        nullable: true
-        description: Published date of the page (ISO 8601).
-        expr:
-          kind: path
-          path:
-            - publishedDate
-      - name: author
-        type: Utf8
-        nullable: true
-        description: Author of the page.
-      - name: score
-        type: Float64
-        nullable: true
-        description: Relevance score of the result.
