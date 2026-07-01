@@ -313,23 +313,32 @@ fn assert_tool_advertises_episode_id(tool: &Tool) {
 }
 
 fn assert_nullable_episode_id_schema(schema: &Value, label: &str) {
-    let any_of = schema
-        .get("anyOf")
-        .and_then(Value::as_array)
-        .unwrap_or_else(|| panic!("{label} episode id schema should use anyOf"));
-    let string_schema = any_of
-        .iter()
-        .find(|schema| schema.get("type") == Some(&json!("string")))
-        .unwrap_or_else(|| panic!("{label} episode id schema should accept strings"));
-    assert!(
-        any_of
-            .iter()
-            .any(|schema| schema.get("type") == Some(&json!("null"))),
-        "{label} episode id schema should accept null"
-    );
-    assert_eq!(string_schema["minLength"], json!(1));
-    assert_eq!(string_schema["maxLength"], json!(CORAL_EPISODE_ID_MAX_LEN));
-    assert_eq!(string_schema["pattern"], json!("^[!-~]+$"));
+    let compiled = JSONSchema::compile(schema)
+        .unwrap_or_else(|error| panic!("{label} episode id schema should compile: {error}"));
+    for valid in [
+        json!(null),
+        json!("episode-1"),
+        json!("x".repeat(CORAL_EPISODE_ID_MAX_LEN)),
+    ] {
+        if let Err(errors) = compiled.validate(&valid) {
+            let details = errors
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            panic!("{label} episode id schema rejected valid value {valid}: {details}");
+        }
+    }
+    for invalid in [
+        json!(""),
+        json!("episode with space"),
+        json!("x".repeat(CORAL_EPISODE_ID_MAX_LEN + 1)),
+        json!("episode-é"),
+    ] {
+        assert!(
+            compiled.validate(&invalid).is_err(),
+            "{label} episode id schema accepted invalid value {invalid}"
+        );
+    }
 }
 
 fn assert_tool_omits_episode_id(tool: &Tool) {
@@ -771,6 +780,7 @@ async fn mcp_surface_refreshes_and_renders_dynamic_guide() {
     let updated_tools = client.list_all_tools().await.expect("updated tools");
     let list_catalog_tool = tool_by_name(&updated_tools, "list_catalog");
     let search_catalog_tool = tool_by_name(&updated_tools, "search_catalog");
+    let describe_table_tool = tool_by_name(&updated_tools, "describe_table");
     let list_columns_tool = tool_by_name(&updated_tools, "list_columns");
     assert!(
         updated_tools[0]
@@ -1002,6 +1012,7 @@ async fn mcp_surface_refreshes_and_renders_dynamic_guide() {
     assert_eq!(described["column_count"], 3);
     assert!(described["columns_hint"].as_str().is_some());
     assert!(described["columns"].is_null());
+    assert_matches_output_schema(describe_table_tool, &described);
 
     let missing_table = client
         .call_tool(
