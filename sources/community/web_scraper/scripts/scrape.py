@@ -81,7 +81,11 @@ def create_playwright_fetcher(timeout=30):
         )
 
     ctx = sync_playwright().start()
-    browser = ctx.chromium.launch(headless=True)
+    try:
+        browser = ctx.chromium.launch(headless=True)
+    except Exception:
+        ctx.stop()
+        raise
 
     def fetch(url, timeout=timeout):
         page = browser.new_page(user_agent=USER_AGENT)
