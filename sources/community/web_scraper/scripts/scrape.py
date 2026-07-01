@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Scrape web pages and write structured JSONL for the Coral web_scraper source.
 
-Zero external dependencies — uses only Python stdlib.
+Uses requests + BeautifulSoup + lxml for robust scraping.
+Optional: --js flag uses Playwright for JavaScript-rendered pages.
 
 Usage:
     python3 scrape.py https://example.com https://example.com/about
     python3 scrape.py --file urls.txt
+    python3 scrape.py --js https://spa-site.com        # JS rendering
     python3 scrape.py --file urls.txt --output ~/.coral/web_scraper
+
+Dependencies:
+    pip install requests beautifulsoup4 lxml             # required
+    pip install playwright && playwright install chromium # optional, for --js
 
 Output:
     pages.jsonl  — one row per URL with title, text, metadata
@@ -18,145 +24,161 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
+
+try:
+    import requests
+except ImportError:
+    sys.exit("Missing dependency: pip install requests")
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    sys.exit("Missing dependency: pip install beautifulsoup4")
 
 DEFAULT_OUTPUT = os.path.expanduser("~/.coral/web_scraper")
 USER_AGENT = (
-    "Mozilla/5.0 (compatible; CoralWebScraper/1.0; "
-    "+https://github.com/withcoral/coral)"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 
-class PageParser(HTMLParser):
-    def __init__(self, base_url):
-        super().__init__()
-        self.base_url = base_url
-        self.title = None
-        self.description = None
-        self.language = None
-        self.links = []
-        self.text_parts = []
-        self._in_title = False
-        self._skip_tags = {"script", "style", "noscript"}
-        self._skip_depth = 0
-
-    def handle_starttag(self, tag, attrs):
-        attrs_dict = dict(attrs)
-
-        if tag == "html" and "lang" in attrs_dict:
-            self.language = attrs_dict["lang"]
-
-        if tag == "title":
-            self._in_title = True
-
-        if tag in self._skip_tags:
-            self._skip_depth += 1
-
-        if tag == "meta":
-            name = attrs_dict.get("name", "").lower()
-            content = attrs_dict.get("content", "")
-            if name == "description" and content:
-                self.description = content.strip()
-
-        if tag == "a" and "href" in attrs_dict:
-            href = attrs_dict["href"].strip()
-            if href and not href.startswith(("#", "javascript:", "mailto:", "tel:")):
-                self.links.append({"href": href, "text_parts": []})
-
-    def handle_endtag(self, tag):
-        if tag == "title":
-            self._in_title = False
-        if tag in self._skip_tags and self._skip_depth > 0:
-            self._skip_depth -= 1
-        if tag == "a" and self.links and "text_parts" in self.links[-1]:
-            link = self.links[-1]
-            link["text"] = " ".join(link.pop("text_parts")).strip() or None
-
-    def handle_data(self, data):
-        if self._in_title:
-            self.title = (self.title or "") + data
-
-        if self._skip_depth == 0:
-            stripped = data.strip()
-            if stripped:
-                self.text_parts.append(stripped)
-
-        if self.links and "text_parts" in self.links[-1]:
-            self.links[-1]["text_parts"].append(data.strip())
-
-    def get_text(self):
-        return "\n".join(self.text_parts)
-
-    def get_title(self):
-        return self.title.strip() if self.title else None
-
-    def get_links(self):
-        parsed_base = urlparse(self.base_url)
-        result = []
-        for link in self.links:
-            absolute = urljoin(self.base_url, link["href"])
-            parsed = urlparse(absolute)
-            is_external = parsed.netloc != parsed_base.netloc
-            result.append({
-                "source_url": self.base_url,
-                "href": absolute,
-                "text": link.get("text"),
-                "is_external": is_external,
-            })
-        return result
-
-
-def scrape_url(url, timeout=30):
-    req = Request(url, headers={"User-Agent": USER_AGENT})
+def fetch_with_requests(url, timeout=30):
+    headers = {"User-Agent": USER_AGENT}
     try:
-        resp = urlopen(req, timeout=timeout)
-        final_url = resp.url
-        status_code = resp.status
-        content_type = resp.headers.get("Content-Type", "")
-        html = resp.read().decode("utf-8", errors="replace")
+        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         return {
-            "final_url": final_url,
-            "status_code": status_code,
-            "content_type": content_type,
-            "html": html,
+            "final_url": resp.url,
+            "status_code": resp.status_code,
+            "content_type": resp.headers.get("Content-Type", ""),
+            "html": resp.text,
         }
-    except HTTPError as exc:
-        return {
-            "final_url": url,
-            "status_code": exc.code,
-            "content_type": exc.headers.get("Content-Type", ""),
-            "html": "",
-        }
-    except URLError as exc:
-        print(f"  ✗ {url}: {exc.reason}", file=sys.stderr)
-        return None
-    except Exception as exc:
+    except requests.RequestException as exc:
         print(f"  ✗ {url}: {exc}", file=sys.stderr)
         return None
 
 
+def fetch_with_playwright(url, timeout=30):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        sys.exit(
+            "Missing dependency for --js mode:\n"
+            "  pip install playwright && playwright install chromium"
+        )
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(user_agent=USER_AGENT)
+        try:
+            resp = page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            status_code = resp.status if resp else 0
+            content_type = resp.headers.get("content-type", "") if resp else ""
+            html = page.content()
+            final_url = page.url
+            return {
+                "final_url": final_url,
+                "status_code": status_code,
+                "content_type": content_type,
+                "html": html,
+            }
+        except Exception as exc:
+            print(f"  ✗ {url}: {exc}", file=sys.stderr)
+            return None
+        finally:
+            browser.close()
+
+
+def extract_page(url, result):
+    soup = BeautifulSoup(result["html"], "lxml")
+
+    title_tag = soup.find("title")
+    title = title_tag.get_text(strip=True) if title_tag else None
+
+    meta_desc = soup.find("meta", attrs={"name": "description"})
+    description = (
+        meta_desc["content"].strip()
+        if meta_desc and meta_desc.get("content")
+        else None
+    )
+
+    html_tag = soup.find("html")
+    language = html_tag.get("lang") if html_tag else None
+
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+
+    return {
+        "url": url,
+        "final_url": result["final_url"],
+        "title": title,
+        "description": description,
+        "text": text,
+        "status_code": result["status_code"],
+        "content_type": result["content_type"],
+        "language": language,
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def extract_links(url, result):
+    soup = BeautifulSoup(result["html"], "lxml")
+    parsed_base = urlparse(url)
+    links = []
+
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag["href"].strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+
+        absolute = urljoin(url, href)
+        parsed = urlparse(absolute)
+        is_external = parsed.netloc != parsed_base.netloc
+        link_text = a_tag.get_text(strip=True) or None
+
+        links.append({
+            "source_url": url,
+            "href": absolute,
+            "text": link_text,
+            "is_external": is_external,
+        })
+
+    return links
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Scrape URLs to JSONL for Coral")
+    parser = argparse.ArgumentParser(
+        description="Scrape URLs to JSONL for Coral web_scraper source"
+    )
     parser.add_argument("urls", nargs="*", help="URLs to scrape")
     parser.add_argument("--file", "-f", help="File with one URL per line")
     parser.add_argument(
         "--output", "-o", default=DEFAULT_OUTPUT,
         help=f"Output directory (default: {DEFAULT_OUTPUT})",
     )
-    parser.add_argument("--timeout", "-t", type=int, default=30, help="Request timeout")
+    parser.add_argument(
+        "--js", action="store_true",
+        help="Use Playwright for JS-rendered pages (requires: pip install playwright)",
+    )
+    parser.add_argument(
+        "--timeout", "-t", type=int, default=30, help="Request timeout in seconds"
+    )
     args = parser.parse_args()
 
     urls = list(args.urls)
     if args.file:
         with open(args.file) as fh:
-            urls.extend(line.strip() for line in fh if line.strip() and not line.startswith("#"))
+            urls.extend(
+                line.strip() for line in fh
+                if line.strip() and not line.startswith("#")
+            )
 
     if not urls:
         parser.error("No URLs provided. Pass URLs as arguments or use --file.")
+
+    fetch = fetch_with_playwright if args.js else fetch_with_requests
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -171,32 +193,18 @@ def main():
             if not url.startswith(("http://", "https://")):
                 url = "https://" + url
 
-            print(f"  → {url}")
-            result = scrape_url(url, timeout=args.timeout)
+            mode = "JS" if args.js else "HTTP"
+            print(f"  → [{mode}] {url}")
+            result = fetch(url, timeout=args.timeout)
             if result is None:
                 continue
 
-            page_parser = PageParser(url)
-            try:
-                page_parser.feed(result["html"])
-            except Exception:
-                pass
-
-            page = {
-                "url": url,
-                "final_url": result["final_url"],
-                "title": page_parser.get_title(),
-                "description": page_parser.description,
-                "text": page_parser.get_text(),
-                "status_code": result["status_code"],
-                "content_type": result["content_type"],
-                "language": page_parser.language,
-                "scraped_at": datetime.now(timezone.utc).isoformat(),
-            }
+            page = extract_page(url, result)
             pages_fh.write(json.dumps(page) + "\n")
             pages_count += 1
 
-            for link in page_parser.get_links():
+            page_links = extract_links(url, result)
+            for link in page_links:
                 links_fh.write(json.dumps(link) + "\n")
                 links_count += 1
 

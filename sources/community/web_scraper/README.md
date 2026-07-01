@@ -22,9 +22,24 @@ coral source add --file sources/community/web_scraper/manifest.yaml
 
 ## Prerequisites
 
-- Python 3.8+ (no external dependencies — uses only stdlib)
+**Required:**
 
-The scraper uses `urllib.request` for HTTP and `html.parser` for HTML parsing. No `pip install` required.
+```bash
+pip install requests beautifulsoup4 lxml
+```
+
+**Optional (for JS-rendered pages):**
+
+```bash
+pip install playwright && playwright install chromium
+```
+
+| Dependency | Purpose |
+|------------|---------|
+| `requests` | HTTP requests with sessions, cookies, redirects |
+| `beautifulsoup4` | HTML parsing and content extraction |
+| `lxml` | Fast, robust HTML parser backend for BeautifulSoup |
+| `playwright` | (Optional) JavaScript rendering for SPAs via `--js` flag |
 
 ## Quick Start
 
@@ -64,6 +79,9 @@ python3 scrape.py https://example.com https://example.com/about
 
 # Scrape URLs from a file (one per line)
 python3 scrape.py --file urls.txt
+
+# JS-rendered pages (requires playwright)
+python3 scrape.py --js https://spa-site.com
 
 # Custom output directory
 python3 scrape.py --file urls.txt --output /path/to/output
@@ -115,7 +133,8 @@ Links discovered on scraped pages. One row per anchor tag with an href attribute
 
 - File-backed source reading from `~/.coral/web_scraper/pages.jsonl` and `~/.coral/web_scraper/links.jsonl`.
 - No API key, no credentials, no rate limits.
-- The scraper uses Python stdlib only (`urllib.request` + `html.parser`). No external dependencies.
+- The scraper uses `requests` + `beautifulsoup4` + `lxml` for robust HTML parsing.
+- Optional `--js` flag uses Playwright for JavaScript-rendered pages.
 - Data is static — re-run the scraper to refresh.
 - The scraper strips `<script>`, `<style>`, and `<noscript>` tags before extracting text.
 - Links are resolved to absolute URLs. Fragment-only, `javascript:`, `mailto:`, and `tel:` hrefs are excluded.
@@ -123,10 +142,9 @@ Links discovered on scraped pages. One row per anchor tag with an href attribute
 
 ## Limitations
 
-- The scraper uses Python stdlib HTTP — it does not execute JavaScript. JS-rendered SPAs will return empty or partial content. For JS-heavy sites, use the Firecrawl source instead.
+- Without `--js`, the scraper does not execute JavaScript. JS-rendered SPAs will return empty or partial content. Use `--js` for JS-heavy sites (requires Playwright), or use the Firecrawl source.
 - No built-in crawling — you must provide the list of URLs to scrape. The scraper does not follow links automatically.
-- No proxy, anti-bot, or cookie support. Sites with aggressive bot detection may block requests.
-- HTML parsing uses Python's `html.parser` which is lenient but may miss edge cases that a full parser like lxml handles.
+- No proxy or anti-bot evasion. Sites with aggressive bot detection may block requests.
 - The `text` column may contain navigation, header, and footer text. The scraper does not isolate main content.
 - Duplicate links are not deduplicated — if a page has the same link twice, it appears twice in `links.jsonl`.
 
