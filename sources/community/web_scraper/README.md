@@ -75,22 +75,23 @@ WHERE href LIKE '%github.com%';
 
 ```bash
 # Scrape specific URLs
-python3 scrape.py https://example.com https://example.com/about
+python3 sources/community/web_scraper/scripts/scrape.py https://example.com https://example.com/about
 
 # Scrape URLs from a file (one per line)
-python3 scrape.py --file urls.txt
+python3 sources/community/web_scraper/scripts/scrape.py --file urls.txt
 
-# JS-rendered pages (requires playwright)
-python3 scrape.py --js https://spa-site.com
-
-# Custom output directory
-python3 scrape.py --file urls.txt --output /path/to/output
+# JS-rendered pages (requires Playwright)
+python3 sources/community/web_scraper/scripts/scrape.py --js https://spa-site.com
 
 # Set request timeout (default 30s)
-python3 scrape.py --timeout 60 https://example.com
+python3 sources/community/web_scraper/scripts/scrape.py --timeout 60 https://example.com
 ```
 
 Default output directory: `~/.coral/web_scraper/`
+
+The scraper writes to temporary files and atomically replaces the output only after a full successful run. If any URL fails, the scraper exits with a non-zero status code.
+
+**Note:** The `--output` flag changes where JSONL files are written, but the manifest hardcodes `file://~/.coral/web_scraper/`. If you use a custom output path, update `source.location` in the manifest to match.
 
 The scraper auto-prepends `https://` if no scheme is provided.
 

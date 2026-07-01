@@ -24,6 +24,8 @@ import json
 import os
 import re
 import sys
+import tempfile
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -50,21 +52,49 @@ except ImportError:
     )
 
 DEFAULT_OUTPUT = os.path.expanduser("~/.coral/web_scraper")
+MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MB
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 
+def _is_html(content_type):
+    ct = (content_type or "").lower().split(";")[0].strip()
+    return ct in ("text/html", "application/xhtml+xml", "")
+
+
+def _decode_response(resp):
+    encoding = resp.encoding or "utf-8"
+    content = resp.content[:MAX_RESPONSE_BYTES]
+    return content.decode(encoding, errors="replace")
+
+
 def fetch_with_requests(url, timeout=30):
     headers = {"User-Agent": USER_AGENT}
     try:
-        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        resp = requests.get(
+            url, headers=headers, timeout=timeout,
+            allow_redirects=True, stream=True,
+        )
+        content_type = resp.headers.get("Content-Type", "")
+        if not _is_html(content_type):
+            resp.close()
+            return {
+                "final_url": resp.url,
+                "status_code": resp.status_code,
+                "content_type": content_type,
+                "html": "",
+            }
+        raw = resp.content[:MAX_RESPONSE_BYTES]
+        resp.close()
+        encoding = resp.encoding or "utf-8"
+        html = raw.decode(encoding, errors="replace")
         return {
             "final_url": resp.url,
             "status_code": resp.status_code,
-            "content_type": resp.headers.get("Content-Type", ""),
-            "html": resp.text,
+            "content_type": content_type,
+            "html": html,
         }
     except requests.RequestException as exc:
         print(f"  ✗ {url}: {exc}", file=sys.stderr)
@@ -154,13 +184,20 @@ def extract_links(base_url, result):
     links = []
 
     for a_tag in soup.find_all("a", href=True):
-        href = a_tag["href"].strip()
-        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+        href = a_tag.get("href")
+        if href is None:
+            continue
+        href = href.strip()
+        if not href or href.lower().startswith(
+            ("#", "javascript:", "mailto:", "tel:")
+        ):
             continue
 
         absolute = urljoin(final_url, href)
         parsed = urlparse(absolute)
-        is_external = parsed.netloc != parsed_base.netloc
+        is_external = (
+            (parsed.hostname or "").lower() != (parsed_base.hostname or "").lower()
+        )
         link_text = a_tag.get_text(" ", strip=True) or None
 
         links.append({
@@ -195,10 +232,10 @@ def main():
     urls = list(args.urls)
     if args.file:
         with open(args.file) as fh:
-            urls.extend(
-                line.strip() for line in fh
-                if line.strip() and not line.startswith("#")
-            )
+            for line in fh:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    urls.append(stripped)
 
     if not urls:
         parser.error("No URLs provided. Pass URLs as arguments or use --file.")
@@ -216,33 +253,57 @@ def main():
 
     pages_count = 0
     links_count = 0
+    fail_count = 0
+
+    tmp_pages = tempfile.NamedTemporaryFile(
+        mode="w", dir=output_dir, suffix=".jsonl", delete=False
+    )
+    tmp_links = tempfile.NamedTemporaryFile(
+        mode="w", dir=output_dir, suffix=".jsonl", delete=False
+    )
 
     try:
-        with open(pages_path, "w") as pages_fh, open(links_path, "w") as links_fh:
-            for url in urls:
-                if not url.startswith(("http://", "https://")):
-                    url = "https://" + url
+        for url in urls:
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
 
-                mode = "JS" if args.js else "HTTP"
-                print(f"  → [{mode}] {url}")
-                result = fetch(url, timeout=args.timeout)
-                if result is None:
-                    continue
+            mode = "JS" if args.js else "HTTP"
+            print(f"  → [{mode}] {url}")
+            result = fetch(url, timeout=args.timeout)
+            if result is None:
+                fail_count += 1
+                continue
 
-                page = extract_page(url, result)
-                pages_fh.write(json.dumps(page) + "\n")
-                pages_count += 1
+            page = extract_page(url, result)
+            tmp_pages.write(json.dumps(page) + "\n")
+            pages_count += 1
 
-                page_links = extract_links(url, result)
-                for link in page_links:
-                    links_fh.write(json.dumps(link) + "\n")
-                    links_count += 1
+            page_links = extract_links(url, result)
+            for link in page_links:
+                tmp_links.write(json.dumps(link) + "\n")
+                links_count += 1
+
+        tmp_pages.close()
+        tmp_links.close()
+
+        shutil.move(tmp_pages.name, pages_path)
+        shutil.move(tmp_links.name, links_path)
+
+    except BaseException:
+        tmp_pages.close()
+        tmp_links.close()
+        os.unlink(tmp_pages.name)
+        os.unlink(tmp_links.name)
+        raise
     finally:
         if pw_cleanup:
             pw_cleanup()
 
     print(f"\n  ✓ {pages_count} pages → {pages_path}")
     print(f"  ✓ {links_count} links → {links_path}")
+    if fail_count:
+        print(f"  ✗ {fail_count} URLs failed", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
