@@ -78,20 +78,15 @@ def fetch_with_requests(url, timeout=30):
                 "final_url": resp.url,
                 "status_code": resp.status_code,
                 "content_type": content_type,
-                "html": "",
+                "html": b"",
             }
         raw = resp.content[:MAX_RESPONSE_BYTES]
         resp.close()
-        encoding = resp.encoding or "utf-8"
-        try:
-            html = raw.decode(encoding, errors="replace")
-        except LookupError:
-            html = raw.decode("utf-8", errors="replace")
         return {
             "final_url": resp.url,
             "status_code": resp.status_code,
             "content_type": content_type,
-            "html": html,
+            "html": raw,
         }
     except requests.RequestException as exc:
         print(f"  ✗ {url}: {exc}", file=sys.stderr)
