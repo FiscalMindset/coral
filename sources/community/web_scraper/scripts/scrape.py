@@ -22,6 +22,7 @@ Output:
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,17 @@ try:
     from bs4 import BeautifulSoup
 except ImportError:
     sys.exit("Missing dependency: pip install beautifulsoup4")
+
+try:
+    import lxml  # noqa: F401
+    BS_PARSER = "lxml"
+except ImportError:
+    BS_PARSER = "html.parser"
+    print(
+        "Warning: lxml not installed, falling back to html.parser. "
+        "Install for better parsing: pip install lxml",
+        file=sys.stderr,
+    )
 
 DEFAULT_OUTPUT = os.path.expanduser("~/.coral/web_scraper")
 USER_AGENT = (
@@ -59,7 +71,7 @@ def fetch_with_requests(url, timeout=30):
         return None
 
 
-def fetch_with_playwright(url, timeout=30):
+def create_playwright_fetcher(timeout=30):
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -68,11 +80,13 @@ def fetch_with_playwright(url, timeout=30):
             "  pip install playwright && playwright install chromium"
         )
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    ctx = sync_playwright().start()
+    browser = ctx.chromium.launch(headless=True)
+
+    def fetch(url, timeout=timeout):
         page = browser.new_page(user_agent=USER_AGENT)
         try:
-            resp = page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            resp = page.goto(url, timeout=timeout * 1000, wait_until="load")
             status_code = resp.status if resp else 0
             content_type = resp.headers.get("content-type", "") if resp else ""
             html = page.content()
@@ -87,16 +101,22 @@ def fetch_with_playwright(url, timeout=30):
             print(f"  ✗ {url}: {exc}", file=sys.stderr)
             return None
         finally:
-            browser.close()
+            page.close()
+
+    def cleanup():
+        browser.close()
+        ctx.stop()
+
+    return fetch, cleanup
 
 
 def extract_page(url, result):
-    soup = BeautifulSoup(result["html"], "lxml")
+    soup = BeautifulSoup(result["html"], BS_PARSER)
 
     title_tag = soup.find("title")
     title = title_tag.get_text(strip=True) if title_tag else None
 
-    meta_desc = soup.find("meta", attrs={"name": "description"})
+    meta_desc = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
     description = (
         meta_desc["content"].strip()
         if meta_desc and meta_desc.get("content")
@@ -123,9 +143,10 @@ def extract_page(url, result):
     }
 
 
-def extract_links(url, result):
-    soup = BeautifulSoup(result["html"], "lxml")
-    parsed_base = urlparse(url)
+def extract_links(base_url, result):
+    soup = BeautifulSoup(result["html"], BS_PARSER)
+    final_url = result["final_url"]
+    parsed_base = urlparse(final_url)
     links = []
 
     for a_tag in soup.find_all("a", href=True):
@@ -133,13 +154,13 @@ def extract_links(url, result):
         if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
             continue
 
-        absolute = urljoin(url, href)
+        absolute = urljoin(final_url, href)
         parsed = urlparse(absolute)
         is_external = parsed.netloc != parsed_base.netloc
-        link_text = a_tag.get_text(strip=True) or None
+        link_text = a_tag.get_text(" ", strip=True) or None
 
         links.append({
-            "source_url": url,
+            "source_url": base_url,
             "href": absolute,
             "text": link_text,
             "is_external": is_external,
@@ -178,7 +199,11 @@ def main():
     if not urls:
         parser.error("No URLs provided. Pass URLs as arguments or use --file.")
 
-    fetch = fetch_with_playwright if args.js else fetch_with_requests
+    pw_cleanup = None
+    if args.js:
+        fetch, pw_cleanup = create_playwright_fetcher(timeout=args.timeout)
+    else:
+        fetch = fetch_with_requests
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -188,25 +213,29 @@ def main():
     pages_count = 0
     links_count = 0
 
-    with open(pages_path, "w") as pages_fh, open(links_path, "w") as links_fh:
-        for url in urls:
-            if not url.startswith(("http://", "https://")):
-                url = "https://" + url
+    try:
+        with open(pages_path, "w") as pages_fh, open(links_path, "w") as links_fh:
+            for url in urls:
+                if not url.startswith(("http://", "https://")):
+                    url = "https://" + url
 
-            mode = "JS" if args.js else "HTTP"
-            print(f"  → [{mode}] {url}")
-            result = fetch(url, timeout=args.timeout)
-            if result is None:
-                continue
+                mode = "JS" if args.js else "HTTP"
+                print(f"  → [{mode}] {url}")
+                result = fetch(url, timeout=args.timeout)
+                if result is None:
+                    continue
 
-            page = extract_page(url, result)
-            pages_fh.write(json.dumps(page) + "\n")
-            pages_count += 1
+                page = extract_page(url, result)
+                pages_fh.write(json.dumps(page) + "\n")
+                pages_count += 1
 
-            page_links = extract_links(url, result)
-            for link in page_links:
-                links_fh.write(json.dumps(link) + "\n")
-                links_count += 1
+                page_links = extract_links(url, result)
+                for link in page_links:
+                    links_fh.write(json.dumps(link) + "\n")
+                    links_count += 1
+    finally:
+        if pw_cleanup:
+            pw_cleanup()
 
     print(f"\n  ✓ {pages_count} pages → {pages_path}")
     print(f"  ✓ {links_count} links → {links_path}")
