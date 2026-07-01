@@ -64,12 +64,6 @@ def _is_html(content_type):
     return ct in ("text/html", "application/xhtml+xml", "")
 
 
-def _decode_response(resp):
-    encoding = resp.encoding or "utf-8"
-    content = resp.content[:MAX_RESPONSE_BYTES]
-    return content.decode(encoding, errors="replace")
-
-
 def fetch_with_requests(url, timeout=30):
     headers = {"User-Agent": USER_AGENT}
     try:
@@ -89,7 +83,10 @@ def fetch_with_requests(url, timeout=30):
         raw = resp.content[:MAX_RESPONSE_BYTES]
         resp.close()
         encoding = resp.encoding or "utf-8"
-        html = raw.decode(encoding, errors="replace")
+        try:
+            html = raw.decode(encoding, errors="replace")
+        except LookupError:
+            html = raw.decode("utf-8", errors="replace")
         return {
             "final_url": resp.url,
             "status_code": resp.status_code,
