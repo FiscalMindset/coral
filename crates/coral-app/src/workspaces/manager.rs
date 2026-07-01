@@ -4,28 +4,29 @@ use tracing::warn;
 
 use crate::bootstrap::AppError;
 use crate::credentials::{CredentialManager, CredentialSetId};
-use crate::state::AppStateLayout;
 use crate::storage::fs::DirectoryBackup;
-use crate::workspaces::{DeletedWorkspace, WorkspaceName, WorkspaceRecord, WorkspaceStore};
+use crate::workspaces::{
+    DeletedWorkspace, WorkspaceName, WorkspacePaths, WorkspaceRecord, WorkspaceStore,
+};
 
 /// App-owned workspace lifecycle behavior.
 #[derive(Clone)]
 pub(crate) struct WorkspaceManager {
     store: Arc<dyn WorkspaceStore>,
     credential_manager: CredentialManager,
-    layout: AppStateLayout,
+    paths: Arc<dyn WorkspacePaths>,
 }
 
 impl WorkspaceManager {
     pub(crate) fn new(
         store: impl WorkspaceStore,
         credential_manager: CredentialManager,
-        layout: AppStateLayout,
+        paths: impl WorkspacePaths,
     ) -> Self {
         Self {
             store: Arc::new(store),
             credential_manager,
-            layout,
+            paths: Arc::new(paths),
         }
     }
 
@@ -98,7 +99,7 @@ impl WorkspaceManager {
     }
 
     fn remove_deleted_workspace_dir(&self, workspace_name: &WorkspaceName) {
-        let workspace_dir = self.layout.workspace_dir(workspace_name);
+        let workspace_dir = self.workspace_dir(workspace_name);
         let backup = match DirectoryBackup::move_for_delete(&workspace_dir, workspace_name) {
             Ok(backup) => backup,
             Err(error) => {
@@ -117,6 +118,10 @@ impl WorkspaceManager {
                 "workspace deleted, but failed to remove workspace artifact backup: {error}"
             );
         }
+    }
+
+    fn workspace_dir(&self, workspace_name: &WorkspaceName) -> std::path::PathBuf {
+        self.paths.workspace_dir(workspace_name)
     }
 }
 
