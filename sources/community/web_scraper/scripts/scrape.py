@@ -80,8 +80,15 @@ def fetch_with_requests(url, timeout=30):
                 "content_type": content_type,
                 "html": b"",
             }
-        raw = resp.content[:MAX_RESPONSE_BYTES]
+        chunks = []
+        bytes_read = 0
+        for chunk in resp.iter_content(chunk_size=65536):
+            chunks.append(chunk)
+            bytes_read += len(chunk)
+            if bytes_read >= MAX_RESPONSE_BYTES:
+                break
         resp.close()
+        raw = b"".join(chunks)[:MAX_RESPONSE_BYTES]
         return {
             "final_url": resp.url,
             "status_code": resp.status_code,
@@ -278,14 +285,22 @@ def main():
         tmp_pages.close()
         tmp_links.close()
 
+        if fail_count:
+            os.unlink(tmp_pages.name)
+            os.unlink(tmp_links.name)
+            print(f"\n  ✗ {fail_count} URLs failed — existing files preserved",
+                  file=sys.stderr)
+            sys.exit(1)
+
         shutil.move(tmp_pages.name, pages_path)
         shutil.move(tmp_links.name, links_path)
 
     except BaseException:
         tmp_pages.close()
         tmp_links.close()
-        os.unlink(tmp_pages.name)
-        os.unlink(tmp_links.name)
+        for p in (tmp_pages.name, tmp_links.name):
+            if os.path.exists(p):
+                os.unlink(p)
         raise
     finally:
         if pw_cleanup:
@@ -293,9 +308,6 @@ def main():
 
     print(f"\n  ✓ {pages_count} pages → {pages_path}")
     print(f"  ✓ {links_count} links → {links_path}")
-    if fail_count:
-        print(f"  ✗ {fail_count} URLs failed", file=sys.stderr)
-        sys.exit(1)
 
 
 if __name__ == "__main__":
