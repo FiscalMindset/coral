@@ -71,9 +71,13 @@ def fetch_with_requests(url, timeout=30):
             url, headers=headers, timeout=timeout,
             allow_redirects=True, stream=True,
         )
+    except requests.RequestException as exc:
+        print(f"  ✗ {url}: {exc}", file=sys.stderr)
+        return None
+
+    try:
         content_type = resp.headers.get("Content-Type", "")
         if not _is_html(content_type):
-            resp.close()
             return {
                 "final_url": resp.url,
                 "status_code": resp.status_code,
@@ -87,7 +91,6 @@ def fetch_with_requests(url, timeout=30):
             bytes_read += len(chunk)
             if bytes_read >= MAX_RESPONSE_BYTES:
                 break
-        resp.close()
         raw = b"".join(chunks)[:MAX_RESPONSE_BYTES]
         return {
             "final_url": resp.url,
@@ -98,6 +101,8 @@ def fetch_with_requests(url, timeout=30):
     except requests.RequestException as exc:
         print(f"  ✗ {url}: {exc}", file=sys.stderr)
         return None
+    finally:
+        resp.close()
 
 
 def create_playwright_fetcher(timeout=30):
