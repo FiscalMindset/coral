@@ -82,9 +82,14 @@ pub enum SourceBackend {
     Mcp,
 }
 
-/// Normalized scalar data types supported by the source-spec DSL.
+/// The normalized scalar type vocabulary shared by source specs, the query
+/// runtime, and catalog surfaces.
 ///
-/// The engine is responsible for mapping these into runtime-specific types.
+/// This is the hub every other scalar vocabulary converts through: v4 IR
+/// scalars lower into it, and the engine maps it into runtime-specific
+/// (Arrow) types. The variant spellings ("Utf8", "Int64", ...) are a wire
+/// contract pinned by the `PascalCase` serde representation and the manifest
+/// JSON schema.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ManifestDataType {
@@ -98,6 +103,76 @@ pub enum ManifestDataType {
     /// `json_get_str`, `json_as_text`, etc.); the JSON functions also
     /// work on plain `Utf8` columns whose values happen to be JSON.
     Json,
+}
+
+impl ManifestDataType {
+    /// Every manifest data type, in canonical declaration order.
+    ///
+    /// [`FromStr`](std::str::FromStr) and the lattice enforcement tests
+    /// treat this array as the source of truth for the variant set.
+    pub const ALL: [Self; 6] = {
+        // Exhaustiveness witness: adding a variant breaks this match, and
+        // the new variant must be added to the array below in the same
+        // edit.
+        const fn witness(data_type: ManifestDataType) {
+            match data_type {
+                ManifestDataType::Utf8
+                | ManifestDataType::Int64
+                | ManifestDataType::Boolean
+                | ManifestDataType::Float64
+                | ManifestDataType::Timestamp
+                | ManifestDataType::Json => {}
+            }
+        }
+        let _ = witness;
+        [
+            Self::Utf8,
+            Self::Int64,
+            Self::Boolean,
+            Self::Float64,
+            Self::Timestamp,
+            Self::Json,
+        ]
+    };
+
+    /// Returns the source-manifest spelling for this data type.
+    ///
+    /// This must stay aligned with the enum's `PascalCase` serde
+    /// representation and the `manifest_data_type` definition in the manifest
+    /// JSON schema.
+    #[must_use]
+    pub fn as_manifest_str(self) -> &'static str {
+        match self {
+            Self::Utf8 => "Utf8",
+            Self::Int64 => "Int64",
+            Self::Boolean => "Boolean",
+            Self::Float64 => "Float64",
+            Self::Timestamp => "Timestamp",
+            Self::Json => "Json",
+        }
+    }
+}
+
+impl std::fmt::Display for ManifestDataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_manifest_str())
+    }
+}
+
+impl std::str::FromStr for ManifestDataType {
+    type Err = ManifestError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|data_type| data_type.as_manifest_str() == s)
+            .ok_or_else(|| {
+                let expected = Self::ALL.map(Self::as_manifest_str).join(", ");
+                ManifestError::validation(format!(
+                    "unsupported data type '{s}' in source manifest; expected one of: {expected}"
+                ))
+            })
+    }
 }
 
 /// One request or auth header declared in the source spec.
@@ -169,7 +244,7 @@ pub enum FilterMode {
 pub struct FilterSpec {
     pub name: String,
     #[serde(rename = "type", default = "default_filter_data_type")]
-    pub data_type: String,
+    pub data_type: ManifestDataType,
     #[serde(default)]
     pub required: bool,
     #[serde(default)]
@@ -180,20 +255,8 @@ pub struct FilterSpec {
     pub lookup_key: bool,
 }
 
-impl FilterSpec {
-    /// Convert this filter's declared type into a normalized manifest data type.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ManifestError`] if the manifest references an unsupported
-    /// data type.
-    pub fn manifest_data_type(&self) -> Result<ManifestDataType> {
-        parse_manifest_data_type(&self.data_type)
-    }
-}
-
-fn default_filter_data_type() -> String {
-    "Utf8".to_string()
+fn default_filter_data_type() -> ManifestDataType {
+    ManifestDataType::Utf8
 }
 
 /// Source-scoped table-function semantic class.
@@ -816,7 +879,7 @@ pub struct PageSizeSpec {
 pub struct ColumnSpec {
     pub name: String,
     #[serde(rename = "type")]
-    pub data_type: String,
+    pub data_type: ManifestDataType,
     #[serde(default = "default_nullable")]
     pub nullable: bool,
     #[serde(default)]
@@ -829,16 +892,6 @@ pub struct ColumnSpec {
 }
 
 impl ColumnSpec {
-    /// Convert this manifest type into a normalized manifest data type.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ManifestError`] if the manifest references an unsupported
-    /// data type.
-    pub fn manifest_data_type(&self) -> Result<ManifestDataType> {
-        parse_manifest_data_type(&self.data_type)
-    }
-
     #[must_use]
     pub fn resolved_expr(&self) -> ExprSpec {
         self.expr.clone().unwrap_or_else(|| ExprSpec::Path {
@@ -958,26 +1011,6 @@ fn default_value_field() -> String {
     "value".to_string()
 }
 
-/// Parse a manifest data type name into a normalized manifest data type.
-///
-/// # Errors
-///
-/// Returns a [`ManifestError`] if `s` is not one of the supported manifest
-/// data type names.
-pub(crate) fn parse_manifest_data_type(s: &str) -> Result<ManifestDataType> {
-    match s {
-        "Utf8" => Ok(ManifestDataType::Utf8),
-        "Int64" => Ok(ManifestDataType::Int64),
-        "Boolean" => Ok(ManifestDataType::Boolean),
-        "Float64" => Ok(ManifestDataType::Float64),
-        "Timestamp" => Ok(ManifestDataType::Timestamp),
-        "Json" => Ok(ManifestDataType::Json),
-        other => Err(ManifestError::validation(format!(
-            "unsupported data type '{other}' in source manifest"
-        ))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1009,7 +1042,7 @@ mod tests {
             vec![],
             vec![FilterSpec {
                 name: "id".into(),
-                data_type: "Utf8".into(),
+                data_type: ManifestDataType::Utf8,
                 required: false,
                 mode: FilterMode::default(),
                 description: String::new(),
@@ -1047,7 +1080,7 @@ mod tests {
             vec![
                 FilterSpec {
                     name: "id".into(),
-                    data_type: "Utf8".into(),
+                    data_type: ManifestDataType::Utf8,
                     required: false,
                     mode: FilterMode::default(),
                     description: String::new(),
@@ -1055,7 +1088,7 @@ mod tests {
                 },
                 FilterSpec {
                     name: "org".into(),
-                    data_type: "Utf8".into(),
+                    data_type: ManifestDataType::Utf8,
                     required: false,
                     mode: FilterMode::default(),
                     description: String::new(),
@@ -1202,7 +1235,7 @@ mod tests {
             "name": "q"
         }))
         .unwrap();
-        assert_eq!(spec.data_type, "Utf8");
+        assert_eq!(spec.data_type, ManifestDataType::Utf8);
         assert_eq!(spec.description, "");
     }
 
@@ -1302,6 +1335,34 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("demo.items pagination.mode=offset requires offset_step or page_size")
+        );
+    }
+
+    #[test]
+    fn manifest_data_type_all_round_trips_through_spelling_and_serde() {
+        for data_type in ManifestDataType::ALL {
+            let spelled = data_type.to_string();
+            assert_eq!(
+                spelled.parse::<ManifestDataType>().expect("round trip"),
+                data_type,
+                "Display/FromStr round trip failed for {spelled}"
+            );
+            assert_eq!(
+                serde_json::to_value(data_type).expect("serialize"),
+                Value::String(spelled.clone()),
+                "serde spelling diverged from as_manifest_str for {spelled}"
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_data_type_rejects_unknown_spelling() {
+        let error = "Banana"
+            .parse::<ManifestDataType>()
+            .expect_err("unknown spelling should fail");
+        assert!(
+            error.to_string().contains("unsupported data type 'Banana'"),
+            "unexpected error: {error}"
         );
     }
 }
