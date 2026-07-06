@@ -3,13 +3,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use datafusion::common::TableReference;
-use datafusion::common::tree_node::TreeNodeRecursion;
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+use datafusion::common::{ScalarValue, TableReference};
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::logical_expr::LogicalPlan;
+use datafusion::logical_expr::{Expr, LogicalPlan};
 use datafusion::physical_plan::displayable;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
 use datafusion_tracing::{InstrumentationOptions, RuleInstrumentationOptions};
@@ -32,12 +32,14 @@ use crate::runtime::query_planner::CoralQueryPlanner;
 use crate::runtime::registry::{
     CompiledQuerySource, SourceRegistrationCandidate, SourceRegistrationFailure, register_sources,
 };
-use crate::runtime::source_functions::{SourceFunctionNode, SourceFunctionRegistry};
+use crate::runtime::source_functions::{
+    SOURCE_FUNCTION_NODE_NAME, SourceFunctionNode, SourceFunctionRegistry,
+};
 use crate::{
     CatalogInfo, CoreError, DependentJoinConfig, DescribeTableInfo, MemorySize, QueryExecution,
-    QueryExecutionProvenance, QueryMemoryConfig, QueryPlan, QueryResultObserver,
-    QueryResultObserverError, QueryRuntimeConfig, QueryRuntimeContext, QuerySource,
-    QueryTableFunctionUsage, QueryTableUsage, RequestAuthenticator, SourceDecorator,
+    QueryExecutionProvenance, QueryMemoryConfig, QueryParameterValue, QueryParameters, QueryPlan,
+    QueryResultObserver, QueryResultObserverError, QueryRuntimeConfig, QueryRuntimeContext,
+    QuerySource, QueryTableFunctionUsage, QueryTableUsage, RequestAuthenticator, SourceDecorator,
     SourceInputResolver, TableFunctionInfo, TableInfo,
 };
 
@@ -364,8 +366,12 @@ impl QueryRuntimeAdapter {
             .find(|failure| failure.schema_name == source_name)
     }
 
-    pub(crate) async fn execute_sql(&self, sql: &str) -> Result<QueryExecution, CoreError> {
-        match self.execute_sql_once(&self.ctx, sql).await {
+    pub(crate) async fn execute_sql(
+        &self,
+        sql: &str,
+        params: &QueryParameters,
+    ) -> Result<QueryExecution, CoreError> {
+        match self.execute_sql_once(&self.ctx, sql, params).await {
             Ok(execution) => Ok(execution),
             Err(SqlExecutionFailure::Collection(error)) => {
                 // Resolver-row overflow is a dependent-join buffering limit, not
@@ -394,7 +400,7 @@ impl QueryRuntimeAdapter {
                     .get_or_build_without_dependent_join()
                     .await?;
 
-                match self.execute_sql_once(&fallback.ctx, sql).await {
+                match self.execute_sql_once(&fallback.ctx, sql, params).await {
                     Ok(execution) => Ok(execution),
                     Err(error) => {
                         if is_missing_required_filter_failure(&error) {
@@ -413,11 +419,13 @@ impl QueryRuntimeAdapter {
         &self,
         ctx: &SessionContext,
         sql: &str,
+        params: &QueryParameters,
     ) -> Result<QueryExecution, SqlExecutionFailure> {
         let df = ctx
             .sql_with_options(sql, read_only_sql_options())
             .await
             .map_err(SqlExecutionFailure::Planning)?;
+        let df = apply_query_parameters(df, params).map_err(SqlExecutionFailure::Planning)?;
         let arrow_schema = Arc::new(df.schema().as_arrow().clone());
         let provenance = self
             .query_provenance(sql, df.logical_plan())
@@ -568,8 +576,12 @@ impl QueryRuntimeAdapter {
             .unwrap_or_else(|| schema_name.to_string())
     }
 
-    pub(crate) async fn explain_sql(&self, sql: &str) -> Result<QueryPlan, CoreError> {
-        let df = self.sql_dataframe(sql).await?;
+    pub(crate) async fn explain_sql(
+        &self,
+        sql: &str,
+        params: &QueryParameters,
+    ) -> Result<QueryPlan, CoreError> {
+        let df = self.sql_dataframe(sql, params).await?;
         let unoptimized_logical_plan = df.logical_plan().display_indent_schema().to_string();
         let (session_state, logical_plan) = df.into_parts();
         let optimized_logical_plan = session_state
@@ -594,8 +606,13 @@ impl QueryRuntimeAdapter {
         ))
     }
 
-    async fn sql_dataframe(&self, sql: &str) -> Result<DataFrame, CoreError> {
-        self.ctx
+    async fn sql_dataframe(
+        &self,
+        sql: &str,
+        params: &QueryParameters,
+    ) -> Result<DataFrame, CoreError> {
+        let df = self
+            .ctx
             .sql_with_options(sql, read_only_sql_options())
             .await
             .map_err(|err| {
@@ -605,8 +622,114 @@ impl QueryRuntimeAdapter {
                     &self.table_functions,
                     Some(sql),
                 )
-            })
+            })?;
+        apply_query_parameters(df, params).map_err(|err| {
+            datafusion_to_core_with_sql_and_table_functions(
+                &err,
+                &self.tables,
+                &self.table_functions,
+                Some(sql),
+            )
+        })
     }
+}
+
+/// Binds named query parameter values into a planned statement.
+///
+/// Rejects parameters the statement never references, then substitutes the
+/// values into the logical plan via `DataFusion` parameter binding — values
+/// stay data and are never rendered into SQL text.
+fn apply_query_parameters(
+    df: DataFrame,
+    params: &QueryParameters,
+) -> Result<DataFrame, DataFusionError> {
+    if params.is_empty() {
+        reject_unbound_sql_parameters(df.logical_plan())?;
+        return Ok(df);
+    }
+    reject_unknown_parameters(df.logical_plan(), params)?;
+    let values: Vec<(String, ScalarValue)> = params
+        .iter()
+        .map(|(name, value)| (name.clone(), query_parameter_scalar_value(value)))
+        .collect();
+    df.with_param_values(values)
+}
+
+fn reject_unbound_sql_parameters(plan: &LogicalPlan) -> Result<(), DataFusionError> {
+    let mut placeholders = ordinary_sql_placeholders(plan)?;
+    if placeholders.is_empty() {
+        return Ok(());
+    }
+    let placeholder = placeholders
+        .pop_first()
+        .expect("empty placeholder set returned above");
+    Err(DataFusionError::Plan(format!(
+        "SQL parameter {placeholder} has no value; pass query parameters or remove the placeholder"
+    )))
+}
+
+fn ordinary_sql_placeholders(plan: &LogicalPlan) -> Result<BTreeSet<String>, DataFusionError> {
+    let mut placeholders = BTreeSet::new();
+    plan.apply_with_subqueries(|node| {
+        if is_parameterized_source_function_call(node) {
+            return Ok(TreeNodeRecursion::Jump);
+        }
+        node.apply_expressions(|expr| {
+            expr.apply(|expr| {
+                if let Expr::Placeholder(placeholder) = expr {
+                    placeholders.insert(placeholder.id.clone());
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+        })?;
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(placeholders)
+}
+
+fn is_parameterized_source_function_call(plan: &LogicalPlan) -> bool {
+    let LogicalPlan::Extension(extension) = plan else {
+        return false;
+    };
+    extension.node.name() == SOURCE_FUNCTION_NODE_NAME
+}
+
+fn query_parameter_scalar_value(value: &QueryParameterValue) -> ScalarValue {
+    match value {
+        QueryParameterValue::String(value) => ScalarValue::Utf8(value.clone()),
+        QueryParameterValue::Integer(value) => ScalarValue::Int64(*value),
+        QueryParameterValue::Float(value) => ScalarValue::Float64(*value),
+        QueryParameterValue::Boolean(value) => ScalarValue::Boolean(*value),
+    }
+}
+
+fn reject_unknown_parameters(
+    plan: &LogicalPlan,
+    params: &QueryParameters,
+) -> Result<(), DataFusionError> {
+    let referenced = plan.get_parameter_names()?;
+    let mut unknown: Vec<&str> = params
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !referenced.contains(&format!("${name}")))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    unknown.sort_unstable();
+
+    let mut placeholders: Vec<&str> = referenced.iter().map(String::as_str).collect();
+    placeholders.sort_unstable();
+    let placeholder_hint = if placeholders.is_empty() {
+        "the statement has no parameter placeholders".to_string()
+    } else {
+        format!("the statement references: {}", placeholders.join(", "))
+    };
+
+    Err(DataFusionError::Plan(format!(
+        "unknown query parameter(s): {}; {placeholder_hint}",
+        unknown.join(", ")
+    )))
 }
 
 fn is_missing_required_filter_failure(error: &SqlExecutionFailure) -> bool {
