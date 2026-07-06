@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { ScrollArea } from '@/wax/components'
+import { CardList, type CardItem } from '@/wax/components/card'
 import { Icon } from '@/wax/components/icon'
 import { TextInput } from '@/wax/components/inputs/text'
-import { Pill } from '@/wax/components/pill'
 import { Typography } from '@/wax/components/typography'
 
 import { ErrorBanner } from '@/components/error-banner'
@@ -110,88 +111,76 @@ export function SourcesIndex() {
   }, [refresh])
 
   return (
-    <div className={styles.root}>
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <Typography.HeadingLarge as="h1">Sources</Typography.HeadingLarge>
-          <Typography.Body variant="secondary">
-            Connect external systems to query their data from Coral. Click a source to install or
-            inspect it.
-          </Typography.Body>
-        </div>
-
-        <div className={styles.searchBar}>
-          <TextInput
-            ref={searchInputRef}
-            value={search}
-            onChange={setSearch}
-            placeholder="Search sources…"
-            icon="Search"
-          />
-        </div>
-
-        {error ? (
-          <ErrorBanner
-            title="Couldn't load sources"
-            message={error}
-            onRetry={() => window.location.reload()}
-          />
-        ) : null}
-
-        {loading ? (
-          <div className={styles.loadingState}>
-            <Icon name="Loader" size="16" color="tertiary" className={styles.spinAnimation} />
-            <Typography.BodySmall variant="tertiary">Loading sources…</Typography.BodySmall>
-          </div>
-        ) : null}
-
-        {!loading && !error && allEntries.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Icon name="Plug" size="20" color="tertiary" />
-            <Typography.Body variant="secondary">
-              No sources available. Check the Coral build for a populated catalog.
-            </Typography.Body>
-          </div>
-        ) : null}
-
-        {connected.length > 0 ? (
-          <Section title="Configured" count={connected.length}>
-            <div className={styles.cardGrid}>
-              {connected.map((entry) => (
-                <SourceCard
-                  key={`${entry.origin}:${entry.name}`}
-                  entry={entry}
-                  onClick={() => onPick(entry)}
-                />
-              ))}
+    <>
+      <ScrollArea.Container className={styles.root} constrainWidth>
+        <div className={styles.scrollContent}>
+          <div className={styles.container}>
+            <div className={styles.header}>
+              <Typography.HeadingLarge as="h1">Sources</Typography.HeadingLarge>
+              <Typography.Body variant="secondary">
+                Connect external systems to query their data from Coral. Click a source to install
+                or inspect it.
+              </Typography.Body>
             </div>
-          </Section>
-        ) : null}
 
-        {sections.map((section) => (
-          <Section key={section.key} title={section.label} count={section.entries.length}>
-            <div className={styles.cardGrid}>
-              {section.entries.map((entry) => (
-                <SourceCard
-                  key={`${entry.origin}:${entry.name}`}
-                  entry={entry}
-                  onClick={() => onPick(entry)}
-                />
-              ))}
+            <div className={styles.searchBar}>
+              <TextInput
+                ref={searchInputRef}
+                value={search}
+                onChange={setSearch}
+                placeholder="Search sources…"
+                icon="Search"
+              />
             </div>
-          </Section>
-        ))}
 
-        {connected.length === 0 &&
-        sections.length === 0 &&
-        !loading &&
-        !error &&
-        allEntries.length > 0 ? (
-          <Typography.BodySmall variant="tertiary">
-            No sources match your search.
-          </Typography.BodySmall>
-        ) : null}
-      </div>
+            {error ? (
+              <ErrorBanner
+                title="Couldn't load sources"
+                message={error}
+                onRetry={() => window.location.reload()}
+              />
+            ) : null}
+
+            {loading ? (
+              <div className={styles.loadingState}>
+                <Icon name="Loader" size="16" color="tertiary" className={styles.spinAnimation} />
+                <Typography.BodySmall variant="tertiary">Loading sources…</Typography.BodySmall>
+              </div>
+            ) : null}
+
+            {!loading && !error && allEntries.length === 0 ? (
+              <div className={styles.emptyState}>
+                <Icon name="Plug" size="20" color="tertiary" />
+                <Typography.Body variant="secondary">
+                  No sources available. Check the Coral build for a populated catalog.
+                </Typography.Body>
+              </div>
+            ) : null}
+
+            {connected.length > 0 ? (
+              <Section title="Configured" count={connected.length}>
+                <SourceCardList entries={connected} onPick={onPick} />
+              </Section>
+            ) : null}
+
+            {sections.map((section) => (
+              <Section key={section.key} title={section.label} count={section.entries.length}>
+                <SourceCardList entries={section.entries} onPick={onPick} />
+              </Section>
+            ))}
+
+            {connected.length === 0 &&
+            sections.length === 0 &&
+            !loading &&
+            !error &&
+            allEntries.length > 0 ? (
+              <Typography.BodySmall variant="tertiary">
+                No sources match your search.
+              </Typography.BodySmall>
+            ) : null}
+          </div>
+        </div>
+      </ScrollArea.Container>
 
       <SourceInstallDialog
         name={installingName}
@@ -210,7 +199,7 @@ export function SourcesIndex() {
         }}
         onRemoved={onRemoved}
       />
-    </div>
+    </>
   )
 }
 
@@ -234,37 +223,52 @@ function Section({
   )
 }
 
-function SourceCard({ entry, onClick }: { entry: IndexEntry; onClick: () => void }) {
-  const icon = providerIcon(entry.name)
+function SourceCardList({
+  entries,
+  onPick,
+}: {
+  entries: IndexEntry[]
+  onPick: (entry: IndexEntry) => void
+}) {
+  const entryById = new Map(entries.map((entry) => [sourceCardId(entry), entry]))
+  const items = entries.map(toCardItem)
+
   return (
-    <button type="button" onClick={onClick} className={styles.card}>
-      <div className={styles.cardHeader}>
-        <div className={styles.cardLogo}>
-          {icon ? (
-            <img alt="" src={icon} className={styles.cardLogoImg} />
-          ) : (
-            <Icon name="Plug" size="18" color="tertiary" />
-          )}
-        </div>
-        <Typography.BodyLargeStrong as="span" className={styles.cardTitle}>
-          {entry.name}
-        </Typography.BodyLargeStrong>
-        {entry.origin === 'imported' ? (
-          <Pill>Imported</Pill>
-        ) : entry.origin === 'bundled' ? (
-          <Pill>Core</Pill>
-        ) : null}
-      </div>
-      {entry.description ? (
-        <Typography.Body variant="tertiary" className={styles.cardDescription}>
-          {entry.description}
-        </Typography.Body>
-      ) : null}
-      {entry.installed ? (
-        <div className={styles.cardFooter}>
-          <Pill>Configured</Pill>
-        </div>
-      ) : null}
-    </button>
+    <CardList
+      items={items}
+      onSelect={(item) => {
+        const entry = entryById.get(item.id)
+        if (entry) onPick(entry)
+      }}
+    />
+  )
+}
+
+function toCardItem(entry: IndexEntry): CardItem {
+  return {
+    description: entry.description,
+    headerPill: sourceOriginPill(entry),
+    icon: sourceIcon(entry.name),
+    id: sourceCardId(entry),
+    title: entry.name,
+  }
+}
+
+function sourceOriginPill(entry: IndexEntry): CardItem['headerPill'] {
+  if (entry.origin === 'bundled') return { label: 'Core' }
+  if (entry.origin === 'imported') return { label: 'Imported' }
+  return undefined
+}
+
+function sourceCardId(entry: IndexEntry) {
+  return `${entry.origin}:${entry.name}`
+}
+
+function sourceIcon(name: string) {
+  const icon = providerIcon(name)
+  return icon ? (
+    <img alt="" className={styles.sourceIcon} src={icon} />
+  ) : (
+    <Icon color="tertiary" name="Plug" size="20" />
   )
 }
