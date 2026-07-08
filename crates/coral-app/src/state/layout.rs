@@ -90,6 +90,14 @@ impl AppStateLayout {
         self.feedback_dir(workspace_name).join("reports.jsonl")
     }
 
+    pub(crate) fn search_dir(&self, workspace_name: &WorkspaceName) -> PathBuf {
+        self.workspace_dir(workspace_name).join("search")
+    }
+
+    pub(crate) fn search_sqlite_file(&self, workspace_name: &WorkspaceName) -> PathBuf {
+        self.search_dir(workspace_name).join("search.sqlite3")
+    }
+
     /// Per-workspace episode log (JSONL) for experimental trajectory memory. The
     /// episode store appends `OpenEpisode` records here; indexing and retrieval
     /// land in a later PR.
@@ -291,6 +299,14 @@ mod tests {
                 .join("default")
                 .join("feedback")
                 .join("reports.jsonl")
+        );
+        assert_eq!(
+            layout.search_sqlite_file(&workspace_name),
+            config_dir
+                .join("workspaces")
+                .join("default")
+                .join("search")
+                .join("search.sqlite3")
         );
         assert_eq!(
             layout.episodes_file(&workspace_name),
