@@ -155,7 +155,10 @@ tables:
       - name: to
       - name: subject
       - name: include_spam
+      - name: include_blocked
+      - name: include_unauthenticated
       - name: include_trash
+      - name: ascending
     request:
       method: GET
       path: /inboxes/{{filter.inbox_id}}/messages
@@ -181,9 +184,18 @@ tables:
         - name: include_spam
           from: filter_bool
           key: include_spam
+        - name: include_blocked
+          from: filter_bool
+          key: include_blocked
+        - name: include_unauthenticated
+          from: filter_bool
+          key: include_unauthenticated
         - name: include_trash
           from: filter_bool
           key: include_trash
+        - name: ascending
+          from: filter_bool
+          key: ascending
     response:
       rows_path:
         - messages
@@ -317,7 +329,10 @@ tables:
       - name: recipients
       - name: subject
       - name: include_spam
+      - name: include_blocked
+      - name: include_unauthenticated
       - name: include_trash
+      - name: ascending
     request:
       method: GET
       path: /inboxes/{{filter.inbox_id}}/threads
@@ -343,9 +358,18 @@ tables:
         - name: include_spam
           from: filter_bool
           key: include_spam
+        - name: include_blocked
+          from: filter_bool
+          key: include_blocked
+        - name: include_unauthenticated
+          from: filter_bool
+          key: include_unauthenticated
         - name: include_trash
           from: filter_bool
           key: include_trash
+        - name: ascending
+          from: filter_bool
+          key: ascending
     response:
       rows_path:
         - threads

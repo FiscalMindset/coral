@@ -90,7 +90,10 @@ Email messages in an AgentMail inbox. Includes sender, recipients, subject, prev
 | `to` | Utf8 | | Filter by recipient (substring match) |
 | `subject` | Utf8 | | Filter by subject (substring match) |
 | `include_spam` | Boolean | | Include spam messages (default false) |
+| `include_blocked` | Boolean | | Include blocked messages (default false) |
+| `include_unauthenticated` | Boolean | | Include unauthenticated messages (default false) |
 | `include_trash` | Boolean | | Include trashed messages (default false) |
+| `ascending` | Boolean | | Sort in ascending temporal order (default false) |
 
 **Columns**
 
@@ -129,7 +132,10 @@ Email threads (conversations) in an AgentMail inbox. Groups messages into conver
 | `recipients` | Utf8 | | Filter by recipient (substring match) |
 | `subject` | Utf8 | | Filter by subject (substring match) |
 | `include_spam` | Boolean | | Include spam threads (default false) |
+| `include_blocked` | Boolean | | Include blocked threads (default false) |
+| `include_unauthenticated` | Boolean | | Include unauthenticated threads (default false) |
 | `include_trash` | Boolean | | Include trashed threads (default false) |
+| `ascending` | Boolean | | Sort in ascending temporal order (default false) |
 
 **Columns**
 
