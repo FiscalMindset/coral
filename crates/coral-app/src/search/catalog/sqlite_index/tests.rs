@@ -62,6 +62,28 @@ fn refresh_and_search_catalog_metadata() {
 }
 
 #[test]
+fn clear_workspace_removes_workspace_documents_and_invalidates_fingerprint() {
+    let temp = tempdir().expect("tempdir");
+    let store = catalog_store(&temp);
+    let snapshot = catalog_index_snapshot();
+    store
+        .refresh_catalog_projection(&snapshot)
+        .expect("refresh catalog");
+
+    let result = store
+        .clear_catalog_workspace()
+        .expect("clear workspace catalog");
+
+    assert_eq!(result.deleted_document_count, 3);
+    assert_eq!(store.catalog_document_count().expect("document count"), 0);
+    assert!(
+        !store
+            .catalog_projection_is_current(&snapshot.fingerprint)
+            .expect("projection invalidated")
+    );
+}
+
+#[test]
 fn search_rejects_unknown_doc_kind_from_storage() {
     let temp = tempdir().expect("tempdir");
     let store = catalog_store(&temp);
