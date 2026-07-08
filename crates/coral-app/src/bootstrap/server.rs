@@ -18,12 +18,13 @@ use coral_api::v1::catalog_service_server::CatalogServiceServer;
 use coral_api::v1::episode_service_server::EpisodeServiceServer;
 use coral_api::v1::feedback_service_server::FeedbackServiceServer;
 use coral_api::v1::query_service_server::QueryServiceServer;
+use coral_api::v1::search_service_server::SearchServiceServer;
 use coral_api::v1::source_service_server::SourceServiceServer;
 use coral_api::v1::trace_service_server::TraceServiceServer;
 use coral_api::v1::workspace_service_server::WorkspaceServiceServer;
 use coral_api::{
     CATALOG_RESPONSE_MAX_MESSAGE_SIZE, HTTP2_MAX_HEADER_LIST_SIZE, QUERY_RESPONSE_MAX_MESSAGE_SIZE,
-    TRACE_RESPONSE_MAX_MESSAGE_SIZE,
+    SEARCH_RESPONSE_MAX_MESSAGE_SIZE, TRACE_RESPONSE_MAX_MESSAGE_SIZE,
 };
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -51,6 +52,8 @@ use crate::feedback::publisher::{
 use crate::feedback::service::FeedbackService;
 use crate::query::manager::QueryManager;
 use crate::query::service::QueryService;
+use crate::search::manager::SearchManager;
+use crate::search::service::SearchService;
 use crate::sources::manager::SourceManager;
 use crate::sources::service::SourceService;
 use crate::state::ConfigStore;
@@ -297,6 +300,7 @@ impl ServerBuilder {
             .query_runtime_context()
             .with_body_capture_max_bytes(body_capture_max_bytes);
 
+        let search_manager = SearchManager::new(config_store.clone());
         let query_manager = QueryManager::new(
             config_store,
             credential_manager,
@@ -311,16 +315,15 @@ impl ServerBuilder {
                     service: Some(TraceService::new(store.dir, store.retention)),
                 }
             });
-        start_server(
+        let managers = ServerManagers {
             source_manager,
             workspace_manager,
             query_manager,
+            search_manager,
             feedback_manager,
             episode_store,
-            trace_components,
-            self.config.mode,
-        )
-        .await
+        };
+        start_server(managers, trace_components, self.config.mode).await
     }
 }
 
@@ -408,15 +411,28 @@ struct TraceServerComponents {
     local_trace_store_dir: Option<PathBuf>,
 }
 
-async fn start_server(
+struct ServerManagers {
     source_manager: SourceManager,
     workspace_manager: WorkspaceManager,
     query_manager: QueryManager,
+    search_manager: SearchManager,
     feedback_manager: FeedbackManager,
     episode_store: EpisodeStore,
+}
+
+async fn start_server(
+    managers: ServerManagers,
     trace_components: TraceServerComponents,
     mode: ServerMode,
 ) -> Result<RunningServer, AppError> {
+    let ServerManagers {
+        source_manager,
+        workspace_manager,
+        query_manager,
+        search_manager,
+        feedback_manager,
+        episode_store,
+    } = managers;
     let TraceServerComponents {
         service: trace_service,
         local_trace_store_dir,
@@ -425,6 +441,7 @@ async fn start_server(
     let workspace_service = WorkspaceService::new(workspace_manager);
     let catalog_service = CatalogService::new(query_manager.clone());
     let query_service = QueryService::new(query_manager);
+    let search_service = SearchService::new(search_manager);
     let feedback_service = FeedbackService::new(feedback_manager);
     let episode_service = EpisodeService::new(episode_store);
     let mut routes = Routes::default()
@@ -454,6 +471,10 @@ async fn start_server(
         .add_service(GrpcMethodAnnotatedService::new(
             QueryServiceServer::new(query_service)
                 .max_encoding_message_size(QUERY_RESPONSE_MAX_MESSAGE_SIZE),
+        ))
+        .add_service(GrpcMethodAnnotatedService::new(
+            SearchServiceServer::new(search_service)
+                .max_encoding_message_size(SEARCH_RESPONSE_MAX_MESSAGE_SIZE),
         ));
     if let Some(trace_service) = trace_service {
         routes = routes.add_service(GrpcMethodAnnotatedService::new(
@@ -695,13 +716,14 @@ mod tests {
     use tonic::{Code, Request};
 
     use super::{
-        ServerBuilder, ServerMode, StaticAsset, StaticAssetsProvider, TraceServerComponents,
-        is_grpc_web_content_type, is_native_grpc_content_type, start_server,
+        ServerBuilder, ServerManagers, ServerMode, StaticAsset, StaticAssetsProvider,
+        TraceServerComponents, is_grpc_web_content_type, is_native_grpc_content_type, start_server,
     };
     use crate::credentials::{CredentialManager, CredentialStore};
     use crate::episode::store::EpisodeStore;
     use crate::feedback::manager::FeedbackManager;
     use crate::query::manager::QueryManager;
+    use crate::search::manager::SearchManager;
     use crate::sources::manager::SourceManager;
     use crate::state::{AppStateLayout, ConfigStore};
     use crate::telemetry::service::TraceService;
@@ -824,6 +846,7 @@ enabled = false
             layout.clone(),
             None,
         );
+        let search_manager = SearchManager::new(config_store.clone());
         let query_manager = QueryManager::new(
             config_store,
             credential_manager,
@@ -833,12 +856,16 @@ enabled = false
         );
         let trace_service =
             TraceService::new(temp.path().join("trace-store"), Duration::from_mins(1));
-        let server = start_server(
+        let managers = ServerManagers {
             source_manager,
             workspace_manager,
             query_manager,
+            search_manager,
             feedback_manager,
             episode_store,
+        };
+        let server = start_server(
+            managers,
             TraceServerComponents {
                 service: Some(trace_service),
                 local_trace_store_dir: None,
@@ -1214,6 +1241,7 @@ tables:
             layout.clone(),
             None,
         );
+        let search_manager = SearchManager::new(config_store.clone());
         let query_manager = QueryManager::new(
             config_store,
             credential_manager,
@@ -1224,12 +1252,16 @@ tables:
             layout,
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
-        let running = start_server(
+        let managers = ServerManagers {
             source_manager,
             workspace_manager,
             query_manager,
+            search_manager,
             feedback_manager,
             episode_store,
+        };
+        let running = start_server(
+            managers,
             TraceServerComponents::default(),
             ServerMode::NativeGrpc,
         )
@@ -1325,6 +1357,7 @@ tables:
             layout.clone(),
             None,
         );
+        let search_manager = SearchManager::new(config_store.clone());
         let query_manager = QueryManager::new(
             config_store,
             credential_manager,
@@ -1332,12 +1365,16 @@ tables:
             layout,
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
-        let running = start_server(
+        let managers = ServerManagers {
             source_manager,
             workspace_manager,
             query_manager,
+            search_manager,
             feedback_manager,
             episode_store,
+        };
+        let running = start_server(
+            managers,
             TraceServerComponents::default(),
             ServerMode::NativeGrpc,
         )
@@ -1433,6 +1470,7 @@ tables:
             layout.clone(),
             None,
         );
+        let search_manager = SearchManager::new(config_store.clone());
         let query_manager = QueryManager::new(
             config_store,
             credential_manager,
@@ -1440,12 +1478,16 @@ tables:
             layout,
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
-        let running = start_server(
+        let managers = ServerManagers {
             source_manager,
             workspace_manager,
             query_manager,
+            search_manager,
             feedback_manager,
             episode_store,
+        };
+        let running = start_server(
+            managers,
             TraceServerComponents::default(),
             ServerMode::NativeGrpc,
         )
