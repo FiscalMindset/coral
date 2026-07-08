@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::{SourceTableFunctionKind, parse_source_manifest_yaml};
+use crate::{PaginationMode, SourceTableFunctionKind, parse_source_manifest_yaml};
 
 #[test]
 fn extracts_openapi_document_metadata() {
@@ -917,6 +917,441 @@ paths:
 }
 
 #[test]
+fn importer_infers_common_query_pagination_modes() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: pagination
+dsl_version: 4
+surfaces:
+  - id: rest
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = v4.surfaces.first().expect("one surface");
+    let ir = import_openapi_surface(
+        v4,
+        surface,
+        r"
+openapi: 3.0.3
+paths:
+  /paged:
+    get:
+      operationId: paged/list
+      parameters:
+        - {name: pageNumber, in: query, schema: {type: integer, default: 2}}
+        - {name: pageSize, in: query, schema: {type: integer, default: 25}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+  /offset:
+    get:
+      operationId: offset/list
+      parameters:
+        - {name: offset, in: query, schema: {type: integer, default: 5}}
+        - {name: limit, in: query, schema: {type: integer, default: 50}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+"
+        .as_bytes(),
+    )
+    .expect("pagination import");
+    let operations = ir
+        .operations
+        .iter()
+        .map(|operation| (operation.id.as_str(), operation))
+        .collect::<BTreeMap<_, _>>();
+
+    let page = &rest_execution(operations.get("paged_list").expect("paged")).pagination;
+    assert_eq!(page.mode, PaginationMode::Page);
+    assert_eq!(page.page_param.as_deref(), Some("pageNumber"));
+    assert_eq!(page.page_start, 2);
+    let page_size = page.page_size.as_ref().expect("page size");
+    assert_eq!(page_size.default, 25);
+    assert_eq!(page_size.max, 100);
+    assert_eq!(page_size.query_param.as_deref(), Some("pageSize"));
+
+    let offset = &rest_execution(operations.get("offset_list").expect("offset")).pagination;
+    assert_eq!(offset.mode, PaginationMode::Offset);
+    assert_eq!(offset.offset_param.as_deref(), Some("offset"));
+    assert_eq!(offset.offset_start, 5);
+    assert_eq!(offset.offset_step, None);
+    let page_size = offset.page_size.as_ref().expect("limit page size");
+    assert_eq!(page_size.default, 50);
+    assert_eq!(page_size.max, 100);
+    assert_eq!(page_size.query_param.as_deref(), Some("limit"));
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The OpenAPI fixture keeps related response-driven pagination cases together."
+)]
+fn importer_infers_response_driven_pagination_modes() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: response_pagination
+dsl_version: 4
+surfaces:
+  - id: rest
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = v4.surfaces.first().expect("one surface");
+    let ir = import_openapi_surface(
+        v4,
+        surface,
+        r"
+openapi: 3.0.3
+paths:
+  /cursor:
+    get:
+      operationId: cursor/list
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 20}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                  meta:
+                    type: object
+                    properties:
+                      nextCursor: {type: string}
+  /pagination-token:
+    get:
+      operationId: pagination-token/list
+      parameters:
+        - {name: max_results, in: query, schema: {type: integer, default: 50}}
+        - {name: pagination_token, in: query, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                  meta:
+                    type: object
+                    properties:
+                      next_token: {type: string}
+  /link:
+    get:
+      operationId: link/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          headers:
+            Link:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+  /singleton:
+    get:
+      operationId: singleton/get
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: string}
+                  nextCursor: {type: string}
+  /cursor-header:
+    get:
+      operationId: cursor-header/list
+      parameters:
+        - {name: pageToken, in: query, schema: {type: string}}
+      responses:
+        '200':
+          headers:
+            X-Next-Cursor:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+  /cursor-page:
+    get:
+      operationId: cursor-page/list
+      parameters:
+        - {name: page, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 10}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                  next_page:
+                    type: string
+                    nullable: true
+  /numeric-page:
+    get:
+      operationId: numeric-page/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+        - {name: limit, in: query, schema: {type: integer, default: 10}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                  next_page:
+                    type: string
+                    nullable: true
+  /next-url-header:
+    get:
+      operationId: next-url-header/list
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, default: 25}}
+      responses:
+        '200':
+          headers:
+            X-Next-Page-Url:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+"
+        .as_bytes(),
+    )
+    .expect("response pagination import");
+    let operations = ir
+        .operations
+        .iter()
+        .map(|operation| (operation.id.as_str(), operation))
+        .collect::<BTreeMap<_, _>>();
+
+    let cursor = &rest_execution(operations.get("cursor_list").expect("cursor")).pagination;
+    assert_eq!(cursor.mode, PaginationMode::CursorQuery);
+    assert_eq!(cursor.cursor_param.as_deref(), Some("cursor"));
+    assert_eq!(cursor.response_cursor_path, ["meta", "nextCursor"]);
+    assert_eq!(
+        cursor
+            .page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("limit")
+    );
+
+    let pagination_token = &rest_execution(
+        operations
+            .get("pagination_token_list")
+            .expect("pagination token"),
+    )
+    .pagination;
+    assert_eq!(pagination_token.mode, PaginationMode::CursorQuery);
+    assert_eq!(
+        pagination_token.cursor_param.as_deref(),
+        Some("pagination_token")
+    );
+    assert_eq!(
+        pagination_token.response_cursor_path,
+        ["meta", "next_token"]
+    );
+    assert_eq!(
+        pagination_token
+            .page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("max_results")
+    );
+
+    let link = &rest_execution(operations.get("link_list").expect("link")).pagination;
+    assert_eq!(link.mode, PaginationMode::LinkHeader);
+    assert_eq!(link.page_param.as_deref(), Some("page"));
+    assert_eq!(link.page_start, 1);
+    assert_eq!(
+        link.page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("per_page")
+    );
+
+    let singleton = &rest_execution(operations.get("singleton_get").expect("singleton")).pagination;
+    assert_eq!(singleton.mode, PaginationMode::None);
+
+    let cursor_header =
+        &rest_execution(operations.get("cursor_header_list").expect("cursor header")).pagination;
+    assert_eq!(cursor_header.mode, PaginationMode::CursorQuery);
+    assert_eq!(cursor_header.cursor_param.as_deref(), Some("pageToken"));
+    assert_eq!(
+        cursor_header.response_cursor_header.as_deref(),
+        Some("X-Next-Cursor")
+    );
+    assert!(cursor_header.response_cursor_path.is_empty());
+
+    let cursor_page =
+        &rest_execution(operations.get("cursor_page_list").expect("cursor page")).pagination;
+    assert_eq!(cursor_page.mode, PaginationMode::CursorQuery);
+    assert_eq!(cursor_page.cursor_param.as_deref(), Some("page"));
+    assert_eq!(cursor_page.response_cursor_path, ["next_page"]);
+    assert_eq!(
+        cursor_page
+            .page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("limit")
+    );
+
+    let numeric_page =
+        &rest_execution(operations.get("numeric_page_list").expect("numeric page")).pagination;
+    assert_eq!(numeric_page.mode, PaginationMode::Page);
+    assert_eq!(numeric_page.page_param.as_deref(), Some("page"));
+
+    let next_url = &rest_execution(
+        operations
+            .get("next_url_header_list")
+            .expect("next URL header"),
+    )
+    .pagination;
+    assert_eq!(next_url.mode, PaginationMode::LinkHeader);
+    assert_eq!(next_url.next_url_header.as_deref(), Some("X-Next-Page-Url"));
+    assert_eq!(
+        next_url
+            .page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("limit")
+    );
+}
+
+#[test]
+fn importer_keeps_opaque_link_header_page_token_public() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: link_page_token
+dsl_version: 4
+surfaces:
+  - id: rest
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = v4.surfaces.first().expect("one surface");
+    let ir = import_openapi_surface(
+        v4,
+        surface,
+        r"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: page, in: query, schema: {type: string}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          headers:
+            Link:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+"
+        .as_bytes(),
+    )
+    .expect("import");
+
+    let operation = ir.operations.first().expect("operation");
+    let pagination = &rest_execution(operation).pagination;
+    assert_eq!(pagination.mode, PaginationMode::LinkHeader);
+    assert_eq!(pagination.page_param, None);
+    assert_eq!(
+        pagination
+            .page_size
+            .as_ref()
+            .and_then(|page_size| page_size.query_param.as_deref()),
+        Some("per_page")
+    );
+}
+
+#[test]
 fn importer_treats_path_parameters_as_required_when_required_is_omitted() {
     let manifest = parse_source_manifest_yaml(
         r"
@@ -966,6 +1401,13 @@ paths:
     assert_eq!(required.get("id"), Some(&true));
     assert_eq!(required.get("tenant"), Some(&true));
     assert_eq!(required.get("include_archived"), Some(&false));
+}
+
+fn rest_execution(operation: &IrOperation) -> &RestExecutionAttachment {
+    let IrExecutionAttachment::Rest(rest) = &operation.execution else {
+        panic!("operation should be REST");
+    };
+    rest
 }
 
 #[test]
