@@ -12,8 +12,10 @@ inputs:
   AGENTMAIL_API_KEY:
     kind: secret
     hint: >-
-      AgentMail API key from https://app.agentmail.to.
-      Keys start with `am_us_`.
+      AgentMail organization-level API key from https://app.agentmail.to.
+      Keys start with `am_`. Requires read permissions: inbox_read,
+      message_read, thread_read, domain_read. Inbox-scoped keys only
+      support the messages and threads tables for that inbox.
     credential:
       methods:
         - type: source_config
@@ -138,12 +140,50 @@ tables:
         SELECT message_id, subject, "from", preview
         FROM agentmail.messages
         WHERE inbox_id = 'your-inbox-id' LIMIT 10
+      Filter by time range:
+        SELECT message_id, subject, timestamp
+        FROM agentmail.messages
+        WHERE inbox_id = 'your-inbox-id'
+          AND after = '2026-01-01T00:00:00Z' LIMIT 10
     filters:
       - name: inbox_id
         required: true
+      - name: labels
+      - name: before
+      - name: after
+      - name: from
+      - name: to
+      - name: subject
+      - name: include_spam
+      - name: include_trash
     request:
       method: GET
       path: /inboxes/{{filter.inbox_id}}/messages
+      query:
+        - name: labels
+          from: filter
+          key: labels
+        - name: before
+          from: filter
+          key: before
+        - name: after
+          from: filter
+          key: after
+        - name: from
+          from: filter
+          key: from
+        - name: to
+          from: filter
+          key: to
+        - name: subject
+          from: filter
+          key: subject
+        - name: include_spam
+          from: filter_bool
+          key: include_spam
+        - name: include_trash
+          from: filter_bool
+          key: include_trash
     response:
       rows_path:
         - messages
@@ -221,7 +261,7 @@ tables:
       - name: attachments
         type: Json
         nullable: true
-        description: Attachment metadata (JSON array with id, filename, size, content_type).
+        description: Attachment metadata (JSON array with attachment_id, filename, size, content_type).
       - name: timestamp
         type: Timestamp
         nullable: false
@@ -262,12 +302,50 @@ tables:
         SELECT thread_id, subject, message_count, preview
         FROM agentmail.threads
         WHERE inbox_id = 'your-inbox-id' LIMIT 10
+      Filter by time range:
+        SELECT thread_id, subject, timestamp
+        FROM agentmail.threads
+        WHERE inbox_id = 'your-inbox-id'
+          AND after = '2026-01-01T00:00:00Z' LIMIT 10
     filters:
       - name: inbox_id
         required: true
+      - name: labels
+      - name: before
+      - name: after
+      - name: senders
+      - name: recipients
+      - name: subject
+      - name: include_spam
+      - name: include_trash
     request:
       method: GET
       path: /inboxes/{{filter.inbox_id}}/threads
+      query:
+        - name: labels
+          from: filter
+          key: labels
+        - name: before
+          from: filter
+          key: before
+        - name: after
+          from: filter
+          key: after
+        - name: senders
+          from: filter
+          key: senders
+        - name: recipients
+          from: filter
+          key: recipients
+        - name: subject
+          from: filter
+          key: subject
+        - name: include_spam
+          from: filter_bool
+          key: include_spam
+        - name: include_trash
+          from: filter_bool
+          key: include_trash
     response:
       rows_path:
         - threads

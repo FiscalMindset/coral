@@ -16,16 +16,18 @@ coral source add --file sources/community/agentmail/manifest.yaml
 
 ## Credentials
 
-To use this source, you will need an AgentMail API key.
+To use this source, you will need an AgentMail **organization-level** API key with read permissions.
 
 1. Sign up at [agentmail.to](https://agentmail.to).
 2. Navigate to your dashboard at [app.agentmail.to](https://app.agentmail.to).
-3. Copy your API key (starts with `am_us_`).
+3. Create an API key (starts with `am_`) with the following read permissions: `inbox_read`, `message_read`, `thread_read`, `domain_read`.
 4. Provide it when prompted by `coral source add` or set it as an environment variable:
 
 ```bash
-export AGENTMAIL_API_KEY="am_us_your-api-key"
+export AGENTMAIL_API_KEY="am_your-api-key"
 ```
+
+**Note:** Inbox-scoped API keys only support the `messages` and `threads` tables for that specific inbox. Organization-level keys are required to list all inboxes and domains. See [AgentMail Permissions](https://docs.agentmail.to/permissions) for details.
 
 ## Quick Start
 
@@ -81,6 +83,14 @@ Email messages in an AgentMail inbox. Includes sender, recipients, subject, prev
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `inbox_id` | Utf8 | Yes | ID of the inbox to list messages from |
+| `labels` | Utf8 | | Filter by label (comma-separated) |
+| `before` | Utf8 | | Only messages before this timestamp (ISO 8601) |
+| `after` | Utf8 | | Only messages after this timestamp (ISO 8601) |
+| `from` | Utf8 | | Filter by sender (substring match) |
+| `to` | Utf8 | | Filter by recipient (substring match) |
+| `subject` | Utf8 | | Filter by subject (substring match) |
+| `include_spam` | Boolean | | Include spam messages (default false) |
+| `include_trash` | Boolean | | Include trashed messages (default false) |
 
 **Columns**
 
@@ -112,6 +122,14 @@ Email threads (conversations) in an AgentMail inbox. Groups messages into conver
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `inbox_id` | Utf8 | Yes | ID of the inbox to list threads from |
+| `labels` | Utf8 | | Filter by label (comma-separated) |
+| `before` | Utf8 | | Only threads before this timestamp (ISO 8601) |
+| `after` | Utf8 | | Only threads after this timestamp (ISO 8601) |
+| `senders` | Utf8 | | Filter by sender (substring match) |
+| `recipients` | Utf8 | | Filter by recipient (substring match) |
+| `subject` | Utf8 | | Filter by subject (substring match) |
+| `include_spam` | Boolean | | Include spam threads (default false) |
+| `include_trash` | Boolean | | Include trashed threads (default false) |
 
 **Columns**
 
@@ -151,7 +169,7 @@ Custom domains configured in AgentMail. Includes feedback settings and subdomain
 
 ## Source scope
 
-- Targets the AgentMail API at `https://api.agentmail.to/v0`.
+- Targets the AgentMail API at `https://api.agentmail.to/v0`. The EU endpoint (`https://api.agentmail.eu/v0`) is not supported in this version.
 - Requires `AGENTMAIL_API_KEY` authentication as a Bearer token.
 - `messages` and `threads` require an `inbox_id` filter (URL path segment). Use `inboxes` to discover inbox IDs.
 - Cursor-based pagination (`page_token` query param) on all tables with `limit` default 50, max 100.
@@ -162,8 +180,8 @@ Custom domains configured in AgentMail. Includes feedback settings and subdomain
 
 - The source provides read-only list access only. Send, reply, forward, draft, webhook, and pod management endpoints are out of scope.
 - Message body text (HTML/plain) is not returned by the list endpoint — only `preview` (text snippet). Use the Get Message endpoint directly for full body content.
-- Attachment binary content is not accessible through this source — only attachment metadata (id, filename, size, content_type).
-- The `messages` and `threads` tables do not expose all available API filters (labels, before, after, include_spam, etc.) in this version.
+- Attachment binary content is not accessible through this source — only attachment metadata (attachment_id, filename, size, content_type).
+- The `messages` and `threads` filter substring matches (`from`, `to`, `subject`, `senders`, `recipients`) are served by AgentMail's search backend, which caps `limit` at 100.
 - Rate limits apply based on your AgentMail plan.
 
 ## Provider docs
