@@ -466,7 +466,8 @@ fn apply_parameter_metadata_override_file(
             "failed to apply DSL v4 parameter metadata override '{}': {error}",
             path.display()
         ))
-    })
+    })?;
+    Ok(())
 }
 
 fn validate_loaded_materialization(
@@ -683,19 +684,7 @@ fn write_materialization(
             }
         };
         let surface_dir = temp_dir.join("surfaces").join(&surface.id);
-        fs::ensure_private_dir(&surface_dir)?;
-        std::fs::write(
-            surface_dir.join("source-document.raw"),
-            &materialized_surface.raw_document,
-        )?;
-        std::fs::write(
-            surface_dir.join("source-document.yaml"),
-            &materialized_surface.normalized_document,
-        )?;
-        write_yaml(
-            &surface_dir.join("semantic-ir.yaml"),
-            &materialized_surface.semantic_ir,
-        )?;
+        write_surface_artifacts(&surface_dir, &materialized_surface)?;
         materialized_surfaces.push(MaterializedSurface {
             surface_id: surface.id.clone(),
             semantic_ir: materialized_surface.semantic_ir.clone(),
@@ -761,6 +750,28 @@ struct MaterializedSurfaceBuild {
     normalized_document: Vec<u8>,
     observed_sha256: String,
     semantic_ir: SemanticIr,
+}
+
+/// Writes the per-surface materialized artifacts (source documents and
+/// semantic IR).
+fn write_surface_artifacts(
+    surface_dir: &Path,
+    materialized_surface: &MaterializedSurfaceBuild,
+) -> Result<(), AppError> {
+    fs::ensure_private_dir(surface_dir)?;
+    std::fs::write(
+        surface_dir.join("source-document.raw"),
+        &materialized_surface.raw_document,
+    )?;
+    std::fs::write(
+        surface_dir.join("source-document.yaml"),
+        &materialized_surface.normalized_document,
+    )?;
+    write_yaml(
+        &surface_dir.join("semantic-ir.yaml"),
+        &materialized_surface.semantic_ir,
+    )?;
+    Ok(())
 }
 
 fn materialize_surface(
@@ -1253,6 +1264,10 @@ paths:
   /issues:
     get:
       operationId: issues/list
+      parameters:
+        - {name: order_by, in: query, schema: {type: string}}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string}}
       responses:
         '200':
           content:
@@ -1442,6 +1457,33 @@ surfaces:
         )
         .expect("write projection override");
         path
+    }
+
+    #[test]
+    fn build_v4_materialization_persists_lookup_key_flags_in_semantic_ir() {
+        let (_state, _descriptor, layout, _manifest_yaml, _manifest) = setup_materialization();
+        let surface_dir = layout.v4_surface_dir(&workspace_name(), &source_name(), "rest");
+        assert!(
+            !surface_dir
+                .join(PARAMETER_METADATA_OVERRIDE_FILENAME)
+                .exists(),
+            "generated lookup key metadata should live in semantic-ir.yaml"
+        );
+
+        let semantic_ir: SemanticIr =
+            read_yaml(&surface_dir.join("semantic-ir.yaml")).expect("read semantic IR");
+        let operation = semantic_ir.operations.first().expect("operation");
+        let input_excluded = |name: &str| {
+            operation
+                .inputs
+                .iter()
+                .find(|input| input.name == name)
+                .expect("input")
+                .exclude_from_lookup_keys
+        };
+        assert!(input_excluded("order_by"));
+        assert!(input_excluded("q"));
+        assert!(!input_excluded("state"));
     }
 
     #[tokio::test]
@@ -1853,6 +1895,9 @@ surfaces:
         std::fs::write(
             &override_path,
             r"
+lookup_keys:
+  enabled: true
+  exclude: [state]
 operation_overrides:
   issues/list:
     pagination:
@@ -1888,6 +1933,17 @@ operation_overrides:
         };
         assert_eq!(rest.pagination.mode, coral_spec::PaginationMode::Page);
         assert_eq!(rest.pagination.page_param.as_deref(), Some("page_number"));
+        let loaded_input_excluded = |name: &str| {
+            operation
+                .inputs
+                .iter()
+                .find(|input| input.name == name)
+                .expect("input")
+                .exclude_from_lookup_keys
+        };
+        assert!(!loaded_input_excluded("order_by"));
+        assert!(!loaded_input_excluded("q"));
+        assert!(loaded_input_excluded("state"));
 
         let semantic_ir_path = layout
             .v4_surface_dir(&workspace_name(), &source_name(), "rest")
@@ -1904,6 +1960,17 @@ operation_overrides:
             artifact_rest.pagination.mode,
             coral_spec::PaginationMode::None
         );
+        let artifact_input_excluded = |name: &str| {
+            artifact_operation
+                .inputs
+                .iter()
+                .find(|input| input.name == name)
+                .expect("input")
+                .exclude_from_lookup_keys
+        };
+        assert!(artifact_input_excluded("order_by"));
+        assert!(artifact_input_excluded("q"));
+        assert!(!artifact_input_excluded("state"));
     }
 
     #[test]

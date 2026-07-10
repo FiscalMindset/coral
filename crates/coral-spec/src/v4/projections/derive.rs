@@ -122,6 +122,7 @@ fn generate_projection(
                 data_type: input.data_type.lower(),
                 default_value: input.default_value.clone(),
                 description: input.description.clone(),
+                lookup_key: rest_filter_is_lookup_key(rest, input, exposure),
             }
         })
         .collect::<Vec<_>>();
@@ -255,6 +256,18 @@ fn rest_input_exposure(
         }
     };
     (exposure, pagination_owned_query_input)
+}
+
+/// A REST filter input is a lookup key (dependent joins may bind to it) when
+/// the surface metadata does not exclude it. Lookup key exclusion never
+/// changes SQL exposure: an excluded input stays a pushdown filter, it just
+/// cannot anchor a join.
+fn rest_filter_is_lookup_key(
+    rest: Option<&RestExecutionAttachment>,
+    input: &IrOperationInput,
+    exposure: SqlInputExposure,
+) -> bool {
+    rest.is_some() && exposure == SqlInputExposure::Filter && !input.exclude_from_lookup_keys
 }
 
 fn mcp_pagination_owns_input(

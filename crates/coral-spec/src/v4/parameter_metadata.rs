@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::v4::ir::{HttpMethod, IrExecutionAttachment, IrInputLocation, IrOperation, SemanticIr};
 use crate::v4::projections::pagination_query_param_names;
@@ -14,8 +14,23 @@ use crate::{ManifestError, PaginationSpec, Result};
 pub struct ParameterMetadataOverrides {
     #[serde(default)]
     pub pagination: Vec<NamedPaginationOverride>,
+    pub lookup_keys: Option<LookupKeysMetadata>,
     #[serde(default)]
     pub operation_overrides: BTreeMap<String, OperationParameterMetadataOverride>,
+}
+
+/// Surface-scoped lookup key joinability: which filter parameters dependent
+/// joins may bind to. `exclude` names wire parameters (as written in the API
+/// description) that are not complete exact lookups; they stay pushdown
+/// filters but never carry `lookup_key: true`. `enabled: false` withholds the
+/// flag from every filter of the surface. Exclusion never changes SQL
+/// exposure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LookupKeysMetadata {
+    pub enabled: bool,
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -52,6 +67,34 @@ pub fn parse_parameter_metadata_overrides_yaml(raw: &str) -> Result<ParameterMet
         serde_yaml::from_str(raw).map_err(ManifestError::parse_yaml)?;
     overrides.validate_shape()?;
     Ok(overrides)
+}
+
+/// Checks every exclude entry against the surface's REST input names. A typo
+/// here is not a harmless no-op: the misspelled parameter silently keeps
+/// `lookup_key` and stays joinable, which is exactly what the exclusion tried
+/// to withhold. Non-filter inputs (path parameters, function arguments) are
+/// accepted: derivation treats excluding them as a legal no-op, and the two
+/// layers must agree on the name domain.
+pub fn validate_lookup_keys_for_surface(
+    lookup_keys: &LookupKeysMetadata,
+    ir: &SemanticIr,
+) -> Result<()> {
+    let input_names = ir
+        .operations
+        .iter()
+        .filter(|operation| matches!(operation.execution, IrExecutionAttachment::Rest(_)))
+        .flat_map(|operation| &operation.inputs)
+        .map(|input| input.name.trim())
+        .collect::<BTreeSet<_>>();
+    for excluded in &lookup_keys.exclude {
+        if !input_names.contains(excluded.as_str()) {
+            return Err(ManifestError::validation(format!(
+                "{} parameter_metadata lookup_keys excludes unknown parameter '{excluded}'",
+                ir.surface_id
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub fn apply_parameter_metadata_overrides(
@@ -91,7 +134,28 @@ pub fn apply_parameter_metadata_overrides(
         }
     }
 
+    if let Some(lookup_keys) = &overrides.lookup_keys {
+        apply_lookup_key_overrides(ir, lookup_keys);
+    }
+
     Ok(())
+}
+
+fn apply_lookup_key_overrides(ir: &mut SemanticIr, lookup_keys: &LookupKeysMetadata) {
+    let excluded = lookup_keys
+        .exclude
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    for operation in &mut ir.operations {
+        for input in &mut operation.inputs {
+            input.exclude_from_lookup_keys = if lookup_keys.enabled {
+                excluded.contains(input.name.trim())
+            } else {
+                true
+            };
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,23 +169,20 @@ pub fn sync_projection_pagination_inputs<'a>(
     projections: &mut ProjectionCatalog,
     mode: ProjectionPaginationInputSyncMode,
 ) {
-    let pagination_by_operation = surfaces
+    let operation_by_projection = surfaces
         .into_iter()
         .flat_map(|surface| {
-            surface.operations.iter().filter_map(|operation| {
-                let IrExecutionAttachment::Rest(rest) = &operation.execution else {
-                    return None;
-                };
-                Some((
+            surface.operations.iter().map(|operation| {
+                (
                     (surface.surface_id.as_str(), operation.id.as_str()),
-                    pagination_query_param_names(&rest.pagination),
-                ))
+                    operation,
+                )
             })
         })
         .collect::<BTreeMap<_, _>>();
 
     for projection in &mut projections.projections {
-        let Some(pagination_query_params) = pagination_by_operation.get(&(
+        let Some(operation) = operation_by_projection.get(&(
             projection.surface_id.as_str(),
             projection.operation_id.as_str(),
         )) else {
@@ -131,29 +192,84 @@ pub fn sync_projection_pagination_inputs<'a>(
             ProjectionKind::Table => SqlInputExposure::Filter,
             ProjectionKind::TableFunction { .. } => SqlInputExposure::FunctionArg,
         };
+        let pagination_query_params = match &operation.execution {
+            IrExecutionAttachment::Rest(rest) => {
+                Some(pagination_query_param_names(&rest.pagination))
+            }
+            IrExecutionAttachment::Mcp(_) => None,
+        };
         for input in &mut projection.inputs {
-            match mode {
-                ProjectionPaginationInputSyncMode::RecomputeRestInputExposure => {
-                    input.sql_exposure = projection_input_sql_exposure(
-                        input,
-                        default_exposure,
-                        pagination_query_params,
-                    );
-                }
-                ProjectionPaginationInputSyncMode::PreserveExistingExposure => {
-                    if input.source_location == IrInputLocation::Query
-                        && pagination_query_params.contains(input.wire_name.as_str())
-                    {
-                        input.sql_exposure = SqlInputExposure::Internal;
+            if let Some(pagination_query_params) = &pagination_query_params {
+                match mode {
+                    ProjectionPaginationInputSyncMode::RecomputeRestInputExposure => {
+                        input.sql_exposure = projection_input_sql_exposure(
+                            input,
+                            default_exposure,
+                            pagination_query_params,
+                        );
+                    }
+                    ProjectionPaginationInputSyncMode::PreserveExistingExposure => {
+                        if input.source_location == IrInputLocation::Query
+                            && pagination_query_params.contains(input.wire_name.as_str())
+                        {
+                            input.sql_exposure = SqlInputExposure::Internal;
+                        }
                     }
                 }
             }
+            input.lookup_key = projection_input_is_lookup_key(operation, input);
         }
     }
 }
 
+fn projection_input_is_lookup_key(
+    operation: &IrOperation,
+    projection_input: &ProjectionInput,
+) -> bool {
+    if projection_input.sql_exposure != SqlInputExposure::Filter {
+        return false;
+    }
+    if !matches!(operation.execution, IrExecutionAttachment::Rest(_)) {
+        return false;
+    }
+    operation.inputs.iter().any(|input| {
+        input.location == projection_input.source_location
+            && input.name == projection_input.wire_name
+            && !input.exclude_from_lookup_keys
+    })
+}
+
+fn validate_lookup_keys_shape(lookup_keys: &LookupKeysMetadata) -> Result<()> {
+    let mut excluded = BTreeSet::new();
+    for value in &lookup_keys.exclude {
+        if value.trim().is_empty() {
+            return Err(ManifestError::validation(
+                "parameter metadata lookup_keys has an empty exclude value",
+            ));
+        }
+        // A padded value passes the emptiness check but can never match a
+        // wire name in the downstream exact-equality comparison, silently
+        // disabling the exclusion.
+        if value != value.trim() {
+            return Err(ManifestError::validation(format!(
+                "parameter metadata lookup_keys exclude value '{value}' has leading or trailing whitespace"
+            )));
+        }
+        if !excluded.insert(value.as_str()) {
+            return Err(ManifestError::validation(format!(
+                "parameter metadata lookup_keys exclude value '{value}' is repeated"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl ParameterMetadataOverrides {
     fn validate_shape(&self) -> Result<()> {
+        if let Some(lookup_keys) = &self.lookup_keys {
+            validate_lookup_keys_shape(lookup_keys)?;
+        }
+
         let mut names = BTreeSet::new();
         for strategy in &self.pagination {
             if strategy.name.trim().is_empty() {
@@ -173,6 +289,10 @@ impl ParameterMetadataOverrides {
     }
 
     fn validate_for_surface(&self, ir: &SemanticIr) -> Result<()> {
+        if let Some(lookup_keys) = &self.lookup_keys {
+            validate_lookup_keys_for_surface(lookup_keys, ir)?;
+        }
+
         for strategy in &self.pagination {
             strategy.pagination.validated(
                 &ir.source_name,
@@ -696,6 +816,105 @@ pagination:
     }
 
     #[test]
+    fn pagination_override_internalizes_stale_lookup_key_candidate() {
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_list",
+            "/widgets",
+            vec![query_input("cursor"), query_input("state")],
+            PaginationSpec::default(),
+        )]);
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+pagination:
+  - name: cursor
+    match:
+      operation_ids: [widgets_list]
+    mode: cursor_query
+    cursor_param: cursor
+    response_cursor_path: [next_cursor]
+",
+        )
+        .expect("parse overrides");
+
+        apply_parameter_metadata_overrides(&mut ir, &overrides).expect("apply overrides");
+        assert!(
+            !input_excluded(&ir, "cursor"),
+            "pagination overrides should not rewrite persisted import-time lookup-key metadata"
+        );
+
+        for mode in [
+            ProjectionPaginationInputSyncMode::RecomputeRestInputExposure,
+            ProjectionPaginationInputSyncMode::PreserveExistingExposure,
+        ] {
+            let mut projections = projection_catalog(vec![
+                projection_input("cursor", "cursor", SqlInputExposure::Filter),
+                projection_input("state", "state", SqlInputExposure::Filter),
+            ]);
+            sync_projection_pagination_inputs(std::slice::from_ref(&ir), &mut projections, mode);
+
+            assert_eq!(
+                projection_input_exposure(&projections, "cursor"),
+                SqlInputExposure::Internal,
+                "{mode:?}"
+            );
+            assert!(
+                !projection_input_lookup_key(&projections, "cursor"),
+                "{mode:?}"
+            );
+            assert_eq!(
+                projection_input_exposure(&projections, "state"),
+                SqlInputExposure::Filter,
+                "{mode:?}"
+            );
+            assert!(
+                projection_input_lookup_key(&projections, "state"),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sync_projection_inputs_applies_lookup_key_exclusions() {
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_list",
+            "/widgets",
+            vec![query_input("state"), query_input("order_by")],
+            PaginationSpec::default(),
+        )]);
+        first_operation_mut(&mut ir)
+            .inputs
+            .iter_mut()
+            .find(|input| input.name == "order_by")
+            .expect("order_by")
+            .exclude_from_lookup_keys = true;
+
+        for mode in [
+            ProjectionPaginationInputSyncMode::RecomputeRestInputExposure,
+            ProjectionPaginationInputSyncMode::PreserveExistingExposure,
+        ] {
+            let mut projections = projection_catalog(vec![
+                projection_input("state", "state", SqlInputExposure::Filter),
+                projection_input("order_by", "order_by", SqlInputExposure::Filter),
+            ]);
+            sync_projection_pagination_inputs(std::slice::from_ref(&ir), &mut projections, mode);
+            // Exclusion never demotes exposure; it only withholds joinability.
+            assert_eq!(
+                projection_input_exposure(&projections, "order_by"),
+                SqlInputExposure::Filter,
+                "{mode:?}"
+            );
+            assert!(
+                projection_input_lookup_key(&projections, "state"),
+                "{mode:?}"
+            );
+            assert!(
+                !projection_input_lookup_key(&projections, "order_by"),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
     fn non_matching_strategy_leaves_operation_unchanged() {
         let mut ir = semantic_ir(vec![rest_operation(
             "widgets/list",
@@ -725,6 +944,162 @@ pagination:
             rest_pagination(first_operation(&ir)).mode,
             PaginationMode::None
         );
+    }
+
+    #[test]
+    fn lookup_keys_block_parses_and_validates() {
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [order_by, sort, fields]
+",
+        )
+        .expect("parse overrides");
+        let lookup_keys = overrides.lookup_keys.expect("lookup keys block");
+        assert!(lookup_keys.enabled);
+        assert_eq!(lookup_keys.exclude, ["order_by", "sort", "fields"]);
+
+        let absent = parse_parameter_metadata_overrides_yaml("{}").expect("parse overrides");
+        assert!(absent.lookup_keys.is_none());
+
+        let missing_enabled = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  exclude: [order_by]
+",
+        )
+        .expect_err("missing enabled should fail");
+        assert!(missing_enabled.to_string().contains("enabled"));
+
+        let empty_value = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: ['  ']
+",
+        )
+        .expect_err("blank exclude value should fail");
+        assert!(empty_value.to_string().contains("empty exclude value"));
+
+        let repeated_value = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [sort, sort]
+",
+        )
+        .expect_err("repeated exclude value should fail");
+        assert!(repeated_value.to_string().contains("'sort' is repeated"));
+
+        let padded_value = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [' sort']
+",
+        )
+        .expect_err("padded exclude value should fail");
+        assert!(padded_value.to_string().contains("whitespace"));
+    }
+
+    #[test]
+    fn lookup_key_override_replaces_generated_exclusions() {
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_list",
+            "/widgets",
+            vec![
+                query_input("state"),
+                query_input("order_by"),
+                query_input("sort"),
+            ],
+            PaginationSpec::default(),
+        )]);
+        for input in &mut first_operation_mut(&mut ir).inputs {
+            if matches!(input.name.as_str(), "order_by" | "sort") {
+                input.exclude_from_lookup_keys = true;
+            }
+        }
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [order_by]
+",
+        )
+        .expect("parse overrides");
+
+        apply_parameter_metadata_overrides(&mut ir, &overrides).expect("apply overrides");
+
+        assert!(!input_excluded(&ir, "state"));
+        assert!(input_excluded(&ir, "order_by"));
+        assert!(!input_excluded(&ir, "sort"));
+    }
+
+    #[test]
+    fn disabled_lookup_key_override_excludes_every_input() {
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_get",
+            "/widgets/{widget_id}",
+            vec![path_input("widget_id"), query_input("state")],
+            PaginationSpec::default(),
+        )]);
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: false
+",
+        )
+        .expect("parse overrides");
+
+        apply_parameter_metadata_overrides(&mut ir, &overrides).expect("apply overrides");
+
+        assert!(input_excluded(&ir, "widget_id"));
+        assert!(input_excluded(&ir, "state"));
+    }
+
+    #[test]
+    fn rejects_unknown_lookup_key_exclude_target() {
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_list",
+            "/widgets",
+            vec![query_input("sort"), query_input("state")],
+            PaginationSpec::default(),
+        )]);
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [sortt]
+",
+        )
+        .expect("parse overrides");
+
+        let error = apply_parameter_metadata_overrides(&mut ir, &overrides)
+            .expect_err("unknown exclude target should fail");
+        assert!(
+            error.to_string().contains("unknown parameter 'sortt'"),
+            "{error}"
+        );
+
+        // Non-filter inputs are legal excludes: derivation treats them as
+        // no-ops, so validation must accept the same name domain.
+        let mut ir = semantic_ir(vec![rest_operation(
+            "widgets_get",
+            "/widgets/{widget_id}",
+            vec![path_input("widget_id"), query_input("sort")],
+            PaginationSpec::default(),
+        )]);
+        let overrides = parse_parameter_metadata_overrides_yaml(
+            r"
+lookup_keys:
+  enabled: true
+  exclude: [widget_id, sort]
+",
+        )
+        .expect("parse overrides");
+        apply_parameter_metadata_overrides(&mut ir, &overrides)
+            .expect("path parameter exclude is a legal no-op");
     }
 
     #[test]
@@ -873,6 +1248,19 @@ operation_overrides:
             data_type: IrScalarType::String,
             default_value: None,
             description: String::new(),
+            exclude_from_lookup_keys: false,
+        }
+    }
+
+    fn path_input(name: &str) -> IrOperationInput {
+        IrOperationInput {
+            name: name.to_string(),
+            location: IrInputLocation::Path,
+            required: true,
+            data_type: IrScalarType::String,
+            default_value: None,
+            description: String::new(),
+            exclude_from_lookup_keys: false,
         }
     }
 
@@ -885,6 +1273,19 @@ operation_overrides:
 
     fn first_operation(ir: &SemanticIr) -> &IrOperation {
         ir.operations.first().expect("operation")
+    }
+
+    fn first_operation_mut(ir: &mut SemanticIr) -> &mut IrOperation {
+        ir.operations.first_mut().expect("operation")
+    }
+
+    fn input_excluded(ir: &SemanticIr, input_name: &str) -> bool {
+        first_operation(ir)
+            .inputs
+            .iter()
+            .find(|input| input.name == input_name)
+            .expect("input")
+            .exclude_from_lookup_keys
     }
 
     fn projection_catalog(inputs: Vec<ProjectionInput>) -> ProjectionCatalog {
@@ -925,6 +1326,7 @@ operation_overrides:
             data_type: ManifestDataType::Utf8,
             default_value: None,
             description: String::new(),
+            lookup_key: false,
         }
     }
 
@@ -940,6 +1342,18 @@ operation_overrides:
             .iter()
             .find(|input| input.name == input_name)
             .map(|input| input.sql_exposure)
+            .expect("projection input")
+    }
+
+    fn projection_input_lookup_key(catalog: &ProjectionCatalog, input_name: &str) -> bool {
+        catalog
+            .projections
+            .first()
+            .expect("projection")
+            .inputs
+            .iter()
+            .find(|input| input.name == input_name)
+            .map(|input| input.lookup_key)
             .expect("projection input")
     }
 }

@@ -41,6 +41,126 @@ surfaces:
     assert!(published.contains(&"get_issues"), "{published:?}");
 }
 
+fn items_api_catalog(lookup_keys: Option<(bool, &[&str])>) -> ProjectionCatalog {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: items_api
+dsl_version: 4
+surfaces:
+  - id: rest
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = v4.surfaces.first().expect("one surface");
+    let spec = r"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: list_items
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: order_by, in: query, schema: {type: string}}
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}, state: {type: string}}}}}}}}
+  /projects/{project_id}/items:
+    get:
+      operationId: list_project_items
+      parameters:
+        - {name: project_id, in: path, required: true, schema: {type: string}}
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}}}}}}}}
+";
+    let mut ir = import_openapi_surface(v4, surface, spec.as_bytes()).expect("import");
+    if let Some((enabled, exclude)) = lookup_keys {
+        for operation in &mut ir.operations {
+            for input in &mut operation.inputs {
+                input.exclude_from_lookup_keys =
+                    !enabled || exclude.iter().any(|excluded| *excluded == input.name);
+            }
+        }
+    }
+    generate_projection_catalog(v4, std::slice::from_ref(&ir)).expect("catalog")
+}
+
+fn exposure(catalog: &ProjectionCatalog, operation_id: &str, input_name: &str) -> SqlInputExposure {
+    catalog
+        .projections
+        .iter()
+        .find(|projection| projection.operation_id == operation_id)
+        .expect("projection")
+        .inputs
+        .iter()
+        .find(|input| input.name == input_name)
+        .expect("input")
+        .sql_exposure
+}
+
+#[test]
+fn lookup_key_exclusions_control_joinability_not_exposure() {
+    let filter_lookup_key = |catalog: &ProjectionCatalog, filter_name: &str| {
+        let list_items = catalog
+            .projections
+            .iter()
+            .find(|projection| projection.operation_id == "list_items")
+            .expect("projection");
+        projection_filter_specs(list_items)
+            .iter()
+            .find(|spec| spec.name == filter_name)
+            .expect("filter spec")
+            .lookup_key
+    };
+
+    let catalog = items_api_catalog(Some((true, &["order_by", "project_id"])));
+
+    // An excluded parameter keeps its exposure and pushdown; it only loses
+    // the dependent-join completeness flag.
+    assert_eq!(
+        exposure(&catalog, "list_items", "order_by"),
+        SqlInputExposure::Filter
+    );
+    assert!(!filter_lookup_key(&catalog, "order_by"));
+    assert_eq!(
+        exposure(&catalog, "list_items", "state"),
+        SqlInputExposure::Filter
+    );
+    assert!(filter_lookup_key(&catalog, "state"));
+
+    // Function arguments never carry the flag, excluded or not.
+    let project_items = catalog
+        .projections
+        .iter()
+        .find(|projection| projection.operation_id == "list_project_items")
+        .expect("projection");
+    assert_eq!(
+        exposure(&catalog, "list_project_items", "project_id"),
+        SqlInputExposure::FunctionArg
+    );
+    assert!(project_items.inputs.iter().all(|input| !input.lookup_key));
+
+    // Disabling lookup keys withholds the flag surface-wide without touching
+    // exposure.
+    let catalog = items_api_catalog(Some((false, &[])));
+    assert_eq!(
+        exposure(&catalog, "list_items", "state"),
+        SqlInputExposure::Filter
+    );
+    assert!(!filter_lookup_key(&catalog, "state"));
+    assert!(!filter_lookup_key(&catalog, "order_by"));
+
+    // Generated metadata is present immediately after OpenAPI import, before
+    // app materialization writes the semantic IR artifact.
+    let catalog = items_api_catalog(None);
+    assert_eq!(
+        exposure(&catalog, "list_items", "state"),
+        SqlInputExposure::Filter
+    );
+    assert!(filter_lookup_key(&catalog, "state"));
+    assert!(!filter_lookup_key(&catalog, "order_by"));
+}
+
 #[test]
 fn top_level_scalar_rows_use_scalar_projection_types() {
     let manifest = parse_source_manifest_yaml(
