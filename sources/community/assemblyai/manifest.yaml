@@ -57,6 +57,8 @@ tables:
     filters:
       - name: status
       - name: created_on
+      - name: before_id
+      - name: after_id
     request:
       method: GET
       path: /v2/transcript
@@ -67,6 +69,12 @@ tables:
         - name: created_on
           from: filter
           key: created_on
+        - name: before_id
+          from: filter
+          key: before_id
+        - name: after_id
+          from: filter
+          key: after_id
     response:
       rows_path:
         - transcripts
@@ -103,13 +111,27 @@ tables:
           path:
             - resource_url
       - name: created
-        type: Utf8
+        type: Timestamp
         nullable: false
         description: When the transcript was created (ISO 8601).
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - created
       - name: completed
-        type: Utf8
+        type: Timestamp
         nullable: true
         description: When the transcript was completed (ISO 8601). Null if not yet completed.
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - completed
       - name: error
         type: Utf8
         nullable: true
@@ -202,10 +224,24 @@ functions:
         nullable: true
         description: Error message if the transcript failed.
       - name: created
-        type: Utf8
-        nullable: true
-        description: When the transcript was created.
+        type: Timestamp
+        nullable: false
+        description: When the transcript was created (ISO 8601).
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - created
       - name: completed
-        type: Utf8
+        type: Timestamp
         nullable: true
-        description: When the transcript was completed.
+        description: When the transcript was completed (ISO 8601).
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - completed

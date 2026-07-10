@@ -65,6 +65,8 @@ Speech-to-text transcripts created in your AssemblyAI account. Sorted from newes
 |--------|------|----------|-------------|
 | `status` | Utf8 | | Filter by status: `queued`, `processing`, `completed`, `error` |
 | `created_on` | Utf8 | | Only transcripts created on this date (YYYY-MM-DD) |
+| `before_id` | Utf8 | | Get transcripts created before this transcript ID (cursor pagination) |
+| `after_id` | Utf8 | | Get transcripts created after this transcript ID (cursor pagination) |
 
 **Columns**
 
@@ -74,8 +76,8 @@ Speech-to-text transcripts created in your AssemblyAI account. Sorted from newes
 | `status` | Utf8 | Status: queued, processing, completed, error |
 | `audio_url` | Utf8 | URL of the audio/video file that was transcribed |
 | `resource_url` | Utf8 | URL to retrieve the full transcript resource |
-| `created` | Utf8 | When the transcript was created (ISO 8601) |
-| `completed` | Utf8 | When the transcript was completed (ISO 8601) |
+| `created` | Timestamp | When the transcript was created (ISO 8601) |
+| `completed` | Timestamp | When the transcript was completed (ISO 8601) |
 | `error` | Utf8 | Error message if the transcript failed |
 
 ## Functions
@@ -105,8 +107,8 @@ Retrieve the full transcript for a specific transcription job. Pass the transcri
 | `words` | Json | Word-level data with timestamps and confidence (JSON array) |
 | `utterances` | Json | Speaker-labeled utterances with timestamps (JSON array) |
 | `error` | Utf8 | Error message if the transcript failed |
-| `created` | Utf8 | When the transcript was created |
-| `completed` | Utf8 | When the transcript was completed |
+| `created` | Timestamp | When the transcript was created (ISO 8601) |
+| `completed` | Timestamp | When the transcript was completed (ISO 8601) |
 
 ## Live request costs
 
@@ -125,7 +127,7 @@ Each query performs live API calls to `https://api.assemblyai.com`. Listing tran
 
 - The source provides read-only access only. Submitting audio for transcription, deleting transcripts, and other write operations are out of scope.
 - The `transcripts` table returns list metadata only (id, status, audio_url, created, completed, error). Full text requires the `transcript` function.
-- Pagination uses `before_id`/`after_id` URL-based cursors. This source uses `mode: none` with `page_size` (max 200), so a single query returns at most 200 transcripts. For accounts with more, filter by `status` or `created_on`.
+- Pagination uses `before_id`/`after_id` cursor filters (exposed as optional filters). A single query returns at most 200 transcripts. Use `before_id` or `after_id` to page through older/newer results.
 - The `words` and `utterances` columns in the `transcript` function return large JSON arrays for long audio. Use `text` for plain transcript content.
 - Speaker diarization data (`utterances`) is only populated when `speaker_labels` was enabled during transcription.
 - Transcripts older than 90 days are not available via the API.
