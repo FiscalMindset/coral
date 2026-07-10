@@ -111,27 +111,13 @@ tables:
           path:
             - resource_url
       - name: created
-        type: Timestamp
+        type: Utf8
         nullable: false
-        description: When the transcript was created (ISO 8601).
-        expr:
-          kind: format_timestamp
-          input: iso8601
-          expr:
-            kind: path
-            path:
-              - created
+        description: When the transcript was created (datetime string).
       - name: completed
-        type: Timestamp
+        type: Utf8
         nullable: true
-        description: When the transcript was completed (ISO 8601). Null if not yet completed.
-        expr:
-          kind: format_timestamp
-          input: iso8601
-          expr:
-            kind: path
-            path:
-              - completed
+        description: When the transcript was completed (datetime string). Null if not yet completed.
       - name: error
         type: Utf8
         nullable: true
@@ -223,25 +209,3 @@ functions:
         type: Utf8
         nullable: true
         description: Error message if the transcript failed.
-      - name: created
-        type: Timestamp
-        nullable: false
-        description: When the transcript was created (ISO 8601).
-        expr:
-          kind: format_timestamp
-          input: iso8601
-          expr:
-            kind: path
-            path:
-              - created
-      - name: completed
-        type: Timestamp
-        nullable: true
-        description: When the transcript was completed (ISO 8601).
-        expr:
-          kind: format_timestamp
-          input: iso8601
-          expr:
-            kind: path
-            path:
-              - completed

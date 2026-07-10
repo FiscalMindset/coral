@@ -76,8 +76,8 @@ Speech-to-text transcripts created in your AssemblyAI account. Sorted from newes
 | `status` | Utf8 | Status: queued, processing, completed, error |
 | `audio_url` | Utf8 | URL of the audio/video file that was transcribed |
 | `resource_url` | Utf8 | URL to retrieve the full transcript resource |
-| `created` | Timestamp | When the transcript was created (ISO 8601) |
-| `completed` | Timestamp | When the transcript was completed (ISO 8601) |
+| `created` | Utf8 | When the transcript was created (datetime string) |
+| `completed` | Utf8 | When the transcript was completed (datetime string) |
 | `error` | Utf8 | Error message if the transcript failed |
 
 ## Functions
@@ -107,8 +107,6 @@ Retrieve the full transcript for a specific transcription job. Pass the transcri
 | `words` | Json | Word-level data with timestamps and confidence (JSON array) |
 | `utterances` | Json | Speaker-labeled utterances with timestamps (JSON array) |
 | `error` | Utf8 | Error message if the transcript failed |
-| `created` | Timestamp | When the transcript was created (ISO 8601) |
-| `completed` | Timestamp | When the transcript was completed (ISO 8601) |
 
 ## Live request costs
 
@@ -236,7 +234,7 @@ FROM assemblyai.transcripts LIMIT 3;
 +--------------------------------------+-----------+-----------------------------------+-----------------------------+
 | id                                   | status    | audio_url                         | created                     |
 +--------------------------------------+-----------+-----------------------------------+-----------------------------+
-| txn_abc123-xxxx-xxxx-xxxx-xxxxxxxxxx | completed | https://assembly.ai/wildfires.mp3 | 2026-07-09T23:55:35.034339Z |
+| e6846d4e-xxxx-xxxx-xxxx-50130cac87f4 | completed | https://assembly.ai/wildfires.mp3 | 2026-07-09T23:55:35.034339Z |
 +--------------------------------------+-----------+-----------------------------------+-----------------------------+
 ```
 
@@ -244,13 +242,13 @@ FROM assemblyai.transcripts LIMIT 3;
 
 ```sql
 SELECT id, status, audio_duration, confidence, language_code
-FROM assemblyai.transcript(id => 'txn_abc123-xxxx-xxxx-xxxx-xxxxxxxxxx');
+FROM assemblyai.transcript(id => 'e6846d4e-xxxx-xxxx-xxxx-50130cac87f4');
 ```
 
 ```text
 +--------------------------------------+-----------+----------------+------------+---------------+
 | id                                   | status    | audio_duration | confidence | language_code |
 +--------------------------------------+-----------+----------------+------------+---------------+
-| txn_abc123-xxxx-xxxx-xxxx-xxxxxxxxxx | completed | 282            | 0.98088217 | en            |
+| e6846d4e-xxxx-xxxx-xxxx-50130cac87f4 | completed | 282            | 0.98088217 | en            |
 +--------------------------------------+-----------+----------------+------------+---------------+
 ```
