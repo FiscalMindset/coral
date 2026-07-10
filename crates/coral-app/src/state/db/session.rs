@@ -1,4 +1,4 @@
-use sea_query::{InsertStatement, SelectStatement};
+use sea_query::SelectStatement;
 use sea_query_sqlx::SqlxBinder;
 use sqlx::postgres::PgRow;
 use sqlx::sqlite::SqliteRow;
@@ -9,7 +9,9 @@ use super::{CoralDb, CoralTx, DbError};
 use crate::state::db::repositories::workspaces::WorkspacesRepo;
 
 pub(crate) trait DbSession {
-    async fn execute(&mut self, statement: InsertStatement) -> Result<(), DbError>;
+    async fn execute<S>(&mut self, statement: S) -> Result<(), DbError>
+    where
+        S: SqlxBinder;
 
     async fn fetch_optional<T>(&mut self, statement: SelectStatement) -> Result<Option<T>, DbError>
     where
@@ -33,7 +35,10 @@ pub(crate) trait DbRepos: DbSession + Sized {
 impl<T> DbRepos for T where T: DbSession + Sized {}
 
 impl DbSession for &CoralDb {
-    async fn execute(&mut self, statement: InsertStatement) -> Result<(), DbError> {
+    async fn execute<S>(&mut self, statement: S) -> Result<(), DbError>
+    where
+        S: SqlxBinder,
+    {
         execute_statement(&self.backend, statement).await
     }
 
@@ -57,7 +62,10 @@ impl DbSession for &CoralDb {
 }
 
 impl DbSession for CoralTx<'_> {
-    async fn execute(&mut self, statement: InsertStatement) -> Result<(), DbError> {
+    async fn execute<S>(&mut self, statement: S) -> Result<(), DbError>
+    where
+        S: SqlxBinder,
+    {
         self.execute(statement).await
     }
 
@@ -80,10 +88,13 @@ impl DbSession for CoralTx<'_> {
     }
 }
 
-pub(super) async fn execute_statement(
+pub(super) async fn execute_statement<S>(
     backend: &CoralDbBackend,
-    statement: InsertStatement,
-) -> Result<(), DbError> {
+    statement: S,
+) -> Result<(), DbError>
+where
+    S: SqlxBinder,
+{
     match backend {
         CoralDbBackend::Sqlite(db) => {
             let (sql, values) = statement.build_sqlx(sea_query::SqliteQueryBuilder);

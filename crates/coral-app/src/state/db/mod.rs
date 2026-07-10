@@ -1,38 +1,34 @@
 //! RDBMS-backed durable app-state infrastructure.
 
 mod backend;
+mod clock;
 mod config;
 mod coral_db;
 mod error;
+mod import;
 mod migrations;
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "Repository harness stays test-only until manager wiring lands in later stack PRs."
+        reason = "Some repository helpers stay test-only until later catalog surfaces use them."
     )
 )]
 mod repositories;
 mod schema;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Database sessions stay test-only until repositories are wired into managers."
-    )
-)]
 mod session;
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "Database transactions stay test-only until repositories are wired into managers."
+        reason = "Rollback support stays test-only until later write paths need explicit rollback."
     )
 )]
 mod transaction;
 
+pub(crate) use clock::now_unix_nanos_i64;
 pub(crate) use config::{DatabaseConfig, ResolvedDatabaseConfig};
 pub(crate) use coral_db::CoralDb;
 pub(crate) use error::DbError;
-pub(crate) use session::DbSession;
+pub(crate) use import::import_legacy_config;
 pub(crate) use transaction::CoralTx;

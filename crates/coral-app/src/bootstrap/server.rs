@@ -36,6 +36,7 @@ use tonic::service::Routes;
 use tonic::transport::Server;
 use tonic_web::GrpcWebLayer;
 use tower::{Layer, Service};
+use tracing::warn;
 
 use super::env::AppEnvironment;
 use super::error::AppError;
@@ -54,8 +55,8 @@ use crate::search::manager::SearchManager;
 use crate::search::service::SearchService;
 use crate::sources::manager::SourceManager;
 use crate::sources::service::SourceService;
-use crate::state::ConfigStore;
-use crate::state::db::{CoralDb, DatabaseConfig, ResolvedDatabaseConfig};
+use crate::state::db::{CoralDb, DatabaseConfig, ResolvedDatabaseConfig, import_legacy_config};
+use crate::state::{AppStateLayout, ConfigStore};
 use crate::telemetry::TelemetryConfig;
 use crate::telemetry::service::TraceService;
 use crate::transport::GrpcMethodAnnotatedService;
@@ -254,26 +255,6 @@ impl ServerBuilder {
         let env = AppEnvironment::discover();
         let layout = env.app_state_layout(self.config.config_dir)?;
         layout.ensure()?;
-        let database_config = DatabaseConfig::load(&layout)?;
-        let database_config = match database_config {
-            DatabaseConfig::Sqlite { path } => ResolvedDatabaseConfig::Sqlite { path },
-            DatabaseConfig::Postgres { url_env } => {
-                let url = AppEnvironment::env_var(&url_env)
-                    .map_err(|_error| {
-                        AppError::FailedPrecondition(format!(
-                            "database backend 'postgres' requires environment variable `{url_env}` to contain valid UTF-8"
-                        ))
-                    })?
-                    .ok_or_else(|| {
-                        AppError::FailedPrecondition(format!(
-                            "database backend 'postgres' requires environment variable `{url_env}`"
-                        ))
-                    })?;
-                ResolvedDatabaseConfig::Postgres { url }
-            }
-        };
-        let coral_db = CoralDb::open(database_config).await?;
-        coral_db.migrate().await?;
         let telemetry_config = TelemetryConfig::load(&layout)?;
         let internal_trace_store_dir = telemetry_config
             .trace_history
@@ -291,6 +272,7 @@ impl ServerBuilder {
             .flatten();
         let active_trace_store_dir = active_trace_store.as_ref().map(|store| store.dir.clone());
         let config_store = ConfigStore::new(layout.clone());
+        run_shadow_legacy_config_import(&layout, &config_store).await;
         let credential_config = CredentialStorageConfig::load(&layout)?;
         let credential_store =
             CredentialStore::with_preference(layout.clone(), credential_config.storage);
@@ -345,6 +327,50 @@ impl ServerBuilder {
             self.config.mode,
         )
         .await
+    }
+}
+
+async fn run_shadow_legacy_config_import(layout: &AppStateLayout, config_store: &ConfigStore) {
+    if let Err(error) = run_shadow_legacy_config_import_inner(layout, config_store).await {
+        warn!(
+            "workspace database shadow import failed; continuing with legacy config as the source of truth: {error}"
+        );
+    }
+}
+
+async fn run_shadow_legacy_config_import_inner(
+    layout: &AppStateLayout,
+    config_store: &ConfigStore,
+) -> Result<(), AppError> {
+    let coral_db = init_database(layout).await?;
+    import_legacy_config(&coral_db, config_store).await?;
+    Ok(())
+}
+
+async fn init_database(layout: &AppStateLayout) -> Result<CoralDb, AppError> {
+    let database_config = resolve_database_config(layout)?;
+    let coral_db = CoralDb::open(database_config).await?;
+    coral_db.migrate().await?;
+    Ok(coral_db)
+}
+
+fn resolve_database_config(layout: &AppStateLayout) -> Result<ResolvedDatabaseConfig, AppError> {
+    match DatabaseConfig::load(layout)? {
+        DatabaseConfig::Sqlite { path } => Ok(ResolvedDatabaseConfig::Sqlite { path }),
+        DatabaseConfig::Postgres { url_env } => {
+            let url = AppEnvironment::env_var(&url_env)
+                .map_err(|_error| {
+                    AppError::FailedPrecondition(format!(
+                        "database backend 'postgres' requires environment variable `{url_env}` to contain valid UTF-8"
+                    ))
+                })?
+                .ok_or_else(|| {
+                    AppError::FailedPrecondition(format!(
+                        "database backend 'postgres' requires environment variable `{url_env}`"
+                    ))
+                })?;
+            Ok(ResolvedDatabaseConfig::Postgres { url })
+        }
     }
 }
 
@@ -785,6 +811,33 @@ enabled = false
         server.shutdown().await.expect("shutdown");
     }
 
+    #[tokio::test]
+    async fn shadow_database_import_failure_does_not_abort_legacy_startup() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+version = 1
+
+[trace_history]
+enabled = false
+
+[database]
+backend = "unsupported"
+"#,
+        )
+        .expect("write config");
+
+        let server = ServerBuilder::new()
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("shadow database import failure should not abort startup");
+
+        server.shutdown().await.expect("shutdown");
+    }
     #[tokio::test]
     async fn trace_service_lists_empty_store() {
         let temp = TempDir::new().expect("temp dir");

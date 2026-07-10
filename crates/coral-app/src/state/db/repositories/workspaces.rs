@@ -1,7 +1,8 @@
 use sea_query::{Expr, ExprTrait, OnConflict, Query};
 
+use crate::state::db::DbError;
 use crate::state::db::schema::Workspaces;
-use crate::state::db::{DbError, DbSession};
+use crate::state::db::session::DbSession;
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub(crate) struct WorkspaceRecord {
@@ -51,6 +52,14 @@ where
             .order_by(Workspaces::Id, sea_query::Order::Asc)
             .to_owned();
         self.session.fetch_all(statement).await
+    }
+
+    pub(crate) async fn delete(&mut self, id: &str) -> Result<(), DbError> {
+        let statement = Query::delete()
+            .from_table(Workspaces::Table)
+            .and_where(Expr::col(Workspaces::Id).eq(id))
+            .to_owned();
+        self.session.execute(statement).await
     }
 }
 
@@ -161,6 +170,21 @@ mod tests {
                 .get(&rolled_back_workspace_id)
                 .await
                 .expect("get rolled-back workspace"),
+            None
+        );
+
+        let mut tx = db.begin().await.expect("begin delete tx");
+        tx.workspaces()
+            .delete(&workspace_id)
+            .await
+            .expect("delete workspace");
+        tx.commit().await.expect("commit delete tx");
+        assert_eq!(
+            session
+                .workspaces()
+                .get(&workspace_id)
+                .await
+                .expect("get deleted workspace"),
             None
         );
     }

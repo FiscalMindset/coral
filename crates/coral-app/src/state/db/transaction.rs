@@ -1,4 +1,4 @@
-use sea_query::{InsertStatement, SelectStatement};
+use sea_query::SelectStatement;
 use sea_query_sqlx::SqlxBinder;
 use sqlx::postgres::PgRow;
 use sqlx::sqlite::SqliteRow;
@@ -41,7 +41,10 @@ impl<'a> CoralTx<'a> {
         Ok(())
     }
 
-    pub(super) async fn execute(&mut self, statement: InsertStatement) -> Result<(), DbError> {
+    pub(super) async fn execute<S>(&mut self, statement: S) -> Result<(), DbError>
+    where
+        S: SqlxBinder,
+    {
         match &mut self.backend {
             CoralTxBackend::Sqlite(tx) => {
                 let (sql, values) = statement.build_sqlx(sea_query::SqliteQueryBuilder);
