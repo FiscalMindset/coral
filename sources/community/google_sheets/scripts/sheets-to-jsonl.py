@@ -160,15 +160,16 @@ def main():
                 continue
 
             headers = values[0]
-            seen_keys = {}
+            used_keys = set()
             normalized_headers = []
             for i, header in enumerate(headers):
                 key = header.strip() if header else f"col_{i}"
-                if key in seen_keys:
-                    seen_keys[key] += 1
-                    key = f"{key}_{seen_keys[key]}"
-                else:
-                    seen_keys[key] = 0
+                if key in used_keys:
+                    suffix = 1
+                    while f"{key}_{suffix}" in used_keys:
+                        suffix += 1
+                    key = f"{key}_{suffix}"
+                used_keys.add(key)
                 normalized_headers.append(key)
 
             for row_idx, row_values in enumerate(values[1:], start=1):
