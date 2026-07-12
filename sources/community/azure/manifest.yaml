@@ -179,7 +179,7 @@ tables:
       Filter by type:
         SELECT name, location
         FROM azure.resources
-        WHERE type = 'Microsoft.Web/containerApps'
+        WHERE type = 'Microsoft.App/containerApps'
     request:
       method: GET
       path: /subscriptions/{{input.AZURE_SUBSCRIPTION_ID}}/resources?api-version=2024-03-01
