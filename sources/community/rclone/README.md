@@ -170,7 +170,7 @@ Get the total size and file count for a remote or path, recursively. Pass the pa
 - All rclone RC calls use `POST` with JSON body.
 - No pagination — rclone returns the full directory listing per call.
 - Supports any rclone remote: Google Drive, Dropbox, S3, OneDrive, MEGA, pCloud, Box, B2, SFTP, and 60+ more.
-- 1 declared test query (`files`) requires a running rclone daemon and a configured remote.
+- No declared test queries — all functions require a user-specific remote name. Test manually with your configured remote after adding the source.
 
 ## Limitations
 
@@ -205,12 +205,6 @@ $ coral source add --file sources/community/rclone/manifest.yaml
 Added source rclone
 
   ✓ rclone connected successfully
-
-    Query tests
-    1 declared · 1 passed · 0 failed
-
-    ✓ SELECT path, name, size, is_dir FROM rclone.files(fs => 'mega:', path => '') LIMIT 5
-      3 rows
 ```
 
 **Function introspection:**

@@ -18,9 +18,6 @@ inputs:
       without authentication.
     default: http://localhost:5572
 
-test_queries:
-  - SELECT path, name, size, is_dir FROM rclone.files(fs => 'mega:', path => '') LIMIT 5
-
 functions:
 
   # --------------------------------------------------------------------------
