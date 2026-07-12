@@ -158,23 +158,29 @@ tables:
             - service
             - slug
       - name: created_at
-        type: Utf8
+        type: Timestamp
         nullable: false
         description: When the service was created (ISO 8601).
         expr:
-          kind: path
-          path:
-            - service
-            - createdAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - service
+              - createdAt
       - name: updated_at
-        type: Utf8
+        type: Timestamp
         nullable: false
         description: When the service was last updated (ISO 8601).
         expr:
-          kind: path
-          path:
-            - service
-            - updatedAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - service
+              - updatedAt
 
   # --------------------------------------------------------------------------
   # render.deploys — List deploys for a service
@@ -259,51 +265,66 @@ tables:
             - commit
             - message
       - name: commit_created_at
-        type: Utf8
+        type: Timestamp
         nullable: true
         description: When the commit was created (ISO 8601).
         expr:
-          kind: path
-          path:
-            - deploy
-            - commit
-            - createdAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - deploy
+              - commit
+              - createdAt
       - name: created_at
-        type: Utf8
+        type: Timestamp
         nullable: false
         description: When the deploy was created (ISO 8601).
         expr:
-          kind: path
-          path:
-            - deploy
-            - createdAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - deploy
+              - createdAt
       - name: started_at
-        type: Utf8
+        type: Timestamp
         nullable: true
         description: When the deploy started (ISO 8601).
         expr:
-          kind: path
-          path:
-            - deploy
-            - startedAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - deploy
+              - startedAt
       - name: finished_at
-        type: Utf8
+        type: Timestamp
         nullable: true
         description: When the deploy finished (ISO 8601).
         expr:
-          kind: path
-          path:
-            - deploy
-            - finishedAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - deploy
+              - finishedAt
       - name: updated_at
-        type: Utf8
+        type: Timestamp
         nullable: true
         description: When the deploy was last updated (ISO 8601).
         expr:
-          kind: path
-          path:
-            - deploy
-            - updatedAt
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - deploy
+              - updatedAt
 
   # --------------------------------------------------------------------------
   # render.owners — List owners (users and teams)

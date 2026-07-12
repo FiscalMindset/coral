@@ -71,8 +71,8 @@ Services deployed on Render. Includes static sites, web services, private servic
 | `dashboard_url` | Utf8 | URL to the Render dashboard |
 | `owner_id` | Utf8 | ID of the owner (user or team) |
 | `slug` | Utf8 | URL slug of the service |
-| `created_at` | Utf8 | When the service was created (ISO 8601) |
-| `updated_at` | Utf8 | When the service was last updated (ISO 8601) |
+| `created_at` | Timestamp | When the service was created (ISO 8601) |
+| `updated_at` | Timestamp | When the service was last updated (ISO 8601) |
 
 ---
 
@@ -92,15 +92,15 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 |--------|------|-------------|
 | `service_id` | Utf8 | ID of the service (filter value, not in API response) |
 | `deploy_id` | Utf8 | Unique identifier for the deploy |
-| `status` | Utf8 | Deploy status (live, deactivated, build_failed, update_failed, canceled) |
+| `status` | Utf8 | Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
 | `trigger` | Utf8 | What triggered the deploy (new_commit, manual, api) |
 | `commit_id` | Utf8 | Git commit SHA |
 | `commit_message` | Utf8 | Git commit message |
-| `commit_created_at` | Utf8 | When the commit was created (ISO 8601) |
-| `created_at` | Utf8 | When the deploy was created (ISO 8601) |
-| `started_at` | Utf8 | When the deploy started (ISO 8601) |
-| `finished_at` | Utf8 | When the deploy finished (ISO 8601) |
-| `updated_at` | Utf8 | When the deploy was last updated (ISO 8601) |
+| `commit_created_at` | Timestamp | When the commit was created (ISO 8601) |
+| `created_at` | Timestamp | When the deploy was created (ISO 8601) |
+| `started_at` | Timestamp | When the deploy started (ISO 8601) |
+| `finished_at` | Timestamp | When the deploy finished (ISO 8601) |
+| `updated_at` | Timestamp | When the deploy was last updated (ISO 8601) |
 
 ---
 
@@ -131,7 +131,7 @@ Owners (users and teams) associated with your Render account. No required filter
 
 - The source provides read-only list access only. Service creation, deployment triggers, environment variable management, and other write operations are out of scope.
 - Pagination uses cursor-based tokens. This source uses `mode: none` with `page_size` (max 100), so a single query returns at most 100 items.
-- Timestamp fields are `Utf8` strings — Render returns ISO 8601 with timezone.
+- Timestamp fields use `Timestamp` type — Render returns RFC3339 strings with timezone (`Z` suffix) which Coral parses natively.
 - The `url` column in `services` is extracted from `serviceDetails.url` which is only present for web services and static sites. Other service types may have null URLs.
 - The `service_id` column in `deploys` is populated from the filter value, not the API response.
 
