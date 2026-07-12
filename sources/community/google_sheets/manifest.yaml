@@ -8,7 +8,7 @@ description: >-
 
 test_queries:
   - SELECT _spreadsheet_id, _sheet_name, _row_number, data FROM google_sheets.rows LIMIT 3
-  - SELECT spreadsheet_title, sheet_name, row_count FROM google_sheets.sheets LIMIT 3
+  - SELECT _spreadsheet_title, sheet_name, row_count FROM google_sheets.sheets LIMIT 3
 
 tables:
 
@@ -65,11 +65,11 @@ tables:
     source:
       location: file://~/.coral/google_sheets/sheets.jsonl
     columns:
-      - name: spreadsheet_id
+      - name: _spreadsheet_id
         type: Utf8
         nullable: false
         description: Google Spreadsheet ID.
-      - name: spreadsheet_title
+      - name: _spreadsheet_title
         type: Utf8
         nullable: false
         description: Title of the spreadsheet.

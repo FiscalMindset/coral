@@ -130,18 +130,23 @@ def main():
         for sheet_info in target_sheets:
             props = sheet_info["properties"]
             sheet_name = props["title"]
+            sheet_type = props.get("sheetType", "GRID")
             grid = props.get("gridProperties", {})
 
             sheet_meta = {
-                "spreadsheet_id": args.spreadsheet_id,
-                "spreadsheet_title": title,
+                "_spreadsheet_id": args.spreadsheet_id,
+                "_spreadsheet_title": title,
                 "sheet_name": sheet_name,
                 "sheet_id": props.get("sheetId"),
-                "sheet_type": props.get("sheetType", "GRID"),
+                "sheet_type": sheet_type,
                 "row_count": grid.get("rowCount"),
                 "column_count": grid.get("columnCount"),
             }
             tmp_sheets.write(json.dumps(sheet_meta) + "\n")
+
+            if sheet_type != "GRID":
+                print(f"  → {sheet_name} (skipping, type={sheet_type})")
+                continue
 
             print(f"  → {sheet_name}")
             data = fetch_values(args.spreadsheet_id, sheet_name, args.api_key)
@@ -155,10 +160,20 @@ def main():
                 continue
 
             headers = values[0]
+            seen_keys = {}
+            normalized_headers = []
+            for i, header in enumerate(headers):
+                key = header.strip() if header else f"col_{i}"
+                if key in seen_keys:
+                    seen_keys[key] += 1
+                    key = f"{key}_{seen_keys[key]}"
+                else:
+                    seen_keys[key] = 0
+                normalized_headers.append(key)
+
             for row_idx, row_values in enumerate(values[1:], start=1):
                 data = {}
-                for i, header in enumerate(headers):
-                    key = header.strip() if header else f"col_{i}"
+                for i, key in enumerate(normalized_headers):
                     data[key] = row_values[i] if i < len(row_values) else None
                 row = {
                     "_spreadsheet_id": args.spreadsheet_id,

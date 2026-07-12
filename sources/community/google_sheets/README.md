@@ -58,7 +58,7 @@ WHERE _sheet_name = 'App_Master'
 LIMIT 10;
 
 -- View sheet metadata
-SELECT spreadsheet_title, sheet_name, row_count, column_count
+SELECT _spreadsheet_title, sheet_name, row_count, column_count
 FROM google_sheets.sheets;
 ```
 
@@ -112,8 +112,8 @@ Metadata for each sheet tab in the spreadsheet.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `spreadsheet_id` | Utf8 | Google Spreadsheet ID |
-| `spreadsheet_title` | Utf8 | Title of the spreadsheet |
+| `_spreadsheet_id` | Utf8 | Google Spreadsheet ID |
+| `_spreadsheet_title` | Utf8 | Title of the spreadsheet |
 | `sheet_name` | Utf8 | Name of the sheet tab |
 | `sheet_id` | Int64 | Numeric ID of the sheet tab |
 | `sheet_type` | Utf8 | Sheet type (GRID, OBJECT, etc.) |
@@ -204,7 +204,7 @@ FROM google_sheets.rows LIMIT 3;
 **Live sheets proof:**
 
 ```sql
-SELECT spreadsheet_title, sheet_name, row_count, column_count
+SELECT _spreadsheet_title, sheet_name, row_count, column_count
 FROM google_sheets.sheets;
 ```
 
