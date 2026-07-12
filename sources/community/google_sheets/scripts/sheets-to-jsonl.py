@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 DEFAULT_OUTPUT = os.path.expanduser("~/.coral/google_sheets")

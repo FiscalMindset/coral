@@ -59,7 +59,7 @@ tables:
       name, type, row count, and column count.
     guide: |
       No required filters. Start with:
-        SELECT spreadsheet_title, sheet_name, row_count, column_count
+        SELECT _spreadsheet_title, sheet_name, row_count, column_count
         FROM google_sheets.sheets
     format: jsonl
     source:
