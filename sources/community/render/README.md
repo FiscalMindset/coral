@@ -130,7 +130,7 @@ Owners (users and teams) associated with your Render account. No required filter
 ## Limitations
 
 - The source provides read-only list access only. Service creation, deployment triggers, environment variable management, and other write operations are out of scope.
-- Render uses per-item cursor pagination. Each row includes a `cursor` column. For accounts with >100 items, pass the last row's cursor to the `cursor` filter for manual pagination: `WHERE cursor = 'last_cursor_value'`.
+- Render uses per-item cursor pagination. Each row includes a `cursor` column. To retrieve another page, pass the last row's cursor to a new query: `WHERE cursor = 'last_cursor_value'`.
 - Timestamp fields use `Timestamp` type — Render returns RFC3339 strings with timezone (`Z` suffix) which Coral parses natively.
 - The `url` column in `services` is extracted from `serviceDetails.url` which is only present for web services and static sites. Other service types may have null URLs.
 - The `service_id` column in `deploys` is populated from the required filter via `from_filter` expression.

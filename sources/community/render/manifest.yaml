@@ -45,9 +45,9 @@ tables:
         SELECT service_id, name, type, status, url
         FROM render.services LIMIT 10
       Use the service_id to query deploys for a specific service.
-      For accounts with more than 100 services, paginate manually:
-        SELECT service_id, name FROM render.services
-        WHERE cursor = 'cursor_from_last_row' LIMIT 100
+      To retrieve another page, pass the last row's cursor to a new query:
+        SELECT cursor, service_id, name FROM render.services
+        WHERE cursor = 'cursor_from_last_row' LIMIT 20
     filters:
       - name: cursor
         description: Cursor from a previous query for manual pagination.
