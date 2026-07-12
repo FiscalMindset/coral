@@ -104,7 +104,7 @@ SMS and MMS messages sent and received through Twilio.
 | `to` | Utf8 | Recipient phone number |
 | `body` | Utf8 | Text body of the message |
 | `status` | Utf8 | Delivery status (queued, sending, sent, delivered, undelivered, failed, received) |
-| `price` | Float64 | Cost of the message (negative value) |
+| `price` | Utf8 | Cost of the message as a string (e.g. -0.08320) |
 | `price_unit` | Utf8 | Currency (e.g. USD) |
 | `num_segments` | Utf8 | Number of message segments |
 | `error_code` | Utf8 | Error code if the message failed |
@@ -138,7 +138,7 @@ Voice calls made and received through Twilio.
 | `status` | Utf8 | Call status (queued, ringing, in-progress, completed, busy, failed, no-answer, canceled) |
 | `direction` | Utf8 | Direction (inbound, outbound-api, outbound-dial) |
 | `duration` | Int64 | Duration of the call in seconds |
-| `price` | Float64 | Cost of the call (negative value) |
+| `price` | Utf8 | Cost of the call as a string (e.g. -0.03000) |
 | `price_unit` | Utf8 | Currency (e.g. USD) |
 | `start_time` | Utf8 | When the call started |
 | `end_time` | Utf8 | When the call ended |
@@ -160,7 +160,7 @@ Voice calls made and received through Twilio.
 - The source provides read-only list access only. Sending SMS, making calls, and managing phone numbers are out of scope.
 - Pagination uses Twilio's `PageToken` URL-based cursors. This source uses `mode: none` with `PageSize` (max 1000), so a single query returns at most 1000 items.
 - Twilio timestamps are RFC 2822 strings (not ISO 8601), kept as `Utf8` since Coral's `format_timestamp/iso8601` does not parse RFC 2822.
-- The `price` column is `Float64` — Twilio returns prices as negative values (e.g. `-0.08320`).
+- The `price` column is `Utf8` — Twilio returns prices as strings (e.g. `"-0.08320"`). Cast with `CAST(price AS DOUBLE)` for aggregation.
 - The `incoming_phone_numbers` endpoint is not modeled (trial accounts may have no numbers).
 - Date filters use Twilio's `DateSent>` / `StartTime>` syntax mapped to friendly filter names.
 
