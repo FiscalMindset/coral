@@ -37,6 +37,7 @@ tables:
   # --------------------------------------------------------------------------
   # twilio.account — Account details
   # GET /Accounts/{AccountSid}.json
+  # Path is `.json` because base_url already includes the Account SID.
   # Single object response.
   # --------------------------------------------------------------------------
   - name: account
@@ -104,7 +105,7 @@ tables:
       No required filters. Start with:
         SELECT sid, direction, "from", "to", body, status
         FROM twilio.messages LIMIT 10
-      Filter by direction:
+      Filter by direction (client-side, not pushed to API):
         SELECT sid, "from", "to", body
         FROM twilio.messages
         WHERE direction = 'outbound-api' LIMIT 10
@@ -296,7 +297,7 @@ tables:
         nullable: true
         description: Direction of the call (inbound, outbound-api, outbound-dial).
       - name: duration
-        type: Utf8
+        type: Int64
         nullable: true
         description: Duration of the call in seconds.
       - name: price

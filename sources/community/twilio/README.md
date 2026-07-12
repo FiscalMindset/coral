@@ -137,7 +137,7 @@ Voice calls made and received through Twilio.
 | `to` | Utf8 | Recipient phone number |
 | `status` | Utf8 | Call status (queued, ringing, in-progress, completed, busy, failed, no-answer, canceled) |
 | `direction` | Utf8 | Direction (inbound, outbound-api, outbound-dial) |
-| `duration` | Utf8 | Duration of the call in seconds |
+| `duration` | Int64 | Duration of the call in seconds |
 | `price` | Utf8 | Cost of the call (negative value) |
 | `price_unit` | Utf8 | Currency (e.g. USD) |
 | `start_time` | Utf8 | When the call started |
