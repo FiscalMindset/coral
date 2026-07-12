@@ -163,3 +163,182 @@ functions:
         type: Int64
         nullable: true
         description: Space used by other (non-file) data in bytes.
+
+  # --------------------------------------------------------------------------
+  # rclone.stat — Get info about a single file or directory
+  # POST /operations/stat
+  # Single object response at `item`.
+  # --------------------------------------------------------------------------
+  - name: stat
+    kind: table
+    description: >-
+      Get metadata for a single file or directory. Pass the remote
+      as `fs => 'remote:'` and the file path as `path => 'file.txt'`.
+      Returns name, size, MIME type, modification time, and provider ID.
+    args:
+      - name: fs
+        required: true
+        bind:
+          arg: fs
+      - name: path
+        required: true
+        bind:
+          arg: path
+    request:
+      method: POST
+      path: /operations/stat
+      body:
+        - path: [fs]
+          from: arg
+          key: fs
+        - path: [remote]
+          from: arg
+          key: path
+    response:
+      rows_path:
+        - item
+    pagination:
+      mode: none
+    columns:
+      - name: path
+        type: Utf8
+        nullable: false
+        description: Full path relative to the remote root.
+        expr:
+          kind: path
+          path:
+            - Path
+      - name: name
+        type: Utf8
+        nullable: false
+        description: File or directory name.
+        expr:
+          kind: path
+          path:
+            - Name
+      - name: size
+        type: Int64
+        nullable: false
+        description: File size in bytes (-1 for directories).
+        expr:
+          kind: path
+          path:
+            - Size
+      - name: mime_type
+        type: Utf8
+        nullable: true
+        description: MIME type of the file.
+        expr:
+          kind: path
+          path:
+            - MimeType
+      - name: mod_time
+        type: Utf8
+        nullable: true
+        description: Last modification time (ISO 8601 with timezone).
+        expr:
+          kind: path
+          path:
+            - ModTime
+      - name: is_dir
+        type: Boolean
+        nullable: false
+        description: Whether the entry is a directory.
+        expr:
+          kind: path
+          path:
+            - IsDir
+      - name: id
+        type: Utf8
+        nullable: true
+        description: Provider-specific file or directory ID.
+        expr:
+          kind: path
+          path:
+            - ID
+
+  # --------------------------------------------------------------------------
+  # rclone.size — Recursive count and total size of files
+  # POST /operations/size
+  # Single object response.
+  # --------------------------------------------------------------------------
+  - name: size
+    kind: table
+    description: >-
+      Get the total size and file count for a path, recursively.
+      Pass the remote as `fs => 'remote:'` and the path as
+      `path => 'dir'`. Use `path => ''` for the entire remote.
+    args:
+      - name: fs
+        required: true
+        bind:
+          arg: fs
+      - name: path
+        required: true
+        bind:
+          arg: path
+    request:
+      method: POST
+      path: /operations/size
+      body:
+        - path: [fs]
+          from: arg
+          key: fs
+        - path: [remote]
+          from: arg
+          key: path
+    response: {}
+    pagination:
+      mode: none
+    columns:
+      - name: bytes
+        type: Int64
+        nullable: false
+        description: Total size of all files in bytes.
+      - name: count
+        type: Int64
+        nullable: false
+        description: Total number of files.
+      - name: sizeless
+        type: Int64
+        nullable: false
+        description: Number of files with unknown size.
+
+  # --------------------------------------------------------------------------
+  # rclone.publiclink — Get a public sharing link for a file
+  # POST /operations/publiclink
+  # Single object response with url field.
+  # --------------------------------------------------------------------------
+  - name: publiclink
+    kind: table
+    description: >-
+      Get a public sharing link for a file or directory. Pass the
+      remote as `fs => 'remote:'` and the file path as
+      `path => 'file.txt'`. Not all providers support public links.
+    args:
+      - name: fs
+        required: true
+        bind:
+          arg: fs
+      - name: path
+        required: true
+        bind:
+          arg: path
+    request:
+      method: POST
+      path: /operations/publiclink
+      body:
+        - path: [fs]
+          from: arg
+          key: fs
+        - path: [remote]
+          from: arg
+          key: path
+    response: {}
+    pagination:
+      mode: none
+    columns:
+      - name: url
+        type: Utf8
+        nullable: false
+        description: Public sharing URL for the file or directory.

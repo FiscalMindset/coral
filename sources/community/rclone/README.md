@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0
 **Backend:** HTTP
-**Functions:** 2
+**Functions:** 5
 
 Query files, directories, and storage usage across 70+ cloud storage providers through rclone's RC API. Supports Google Drive, Dropbox, S3, OneDrive, MEGA, pCloud, Box, Backblaze B2, and more — all from a single source.
 
@@ -59,6 +59,18 @@ SELECT path, name, size
 FROM rclone.files(fs => 'gdrive:', path => '')
 WHERE size > 10485760
 ORDER BY size DESC;
+
+-- Get info about a specific file
+SELECT path, name, size, mime_type, mod_time
+FROM rclone.stat(fs => 'mega:', path => 'document.pdf');
+
+-- Get recursive size and file count
+SELECT bytes, count
+FROM rclone.size(fs => 'gdrive:', path => 'Photos');
+
+-- Get a public sharing link
+SELECT url
+FROM rclone.publiclink(fs => 'mega:', path => 'report.pdf');
 ```
 
 ## Functions
@@ -108,11 +120,76 @@ Get storage usage for a cloud storage remote. Returns total, used, and free spac
 | `trashed` | Int64 | Space used by trashed files in bytes |
 | `other` | Int64 | Space used by other (non-file) data in bytes |
 
+---
+
+### `rclone.stat`
+
+Get metadata for a single file or directory. Returns the same fields as `files` for one specific path.
+
+**Arguments**
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `fs` | Utf8 | (Required) Remote name with colon |
+| `path` | Utf8 | (Required) Path to the file or directory |
+
+**Result columns**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `path` | Utf8 | Full path relative to the remote root |
+| `name` | Utf8 | File or directory name |
+| `size` | Int64 | File size in bytes (-1 for directories) |
+| `mime_type` | Utf8 | MIME type of the file |
+| `mod_time` | Utf8 | Last modification time (ISO 8601 with timezone) |
+| `is_dir` | Boolean | Whether the entry is a directory |
+| `id` | Utf8 | Provider-specific file or directory ID |
+
+---
+
+### `rclone.size`
+
+Get the total size and file count for a path, recursively. Use `path => ''` for the entire remote.
+
+**Arguments**
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `fs` | Utf8 | (Required) Remote name with colon |
+| `path` | Utf8 | (Required) Path to measure (use `''` for entire remote) |
+
+**Result columns**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `bytes` | Int64 | Total size of all files in bytes |
+| `count` | Int64 | Total number of files |
+| `sizeless` | Int64 | Number of files with unknown size |
+
+---
+
+### `rclone.publiclink`
+
+Get a public sharing link for a file or directory. Not all providers support public links.
+
+**Arguments**
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `fs` | Utf8 | (Required) Remote name with colon |
+| `path` | Utf8 | (Required) Path to the file or directory |
+
+**Result columns**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `url` | Utf8 | Public sharing URL for the file or directory |
+
 ## Source scope
 
 - Targets the rclone RC API (default `http://localhost:5572`). The base URL is configurable via `RCLONE_RC_URL`.
 - No API key required — rclone handles cloud provider authentication through its own config.
-- `files` lists files and directories in any configured remote. `about` returns storage usage.
+- `files` lists files/directories, `about` returns storage usage, `stat` gets single file info, `size` gets recursive count/total, `publiclink` gets sharing URLs.
 - All rclone RC calls use `POST` with JSON body.
 - No pagination — rclone returns the full directory listing per call.
 - Supports any rclone remote: Google Drive, Dropbox, S3, OneDrive, MEGA, pCloud, Box, B2, SFTP, and 60+ more.
@@ -172,6 +249,9 @@ WHERE schema_name = 'rclone';
 +---------------+-------+-----------------------------------------------------------------------------------------+
 | about         | table | [{"name":"fs","required":true,"values":[]}]                                             |
 | files         | table | [{"name":"fs","required":true,"values":[]},{"name":"path","required":true,"values":[]}] |
+| publiclink    | table | [{"name":"fs","required":true,"values":[]},{"name":"path","required":true,"values":[]}] |
+| size          | table | [{"name":"fs","required":true,"values":[]},{"name":"path","required":true,"values":[]}] |
+| stat          | table | [{"name":"fs","required":true,"values":[]},{"name":"path","required":true,"values":[]}] |
 +---------------+-------+-----------------------------------------------------------------------------------------+
 ```
 
@@ -222,4 +302,49 @@ FROM rclone.about(fs => 'mega:');
 +-------------+-------+-------------+
 | 21474836480 | 43054 | 21474793426 |
 +-------------+-------+-------------+
+```
+
+**Live stat proof (MEGA):**
+
+```sql
+SELECT path, name, size, mime_type, is_dir
+FROM rclone.stat(fs => 'mega:', path => '.DS_Store');
+```
+
+```text
++-----------+-----------+-------+--------------------------+--------+
+| path      | name      | size  | mime_type                | is_dir |
++-----------+-----------+-------+--------------------------+--------+
+| .DS_Store | .DS_Store | 10244 | application/octet-stream | false  |
++-----------+-----------+-------+--------------------------+--------+
+```
+
+**Live size proof (MEGA):**
+
+```sql
+SELECT bytes, count, sizeless
+FROM rclone.size(fs => 'mega:', path => '');
+```
+
+```text
++-------+-------+----------+
+| bytes | count | sizeless |
++-------+-------+----------+
+| 10244 | 2     | 0        |
++-------+-------+----------+
+```
+
+**Live publiclink proof (MEGA):**
+
+```sql
+SELECT url
+FROM rclone.publiclink(fs => 'mega:', path => '.DS_Store');
+```
+
+```text
++----------------------------------------------------------------------+
+| url                                                                  |
++----------------------------------------------------------------------+
+| https://mega.co.nz/#!xxxx0000!xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxx |
++----------------------------------------------------------------------+
 ```
