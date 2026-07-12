@@ -170,7 +170,7 @@ tables:
         nullable: true
         description: Delivery status (queued, sending, sent, delivered, undelivered, failed, received).
       - name: price
-        type: Utf8
+        type: Float64
         nullable: true
         description: Cost of the message (negative value, in price_unit currency).
       - name: price_unit
@@ -301,7 +301,7 @@ tables:
         nullable: true
         description: Duration of the call in seconds.
       - name: price
-        type: Utf8
+        type: Float64
         nullable: true
         description: Cost of the call (negative value, in price_unit currency).
       - name: price_unit
