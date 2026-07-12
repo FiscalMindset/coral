@@ -121,15 +121,15 @@ tables:
   # --------------------------------------------------------------------------
   - name: resource_groups
     description: >-
-      Resource groups in the Azure subscription. Each group is a
-      container for related Azure resources.
+      Resource groups in the Azure subscription (first page, up to
+      1000). Each group is a container for related Azure resources.
     guide: |
       No required filters. Start with:
         SELECT name, location, provisioning_state
         FROM azure.resource_groups
     request:
       method: GET
-      path: /subscriptions/{{input.AZURE_SUBSCRIPTION_ID}}/resourcegroups?api-version=2024-03-01
+      path: /subscriptions/{{input.AZURE_SUBSCRIPTION_ID}}/resourcegroups?api-version=2024-03-01&$top=1000
     response:
       rows_path:
         - value
@@ -169,20 +169,21 @@ tables:
   # --------------------------------------------------------------------------
   - name: resources
     description: >-
-      All resources in the Azure subscription. Includes VMs, storage
-      accounts, container apps, databases, and other services with
-      their type, location, and tags.
+      Resources in the Azure subscription (first page, up to 1000).
+      Includes VMs, storage accounts, container apps, databases,
+      and other services. Subscriptions with more than 1000
+      resources will return partial results.
     guide: |
       No required filters. Start with:
         SELECT name, type, location
         FROM azure.resources LIMIT 20
-      Filter by type:
+      Filter by type (within the first page of up to 1000 resources):
         SELECT name, location
         FROM azure.resources
         WHERE type = 'Microsoft.App/containerApps'
     request:
       method: GET
-      path: /subscriptions/{{input.AZURE_SUBSCRIPTION_ID}}/resources?api-version=2024-03-01
+      path: /subscriptions/{{input.AZURE_SUBSCRIPTION_ID}}/resources?api-version=2024-03-01&$top=1000
     response:
       rows_path:
         - value

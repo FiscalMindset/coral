@@ -68,7 +68,7 @@ SELECT name, type, location
 FROM azure.resources
 LIMIT 20;
 
--- Filter by resource type
+-- Filter by resource type (within first page of up to 1000)
 SELECT name, location
 FROM azure.resources
 WHERE type = 'Microsoft.App/containerApps';
@@ -93,7 +93,7 @@ Azure subscriptions accessible by the authenticated user. No required filters.
 
 ### `resource_groups`
 
-Resource groups in the Azure subscription. Each group is a container for related Azure resources. No required filters.
+Resource groups in the Azure subscription (first page, up to 1000). Each group is a container for related Azure resources. No required filters.
 
 **Columns**
 
@@ -109,7 +109,7 @@ Resource groups in the Azure subscription. Each group is a container for related
 
 ### `resources`
 
-All resources in the Azure subscription. Includes VMs, storage accounts, container apps, databases, and other services. No required filters.
+Resources in the Azure subscription (first page, up to 1000). Includes VMs, storage accounts, container apps, databases, and other services. Subscriptions with more than 1000 resources will return partial results. No required filters.
 
 **Columns**
 
