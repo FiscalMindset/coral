@@ -190,7 +190,7 @@ functions:
         type: Utf8
         nullable: true
         description: Name of the news source.
-      - name: imageUrl
+      - name: image_url
         type: Utf8
         nullable: true
         description: URL of the article's thumbnail image.

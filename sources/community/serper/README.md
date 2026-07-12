@@ -104,7 +104,7 @@ Search Google News via Serper. Returns news articles with sources and dates.
 | `snippet` | Utf8 | Text snippet from the article |
 | `date` | Utf8 | Relative date (e.g. "2 days ago") |
 | `source` | Utf8 | Name of the news source |
-| `imageUrl` | Utf8 | URL of the article's thumbnail image |
+| `image_url` | Utf8 | URL of the article's thumbnail image |
 | `position` | Int64 | Position in news results (1-indexed) |
 
 ## Source scope
@@ -130,7 +130,7 @@ Search Google News via Serper. Returns news articles with sources and dates.
 
 - Serper API: https://serper.dev
 - Search endpoint: https://serper.dev/playground
-- API documentation: https://google.serper.dev
+- API playground: https://serper.dev/playground
 
 ## Live validation output
 
