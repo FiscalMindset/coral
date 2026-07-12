@@ -297,6 +297,5 @@ functions:
         description: Total number of files.
       - name: sizeless
         type: Int64
-        nullable: false
-        description: Number of files with unknown size.
-
+        nullable: true
+        description: Number of files with unknown size. May not be present on all rclone versions.

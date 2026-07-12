@@ -160,7 +160,7 @@ Get the total size and file count for a remote or path, recursively. Pass the pa
 |--------|------|-------------|
 | `bytes` | Int64 | Total size of all files in bytes |
 | `count` | Int64 | Total number of files |
-| `sizeless` | Int64 | Number of files with unknown size |
+| `sizeless` | Int64 | Number of files with unknown size (may not be present on all rclone versions) |
 
 ## Source scope
 
