@@ -1,0 +1,143 @@
+name: notion
+version: 0.1.0
+dsl_version: 3
+backend: http
+description: >-
+  Query pages, databases, and workspace content from Notion.
+  Search across your workspace and retrieve page metadata,
+  database schemas, and content structure through SQL.
+base_url: https://api.notion.com/v1
+
+inputs:
+  NOTION_API_KEY:
+    kind: secret
+    hint: >-
+      Notion integration token from https://www.notion.so/profile/integrations.
+      Keys start with `ntn_`. Create an internal integration and connect it
+      to the pages/databases you want to query.
+    credential:
+      methods:
+        - type: source_config
+          label: Paste API key
+
+auth:
+  type: HeaderAuth
+  headers:
+    - name: Authorization
+      from: bearer
+      key: NOTION_API_KEY
+    - name: Notion-Version
+      from: template
+      template: "2022-06-28"
+
+test_queries:
+  - SELECT id, object, url FROM notion.search(q => '') LIMIT 3
+
+functions:
+
+  # --------------------------------------------------------------------------
+  # notion.search — Search pages and databases
+  # POST /search
+  # Array at response.results. Cursor pagination.
+  # --------------------------------------------------------------------------
+  - name: search
+    kind: search
+    description: >-
+      Search pages and databases in your Notion workspace. Pass the
+      query as `q => '<query>'`. Use `q => ''` to list all accessible
+      content. Returns page and database metadata including titles,
+      URLs, and timestamps.
+    fetch_limit_default: 10
+    search_limits:
+      default_top_k: 10
+      max_top_k: 100
+      max_calls_per_query: 1
+    args:
+      - name: q
+        required: true
+        bind:
+          arg: q
+    request:
+      method: POST
+      path: /search
+      body:
+        - path: [query]
+          from: arg
+          key: q
+    response:
+      rows_path:
+        - results
+    pagination:
+      mode: cursor_body
+      cursor_body_path:
+        - start_cursor
+      response_cursor_path:
+        - next_cursor
+      page_size:
+        default: 10
+        max: 100
+        body_path:
+          - page_size
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Unique identifier for the page or database.
+      - name: object
+        type: Utf8
+        nullable: false
+        description: Object type (page or database).
+      - name: url
+        type: Utf8
+        nullable: true
+        description: Notion URL for the page or database.
+      - name: created_time
+        type: Timestamp
+        nullable: false
+        description: When the object was created (ISO 8601).
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - created_time
+      - name: last_edited_time
+        type: Timestamp
+        nullable: false
+        description: When the object was last edited (ISO 8601).
+        expr:
+          kind: format_timestamp
+          input: iso8601
+          expr:
+            kind: path
+            path:
+              - last_edited_time
+      - name: parent
+        type: Json
+        nullable: true
+        description: Parent object (workspace, page_id, or database_id).
+      - name: in_trash
+        type: Boolean
+        nullable: true
+        description: Whether the object is in the trash.
+        expr:
+          kind: path
+          path:
+            - in_trash
+      - name: is_archived
+        type: Boolean
+        nullable: true
+        description: Whether the object is archived.
+        expr:
+          kind: path
+          path:
+            - is_archived
+      - name: properties
+        type: Json
+        nullable: true
+        description: Page properties or database schema (JSON object).
+      - name: title
+        type: Json
+        nullable: true
+        description: Database title rich text array. Null for pages (title is in properties).
