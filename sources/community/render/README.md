@@ -56,10 +56,17 @@ WHERE type = 'web_service';
 
 Services deployed on Render. Includes static sites, web services, private services, background workers, and cron jobs. No required filters.
 
+**Filters**
+
+| Filter | Type | Required | Description |
+|--------|------|----------|-------------|
+| `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
+
 **Columns**
 
 | Column | Type | Description |
 |--------|------|-------------|
+| `cursor` | Utf8 | Pagination cursor for manual pagination |
 | `service_id` | Utf8 | Unique identifier for the service |
 | `name` | Utf8 | Name of the service |
 | `type` | Utf8 | Service type (static_site, web_service, private_service, background_worker, cron_job) |
@@ -85,11 +92,13 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `service_id` | Utf8 | Yes | ID of the service to list deploys for |
+| `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
 
 **Columns**
 
 | Column | Type | Description |
 |--------|------|-------------|
+| `cursor` | Utf8 | Pagination cursor for manual pagination |
 | `service_id` | Utf8 | ID of the service (populated from filter via `from_filter`) |
 | `deploy_id` | Utf8 | Unique identifier for the deploy |
 | `status` | Utf8 | Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
@@ -108,10 +117,17 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 
 Owners (users and teams) associated with your Render account. No required filters.
 
+**Filters**
+
+| Filter | Type | Required | Description |
+|--------|------|----------|-------------|
+| `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
+
 **Columns**
 
 | Column | Type | Description |
 |--------|------|-------------|
+| `cursor` | Utf8 | Pagination cursor for manual pagination |
 | `owner_id` | Utf8 | Unique identifier for the owner |
 | `name` | Utf8 | Name of the owner |
 | `email` | Utf8 | Email address of the owner |
