@@ -13,7 +13,10 @@ inputs:
     kind: variable
     hint: >-
       URL of the rclone RC API. Default: http://localhost:5572.
-      Start rclone with: rclone rcd --rc-no-auth
+      This source is designed for loopback-only access with
+      --rc-no-auth. Do not expose the RC API on a public network
+      without authentication.
+    default: http://localhost:5572
     default: http://localhost:5572
 
 test_queries:
@@ -265,18 +268,15 @@ functions:
   - name: size
     kind: table
     description: >-
-      Get the total size and file count for a path, recursively.
-      Pass the remote as `fs => 'remote:'` and the path as
-      `path => 'dir'`. Use `path => ''` for the entire remote.
+      Get the total size and file count for a remote or path,
+      recursively. Pass the remote with path as
+      `fs => 'remote:path/to/dir'` or `fs => 'remote:'` for the
+      entire remote.
     args:
       - name: fs
         required: true
         bind:
           arg: fs
-      - name: path
-        required: true
-        bind:
-          arg: path
     request:
       method: POST
       path: /operations/size
@@ -284,9 +284,6 @@ functions:
         - path: [fs]
           from: arg
           key: fs
-        - path: [remote]
-          from: arg
-          key: path
     response: {}
     pagination:
       mode: none
@@ -304,41 +301,3 @@ functions:
         nullable: false
         description: Number of files with unknown size.
 
-  # --------------------------------------------------------------------------
-  # rclone.publiclink — Get a public sharing link for a file
-  # POST /operations/publiclink
-  # Single object response with url field.
-  # --------------------------------------------------------------------------
-  - name: publiclink
-    kind: table
-    description: >-
-      Get a public sharing link for a file or directory. Pass the
-      remote as `fs => 'remote:'` and the file path as
-      `path => 'file.txt'`. Not all providers support public links.
-    args:
-      - name: fs
-        required: true
-        bind:
-          arg: fs
-      - name: path
-        required: true
-        bind:
-          arg: path
-    request:
-      method: POST
-      path: /operations/publiclink
-      body:
-        - path: [fs]
-          from: arg
-          key: fs
-        - path: [remote]
-          from: arg
-          key: path
-    response: {}
-    pagination:
-      mode: none
-    columns:
-      - name: url
-        type: Utf8
-        nullable: false
-        description: Public sharing URL for the file or directory.
