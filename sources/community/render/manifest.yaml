@@ -45,21 +45,32 @@ tables:
         SELECT service_id, name, type, status, url
         FROM render.services LIMIT 10
       Use the service_id to query deploys for a specific service.
+      For accounts with more than 100 services, paginate manually:
+        SELECT service_id, name FROM render.services
+        WHERE cursor = 'cursor_from_last_row' LIMIT 100
+    filters:
+      - name: cursor
+        description: Cursor from a previous query for manual pagination.
     request:
       method: GET
       path: /services
+      query:
+        - name: cursor
+          from: filter
+          key: cursor
     response: {}
     pagination:
-      mode: cursor_query
-      cursor_param: cursor
-      response_cursor_path:
-        - cursor
+      mode: none
       page_size:
         default: 20
         max: 100
         query_param: limit
     fetch_limit_default: 20
     columns:
+      - name: cursor
+        type: Utf8
+        nullable: true
+        description: Pagination cursor. Pass to the cursor filter for manual pagination.
       - name: service_id
         type: Utf8
         nullable: false
@@ -204,21 +215,28 @@ tables:
     filters:
       - name: service_id
         required: true
+      - name: cursor
+        description: Cursor from a previous query for manual pagination.
     request:
       method: GET
       path: /services/{{filter.service_id}}/deploys
+      query:
+        - name: cursor
+          from: filter
+          key: cursor
     response: {}
     pagination:
-      mode: cursor_query
-      cursor_param: cursor
-      response_cursor_path:
-        - cursor
+      mode: none
       page_size:
         default: 20
         max: 100
         query_param: limit
     fetch_limit_default: 20
     columns:
+      - name: cursor
+        type: Utf8
+        nullable: true
+        description: Pagination cursor. Pass to the cursor filter for manual pagination.
       - name: service_id
         type: Utf8
         nullable: true
@@ -347,21 +365,29 @@ tables:
       No required filters. Start with:
         SELECT owner_id, name, email, type
         FROM render.owners
+    filters:
+      - name: cursor
+        description: Cursor from a previous query for manual pagination.
     request:
       method: GET
       path: /owners
+      query:
+        - name: cursor
+          from: filter
+          key: cursor
     response: {}
     pagination:
-      mode: cursor_query
-      cursor_param: cursor
-      response_cursor_path:
-        - cursor
+      mode: none
       page_size:
         default: 20
         max: 100
         query_param: limit
     fetch_limit_default: 20
     columns:
+      - name: cursor
+        type: Utf8
+        nullable: true
+        description: Pagination cursor. Pass to the cursor filter for manual pagination.
       - name: owner_id
         type: Utf8
         nullable: false
