@@ -131,13 +131,14 @@ All resources in the Azure subscription. Includes VMs, storage accounts, contain
 - `resource_groups` and `resources` use the subscription ID in the URL path.
 - API versions are hardcoded in the request paths (2022-12-01 for subscriptions, 2024-03-01 for resource groups and resources).
 - 1 declared test query (`subscriptions`) requires no filters.
+- Returns the first page of each list endpoint. See Limitations for pagination details.
 - Provides read-only access. Creating, updating, or deleting resources is out of scope.
 
 ## Limitations
 
 - Manual access tokens expire after ~1 hour. Use the device code OAuth flow for persistent access.
 - The default app ID (`d255a859-bceb-450d-bb8f-f23175794825`) is provided for convenience. For production use, register your own Azure AD app.
-- No pagination — Azure lists return all items in a single response for most subscriptions. Very large subscriptions (1000+ resources) may need pagination support in a future version.
+- Azure ARM list endpoints use `nextLink` URL-based pagination. Coral does not currently support following `nextLink` URLs from JSON response bodies. Each table returns the first page only (typically up to 100-1000 items depending on the endpoint). Subscriptions with more resources than a single page will return partial inventory. Check for truncation by comparing row counts against the Azure Portal.
 - Resource details (properties, diagnostics, metrics) are not exposed — only list-level metadata.
 - The source queries a single subscription. Multi-subscription queries require adding the source multiple times with different `AZURE_SUBSCRIPTION_ID` values.
 
