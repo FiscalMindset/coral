@@ -90,7 +90,7 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `service_id` | Utf8 | ID of the service (filter value, not in API response) |
+| `service_id` | Utf8 | ID of the service (populated from filter via `from_filter`) |
 | `deploy_id` | Utf8 | Unique identifier for the deploy |
 | `status` | Utf8 | Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
 | `trigger` | Utf8 | What triggered the deploy (new_commit, manual, api) |
@@ -130,10 +130,10 @@ Owners (users and teams) associated with your Render account. No required filter
 ## Limitations
 
 - The source provides read-only list access only. Service creation, deployment triggers, environment variable management, and other write operations are out of scope.
-- Pagination uses cursor-based tokens. This source uses `mode: none` with `page_size` (max 100), so a single query returns at most 100 items.
+- Cursor-based pagination (`cursor` query param) on all tables. Coral follows cursors automatically until LIMIT is reached.
 - Timestamp fields use `Timestamp` type — Render returns RFC3339 strings with timezone (`Z` suffix) which Coral parses natively.
 - The `url` column in `services` is extracted from `serviceDetails.url` which is only present for web services and static sites. Other service types may have null URLs.
-- The `service_id` column in `deploys` is populated from the filter value, not the API response.
+- The `service_id` column in `deploys` is populated from the required filter via `from_filter` expression.
 
 ## Provider docs
 
