@@ -201,7 +201,7 @@ tables:
       - name: type
         type: Utf8
         nullable: false
-        description: Resource type (e.g. Microsoft.Web/containerApps, Microsoft.Storage/storageAccounts).
+        description: Resource type (e.g. Microsoft.App/containerApps, Microsoft.Storage/storageAccounts).
       - name: location
         type: Utf8
         nullable: false
