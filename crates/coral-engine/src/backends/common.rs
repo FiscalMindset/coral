@@ -365,7 +365,7 @@ pub(crate) fn build_registered_table_function(
 }
 
 pub(crate) fn arrow_type_for_column(column: &ColumnSpec) -> DataType {
-    crate::types::arrow_column_type(column.data_type)
+    crate::types::arrow_data_type(column.data_type)
 }
 
 pub(crate) fn schema_from_columns(
