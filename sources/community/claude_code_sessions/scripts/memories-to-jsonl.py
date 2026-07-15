@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Parse Claude Code memory files into JSONL for the Coral claude_code source.
+"""Parse Claude Code memory files into JSONL for the Coral claude_code_sessions source.
 
 Uses only Python stdlib. No external dependencies.
 
 Usage:
     python3 memories-to-jsonl.py
-    python3 memories-to-jsonl.py --output ~/.coral/claude_code
+    python3 memories-to-jsonl.py --output ~/.coral/claude_code_sessions
 
 Reads all .md files (except MEMORY.md) from ~/.claude/projects/*/memory/
 and outputs memories.jsonl with parsed YAML frontmatter + body content.
@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_CLAUDE_DIR = os.path.expanduser("~/.claude/projects")
-DEFAULT_OUTPUT = os.path.expanduser("~/.coral/claude_code")
+DEFAULT_OUTPUT = os.path.expanduser("~/.coral/claude_code_sessions")
 
 
 def parse_frontmatter(content):

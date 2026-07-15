@@ -1,4 +1,4 @@
-# Claude Code
+# Claude Code Sessions
 
 **Version:** 0.1.0
 **Backend:** File (JSONL)
@@ -11,13 +11,13 @@ Query Claude Code session history and project memories through SQL. Search past 
 Install the source via the CLI:
 
 ```bash
-coral source add --file sources/community/claude_code/manifest.yaml
+coral source add --file sources/community/claude_code_sessions/manifest.yaml
 ```
 
 The `history` table reads directly from `~/.claude/history.jsonl` (no converter). The `memories` table needs a one-time converter run:
 
 ```bash
-python3 sources/community/claude_code/scripts/memories-to-jsonl.py
+python3 sources/community/claude_code_sessions/scripts/memories-to-jsonl.py
 ```
 
 ## Prerequisites
@@ -29,39 +29,39 @@ python3 sources/community/claude_code/scripts/memories-to-jsonl.py
 ```sql
 -- Recent prompts
 SELECT display, project, timestamp
-FROM claude_code.history
+FROM claude_code_sessions.history
 ORDER BY timestamp DESC
 LIMIT 10;
 
 -- Search prompts by keyword
 SELECT display, project
-FROM claude_code.history
+FROM claude_code_sessions.history
 WHERE display LIKE '%deploy%'
 LIMIT 10;
 
 -- Find sessions for a project
 SELECT DISTINCT "sessionId", project
-FROM claude_code.history
+FROM claude_code_sessions.history
 WHERE project LIKE '%coral%';
 
 -- Count prompts per project
 SELECT project, COUNT(*) as prompt_count
-FROM claude_code.history
+FROM claude_code_sessions.history
 GROUP BY project
 ORDER BY prompt_count DESC;
 
 -- List all project memories
 SELECT name, type, description, project
-FROM claude_code.memories;
+FROM claude_code_sessions.memories;
 
 -- Search memories by keyword
 SELECT name, description, body
-FROM claude_code.memories
+FROM claude_code_sessions.memories
 WHERE body LIKE '%coral%';
 
 -- Share context: what decisions were made?
 SELECT name, description
-FROM claude_code.memories
+FROM claude_code_sessions.memories
 WHERE type = 'feedback';
 ```
 
@@ -126,22 +126,23 @@ Claude Code project memories — decisions, preferences, context, and learnings 
 Validated against a live Claude Code installation with 915 history entries.
 
 ```bash
-$ coral source lint sources/community/claude_code/manifest.yaml
+$ coral source lint sources/community/claude_code_sessions/manifest.yaml
 Manifest is valid
 ```
 
 ```bash
-$ coral source add --file sources/community/claude_code/manifest.yaml
-Added source claude_code
+$ coral source add --file sources/community/claude_code_sessions/manifest.yaml
+Added source claude_code_sessions
 
-  ✓ claude_code connected successfully
+  ✓ claude_code_sessions connected successfully
 
-    claude_code (1 table)
-    └─ history
+    claude_code_sessions (2 tables)
+    ├─ history
+    └─ memories
     Query tests
     1 declared · 1 passed · 0 failed
 
-    ✓ SELECT display, project, "sessionId" FROM claude_code.history LIMIT 3
+    ✓ SELECT display, project, "sessionId" FROM claude_code_sessions.history LIMIT 3
       3 rows
 ```
 
@@ -149,7 +150,7 @@ Added source claude_code
 
 ```sql
 SELECT display, project, "sessionId"
-FROM claude_code.history LIMIT 3;
+FROM claude_code_sessions.history LIMIT 3;
 ```
 
 ```text
@@ -166,7 +167,7 @@ FROM claude_code.history LIMIT 3;
 
 ```sql
 SELECT display, project
-FROM claude_code.history
+FROM claude_code_sessions.history
 WHERE display LIKE '%coral%' LIMIT 3;
 ```
 
@@ -184,7 +185,7 @@ WHERE display LIKE '%coral%' LIMIT 3;
 
 ```sql
 SELECT project, COUNT(*) as prompt_count
-FROM claude_code.history
+FROM claude_code_sessions.history
 GROUP BY project
 ORDER BY prompt_count DESC
 LIMIT 5;

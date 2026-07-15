@@ -1,4 +1,4 @@
-name: claude_code
+name: claude_code_sessions
 version: 0.1.0
 dsl_version: 3
 backend: file
@@ -8,13 +8,13 @@ description: >-
   learnings across sessions, collaborators, and agents.
 
 test_queries:
-  - SELECT display, project, "sessionId" FROM claude_code.history LIMIT 3
-  - SELECT name, type, description, project FROM claude_code.memories LIMIT 3
+  - SELECT display, project, "sessionId" FROM claude_code_sessions.history LIMIT 3
+  - SELECT name, type, description, project FROM claude_code_sessions.memories LIMIT 3
 
 tables:
 
   # --------------------------------------------------------------------------
-  # claude_code.history — Claude Code prompt history
+  # claude_code_sessions.history — Claude Code prompt history
   # Reads directly from ~/.claude/history.jsonl (no converter needed).
   # --------------------------------------------------------------------------
   - name: history
@@ -25,14 +25,14 @@ tables:
     guide: |
       No required filters. Start with:
         SELECT display, project, "sessionId", timestamp
-        FROM claude_code.history LIMIT 20
+        FROM claude_code_sessions.history LIMIT 20
       Search prompts by keyword:
         SELECT display, project
-        FROM claude_code.history
+        FROM claude_code_sessions.history
         WHERE display LIKE '%coral%'
       Find sessions for a project:
         SELECT DISTINCT "sessionId", project
-        FROM claude_code.history
+        FROM claude_code_sessions.history
         WHERE project LIKE '%terminal-3%'
     format: jsonl
     source:
@@ -56,8 +56,8 @@ tables:
         description: UUID of the Claude Code session.
 
   # --------------------------------------------------------------------------
-  # claude_code.memories — Project memories and context
-  # Reads from ~/.coral/claude_code/memories.jsonl (converter needed).
+  # claude_code_sessions.memories — Project memories and context
+  # Reads from ~/.coral/claude_code_sessions/memories.jsonl (converter needed).
   # --------------------------------------------------------------------------
   - name: memories
     description: >-
@@ -66,21 +66,21 @@ tables:
       transfer project knowledge to collaborators or other agents.
     guide: |
       Run the converter first:
-        python3 sources/community/claude_code/scripts/memories-to-jsonl.py
+        python3 sources/community/claude_code_sessions/scripts/memories-to-jsonl.py
       Then query:
         SELECT name, type, description, project
-        FROM claude_code.memories
+        FROM claude_code_sessions.memories
       Search by type (user, project, feedback, reference):
         SELECT name, description, body
-        FROM claude_code.memories
+        FROM claude_code_sessions.memories
         WHERE type = 'project'
       Search by keyword:
         SELECT name, description
-        FROM claude_code.memories
+        FROM claude_code_sessions.memories
         WHERE body LIKE '%coral%'
     format: jsonl
     source:
-      location: file://~/.coral/claude_code/memories.jsonl
+      location: file://~/.coral/claude_code_sessions/memories.jsonl
     columns:
       - name: name
         type: Utf8
