@@ -3,12 +3,13 @@ version: 0.1.0
 dsl_version: 3
 backend: file
 description: >-
-  Query Claude Code session history and prompt data from local JSONL.
-  Search past prompts, track sessions across projects, and analyze
-  usage patterns through SQL.
+  Query Claude Code session history and project memories through SQL.
+  Search past prompts, share project context, track decisions across
+  sessions, and transfer knowledge between collaborators.
 
 test_queries:
   - SELECT display, project, "sessionId" FROM claude_code.history LIMIT 3
+  - SELECT name, type, description, project FROM claude_code.memories LIMIT 3
 
 tables:
 
@@ -53,3 +54,55 @@ tables:
         type: Utf8
         nullable: true
         description: UUID of the Claude Code session.
+
+  # --------------------------------------------------------------------------
+  # claude_code.memories — Project memories and context
+  # Reads from ~/.coral/claude_code/memories.jsonl (converter needed).
+  # --------------------------------------------------------------------------
+  - name: memories
+    description: >-
+      Claude Code project memories — decisions, preferences, context,
+      and learnings stored across sessions. Share this table to
+      transfer project knowledge to collaborators or other agents.
+    guide: |
+      Run the converter first:
+        python3 sources/community/claude_code/scripts/memories-to-jsonl.py
+      Then query:
+        SELECT name, type, description, project
+        FROM claude_code.memories
+      Search by type (user, project, feedback, reference):
+        SELECT name, description, body
+        FROM claude_code.memories
+        WHERE type = 'project'
+      Search by keyword:
+        SELECT name, description
+        FROM claude_code.memories
+        WHERE body LIKE '%coral%'
+    format: jsonl
+    source:
+      location: file://~/.coral/claude_code/memories.jsonl
+    columns:
+      - name: name
+        type: Utf8
+        nullable: false
+        description: Slug identifier for the memory.
+      - name: description
+        type: Utf8
+        nullable: true
+        description: One-line summary of the memory.
+      - name: type
+        type: Utf8
+        nullable: true
+        description: Memory type (user, project, feedback, reference).
+      - name: project
+        type: Utf8
+        nullable: true
+        description: Project directory path slug.
+      - name: origin_session_id
+        type: Utf8
+        nullable: true
+        description: Session that created this memory.
+      - name: body
+        type: Utf8
+        nullable: true
+        description: Full memory content (markdown).

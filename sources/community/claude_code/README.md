@@ -2,9 +2,9 @@
 
 **Version:** 0.1.0
 **Backend:** File (JSONL)
-**Tables:** 1
+**Tables:** 2
 
-Query Claude Code session history and prompt data through SQL. Search past prompts, track sessions across projects, and analyze usage patterns — no converter needed, reads directly from Claude Code's native JSONL.
+Query Claude Code session history and project memories through SQL. Search past prompts, share project context, track decisions across sessions, and transfer knowledge between collaborators.
 
 ## Installation
 
@@ -14,7 +14,11 @@ Install the source via the CLI:
 coral source add --file sources/community/claude_code/manifest.yaml
 ```
 
-No converter script required — reads directly from `~/.claude/history.jsonl` written by Claude Code.
+The `history` table reads directly from `~/.claude/history.jsonl` (no converter). The `memories` table needs a one-time converter run:
+
+```bash
+python3 sources/community/claude_code/scripts/memories-to-jsonl.py
+```
 
 ## Prerequisites
 
@@ -45,6 +49,20 @@ SELECT project, COUNT(*) as prompt_count
 FROM claude_code.history
 GROUP BY project
 ORDER BY prompt_count DESC;
+
+-- List all project memories
+SELECT name, type, description, project
+FROM claude_code.memories;
+
+-- Search memories by keyword
+SELECT name, description, body
+FROM claude_code.memories
+WHERE body LIKE '%coral%';
+
+-- Share context: what decisions were made?
+SELECT name, description
+FROM claude_code.memories
+WHERE type = 'feedback';
 ```
 
 ## Tables
@@ -64,11 +82,29 @@ Claude Code prompt history. Each row is a user prompt sent to Claude Code, with 
 
 **Note:** `sessionId` uses camelCase (matching Claude Code's JSONL format). Quote it in SQL: `"sessionId"`.
 
+---
+
+### `memories`
+
+Claude Code project memories — decisions, preferences, context, and learnings stored across sessions. Share this table to transfer project knowledge to collaborators or other agents. Run the converter script first.
+
+**Columns**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | Utf8 | Slug identifier for the memory |
+| `description` | Utf8 | One-line summary of the memory |
+| `type` | Utf8 | Memory type (user, project, feedback, reference) |
+| `project` | Utf8 | Project directory path slug |
+| `origin_session_id` | Utf8 | Session that created this memory |
+| `body` | Utf8 | Full memory content (markdown) |
+
 ## Source scope
 
 - File-backed source reading directly from `~/.claude/history.jsonl`.
-- No credentials, no API key, no converter script needed.
-- Data is written automatically by Claude Code — no manual setup.
+- No credentials, no API key needed.
+- `history` reads directly from Claude Code's native JSONL — no converter.
+- `memories` needs a one-time converter: `python3 scripts/memories-to-jsonl.py`
 - Any Claude Code user has this file after their first session.
 - 1 declared test query requires no filters.
 - Read-only access to prompt history. Full conversation content (responses, tool calls) is not in this file.
