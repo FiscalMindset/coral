@@ -104,9 +104,9 @@ Claude Code project memories — decisions, preferences, context, and learnings 
 - File-backed source reading directly from `~/.claude/history.jsonl`.
 - No credentials, no API key needed.
 - `history` reads directly from Claude Code's native JSONL — no converter.
-- `memories` needs a one-time converter: `python3 scripts/memories-to-jsonl.py`
+- `memories` needs a one-time converter: `python3 sources/community/claude_code_sessions/scripts/memories-to-jsonl.py`
 - Any Claude Code user has this file after their first session.
-- 1 declared test query requires no filters.
+- 2 declared test queries require no filters.
 - Read-only access to prompt history. Full conversation content (responses, tool calls) is not in this file.
 
 ## Limitations

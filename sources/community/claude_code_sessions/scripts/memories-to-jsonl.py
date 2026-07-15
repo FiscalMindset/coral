@@ -30,7 +30,7 @@ def parse_frontmatter(content):
     if len(parts) < 3:
         return {}, content
     front = parts[1].strip()
-    body = parts[2].strip()
+    body = parts[2].lstrip("\n")
     meta = {}
     current_key = None
     for line in front.split("\n"):
@@ -102,10 +102,8 @@ def main():
                 "name": meta.get("name", mf.stem),
                 "description": meta.get("description", ""),
                 "type": meta.get("type", "unknown"),
-                "node_type": meta.get("node_type", "memory"),
                 "origin_session_id": meta.get("originSessionId", ""),
                 "project": project_dir,
-                "file_path": str(mf),
                 "body": body,
             }
             tmp.write(json.dumps(row) + "\n")
