@@ -3,9 +3,9 @@ version: 0.1.0
 dsl_version: 3
 backend: file
 description: >-
-  Query Claude Code session history and project memories through SQL.
-  Search past prompts, share project context, track decisions across
-  sessions, and transfer knowledge between collaborators.
+  Claude Code session context sharing — query prompt history and
+  project memories through SQL. Share decisions, preferences, and
+  learnings across sessions, collaborators, and agents.
 
 test_queries:
   - SELECT display, project, "sessionId" FROM claude_code.history LIMIT 3
