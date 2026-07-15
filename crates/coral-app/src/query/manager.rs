@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use coral_engine::{
-    CatalogInfo, CoralQuery, CoreError, DescribeTableInfo, QueryExecution,
+    CatalogInfo, CoralQuery, CoreError, DescribeTableInfo, PreparedQueryRuntime, QueryExecution,
     QueryExecutionProvenance, QueryPlan, QueryRuntimeConfig, QueryRuntimeContext, QuerySource,
     RuntimeSourcePackage, SourceInputResolver, SourceValidationReport, StatusCode, TableInfo,
+    UdfRuntimeDefinition,
 };
 use coral_spec::{ManifestInputKind, ManifestInputSpec};
 use opentelemetry::trace::Status as OtelStatus;
@@ -18,6 +19,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
 use crate::bootstrap::AppError;
 use crate::credentials::{CredentialManager, CredentialSetId, CredentialsError};
+use crate::functions::manager::{FunctionListing, FunctionManager};
 use crate::query::QueryAttribution;
 use crate::query::extensions::{EngineExtensionsProvider, engine_extensions_for_providers};
 use crate::query::input_resolver::{
@@ -33,7 +35,7 @@ use crate::sources::runtime_package::runtime_components_for_v4_source;
 use crate::state::{AppConfig, AppStateLayout, ConfigStore};
 use crate::task::id::TaskId;
 use crate::telemetry::WORKSPACE_SPAN_ATTRIBUTE;
-use crate::workspaces::{WorkspaceManager, WorkspaceName};
+use crate::workspaces::{WorkspaceLifecycleLock, WorkspaceManager, WorkspaceName};
 
 #[derive(Debug)]
 pub(crate) enum QueryManagerError {
@@ -64,16 +66,59 @@ pub(crate) struct QueryManager {
     config_store: ConfigStore,
     workspace_manager: Arc<WorkspaceManager>,
     credential_manager: CredentialManager,
+    function_manager: FunctionManager,
     runtime_context: QueryRuntimeContext,
     layout: AppStateLayout,
     engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
 }
 
 impl QueryManager {
+    #[cfg(test)]
+    pub(crate) fn new_for_tests(
+        config_store: ConfigStore,
+        workspace_manager: WorkspaceManager,
+        credential_manager: CredentialManager,
+        runtime_context: QueryRuntimeContext,
+        layout: AppStateLayout,
+        engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
+    ) -> Self {
+        Self::new(
+            config_store,
+            workspace_manager,
+            credential_manager,
+            runtime_context,
+            layout,
+            WorkspaceLifecycleLock::default(),
+            engine_extensions_providers,
+        )
+    }
+
     pub(crate) fn new(
         config_store: ConfigStore,
         workspace_manager: WorkspaceManager,
         credential_manager: CredentialManager,
+        runtime_context: QueryRuntimeContext,
+        layout: AppStateLayout,
+        lifecycle_lock: WorkspaceLifecycleLock,
+        engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
+    ) -> Self {
+        let function_manager = FunctionManager::new(config_store.clone(), &layout, lifecycle_lock);
+        Self::with_function_manager(
+            config_store,
+            workspace_manager,
+            credential_manager,
+            function_manager,
+            runtime_context,
+            layout,
+            engine_extensions_providers,
+        )
+    }
+
+    pub(crate) fn with_function_manager(
+        config_store: ConfigStore,
+        workspace_manager: WorkspaceManager,
+        credential_manager: CredentialManager,
+        function_manager: FunctionManager,
         runtime_context: QueryRuntimeContext,
         layout: AppStateLayout,
         engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
@@ -82,6 +127,7 @@ impl QueryManager {
             config_store,
             workspace_manager: Arc::new(workspace_manager),
             credential_manager,
+            function_manager,
             runtime_context,
             layout,
             engine_extensions_providers,
@@ -107,17 +153,14 @@ impl QueryManager {
                     .await
                     .map_err(QueryManagerError::App)?;
                 let runtime = self
-                    .runtime_config_with_credential_mode(
+                    .prepared_runtime_with_udfs(
                         workspace_name,
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::StoredOnly,
                     )
-                    .map_err(QueryManagerError::App)?;
-                let sources = query_sources_from_loaded(&loaded_sources);
-                CoralQuery::list_tables(&sources, runtime, schema_filter, table_filter)
-                    .await
-                    .map_err(QueryManagerError::Core)
+                    .await?;
+                Ok(runtime.list_tables(schema_filter, table_filter))
             },
             |tables| Some(u64::try_from(tables.len()).unwrap_or(u64::MAX)),
             |_, _| {},
@@ -143,17 +186,14 @@ impl QueryManager {
                     .await
                     .map_err(QueryManagerError::App)?;
                 let runtime = self
-                    .runtime_config_with_credential_mode(
+                    .prepared_runtime_with_udfs(
                         workspace_name,
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::StoredOnly,
                     )
-                    .map_err(QueryManagerError::App)?;
-                let sources = query_sources_from_loaded(&loaded_sources);
-                CoralQuery::list_catalog(&sources, runtime, schema_filter)
-                    .await
-                    .map_err(QueryManagerError::Core)
+                    .await?;
+                Ok(runtime.list_catalog(schema_filter))
             },
             |catalog| {
                 Some(
@@ -190,12 +230,14 @@ impl QueryManager {
                     .await
                     .map_err(QueryManagerError::App)?;
                 let runtime = self
-                    .runtime_config(workspace_name, &loaded_sources, &config)
-                    .map_err(QueryManagerError::App)?;
-                let sources = query_sources_from_loaded(&loaded_sources);
-                CoralQuery::describe_table(&sources, runtime, schema_name, table_name)
-                    .await
-                    .map_err(QueryManagerError::Core)
+                    .prepared_runtime_with_udfs(
+                        workspace_name,
+                        &loaded_sources,
+                        &config,
+                        CredentialResolutionMode::Refreshing,
+                    )
+                    .await?;
+                Ok(runtime.describe_table(schema_name, table_name))
             },
             |_| None,
             |_, _| {},
@@ -220,10 +262,15 @@ impl QueryManager {
                     .await
                     .map_err(QueryManagerError::App)?;
                 let runtime = self
-                    .runtime_config(workspace_name, &loaded_sources, &config)
-                    .map_err(QueryManagerError::App)?;
-                let sources = query_sources_from_loaded(&loaded_sources);
-                CoralQuery::execute_sql(&sources, runtime, sql)
+                    .prepared_runtime_with_udfs(
+                        workspace_name,
+                        &loaded_sources,
+                        &config,
+                        CredentialResolutionMode::Refreshing,
+                    )
+                    .await?;
+                runtime
+                    .execute_sql(sql)
                     .await
                     .map_err(QueryManagerError::Core)
             },
@@ -250,10 +297,15 @@ impl QueryManager {
                     .await
                     .map_err(QueryManagerError::App)?;
                 let runtime = self
-                    .runtime_config(workspace_name, &loaded_sources, &config)
-                    .map_err(QueryManagerError::App)?;
-                let sources = query_sources_from_loaded(&loaded_sources);
-                CoralQuery::explain_sql(&sources, runtime, sql)
+                    .prepared_runtime_with_udfs(
+                        workspace_name,
+                        &loaded_sources,
+                        &config,
+                        CredentialResolutionMode::Refreshing,
+                    )
+                    .await?;
+                runtime
+                    .explain_sql(sql)
                     .await
                     .map_err(QueryManagerError::Core)
             },
@@ -512,6 +564,119 @@ impl QueryManager {
         runtime.memory = config.memory_config()?;
         runtime.dependent_join = config.dependent_join_config(&selected_source_names)?;
         Ok(runtime)
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "function lifecycle service callers land upstack in the split stack"
+        )
+    )]
+    pub(crate) async fn list_functions(
+        &self,
+        workspace_name: &WorkspaceName,
+    ) -> Result<Vec<FunctionListing>, QueryManagerError> {
+        let (loaded_sources, config) = match self.load_query_sources(workspace_name).await {
+            Ok(loaded) => loaded,
+            Err(
+                error @ (AppError::Credentials(CredentialsError::Unavailable(_))
+                | AppError::MissingOrIncompatibleV4Materialization { .. }
+                | AppError::InvalidV4ProjectionOverride { .. }),
+            ) => {
+                return self
+                    .function_manager
+                    .list_functions_with_preparation_failure(workspace_name, &error)
+                    .map_err(QueryManagerError::App);
+            }
+            Err(error) => return Err(QueryManagerError::App(error)),
+        };
+        let sources = query_sources_from_loaded(&loaded_sources);
+        self.function_manager
+            .list_functions(workspace_name, &sources, || {
+                self.runtime_config(workspace_name, &loaded_sources, &config)
+            })
+            .await
+            .map_err(QueryManagerError::App)
+    }
+
+    #[expect(
+        dead_code,
+        reason = "function lifecycle service callers land upstack in the split stack"
+    )]
+    pub(crate) fn function_manager(&self) -> FunctionManager {
+        self.function_manager.clone()
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "function lifecycle service callers land upstack in the split stack"
+        )
+    )]
+    pub(crate) async fn validate_udf_sql(
+        &self,
+        workspace_name: &WorkspaceName,
+        raw_sql: &str,
+    ) -> Result<UdfRuntimeDefinition, QueryManagerError> {
+        self.require_workspace(workspace_name)
+            .await
+            .map_err(QueryManagerError::App)?;
+        let (loaded_sources, config) = {
+            let _state_lock = self
+                .config_store
+                .state_lock_shared()
+                .map_err(QueryManagerError::App)?;
+            let config = self
+                .config_store
+                .load_config_unlocked()
+                .map_err(QueryManagerError::App)?;
+            let loaded_sources = self
+                .load_query_sources_from_config(workspace_name, &config)
+                .map_err(QueryManagerError::App)?;
+            (loaded_sources, config)
+        };
+        let sources = query_sources_from_loaded(&loaded_sources);
+        self.function_manager
+            .validate_user_function_sql(
+                workspace_name,
+                &sources,
+                || self.runtime_config(workspace_name, &loaded_sources, &config),
+                raw_sql,
+            )
+            .await
+            .map_err(QueryManagerError::App)
+    }
+
+    async fn prepared_runtime_with_udfs(
+        &self,
+        workspace_name: &WorkspaceName,
+        selected_sources: &[LoadedQuerySource],
+        config: &AppConfig,
+        credential_resolution_mode: CredentialResolutionMode,
+    ) -> Result<PreparedQueryRuntime, QueryManagerError> {
+        let runtime_config = self
+            .runtime_config_with_credential_mode(
+                workspace_name,
+                selected_sources,
+                config,
+                credential_resolution_mode,
+            )
+            .map_err(QueryManagerError::App)?;
+        let query_sources = query_sources_from_loaded(selected_sources);
+        let runtime = CoralQuery::prepare(&query_sources, runtime_config)
+            .await
+            .map_err(QueryManagerError::Core)?;
+        let functions = self
+            .function_manager
+            .load_runtime_udfs(workspace_name, &query_sources, &runtime)
+            .await
+            .map_err(QueryManagerError::App)?;
+        runtime
+            .with_udfs(functions)
+            .await
+            .map_err(QueryManagerError::Core)
     }
 }
 
@@ -792,8 +957,8 @@ mod tests {
 
     use coral_engine::{
         EngineExtensions, QueryExecution, QueryExecutionProvenance, QueryTableFunctionUsage,
-        QueryTableUsage, SourceInputResolutionContext, SourceInputResolver,
-        SourceInputResolverError,
+        QueryTableUsage, SourceDecorator, SourceDecoratorError, SourceInputResolutionContext,
+        SourceInputResolver, SourceInputResolverError, SourceTables,
     };
     use coral_spec::parse_source_manifest_yaml;
     use serde_json::{Value, json};
@@ -830,7 +995,7 @@ mod tests {
             None,
             Arc::clone(&db),
         );
-        let manager = QueryManager::new(
+        let manager = QueryManager::new_for_tests(
             config_store,
             workspace_manager,
             credential_manager,
@@ -842,6 +1007,55 @@ mod tests {
             _temp: temp,
             manager,
         }
+    }
+
+    async fn query_manager_with_unavailable_keychain() -> QueryManagerFixture {
+        let temp = TempDir::new().expect("temp dir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        layout.ensure().expect("ensure layout");
+        let config_store = ConfigStore::new(layout.clone());
+        let db = test_db(&layout, &config_store).await;
+        let credential_store = CredentialStore::with_unavailable_keychain_for_test(
+            layout.clone(),
+            CredentialStoragePreference::Keychain,
+        );
+        let credential_manager = CredentialManager::new(credential_store);
+        let workspace_manager = WorkspaceManager::new_for_tests(
+            config_store.clone(),
+            credential_manager.clone(),
+            layout.clone(),
+            None,
+            Arc::clone(&db),
+        );
+        let manager = QueryManager::new_for_tests(
+            config_store,
+            workspace_manager,
+            credential_manager,
+            QueryRuntimeContext::default(),
+            layout,
+            Vec::new(),
+        );
+        QueryManagerFixture {
+            _temp: temp,
+            manager,
+        }
+    }
+
+    fn install_keychain_github_source(config_store: &ConfigStore, workspace_name: &WorkspaceName) {
+        config_store
+            .upsert_source(
+                workspace_name,
+                InstalledSource {
+                    name: SourceName::parse("github").expect("source name"),
+                    version: None,
+                    variables: BTreeMap::new(),
+                    secrets: vec!["GITHUB_TOKEN".to_string()],
+                    credential_storage: Some(CredentialStorageKind::Keychain),
+                    origin: SourceOrigin::Bundled,
+                },
+            )
+            .expect("persist source");
     }
 
     async fn test_db(layout: &AppStateLayout, config_store: &ConfigStore) -> Arc<CoralDb> {
@@ -1537,6 +1751,139 @@ pagination:
     }
 
     #[tokio::test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "covers function validation, catalog publication, listing, and execution together"
+    )]
+    async fn user_function_publishes_table_function_and_executes_against_installed_source() {
+        let fake_home = tempfile::tempdir().expect("fake home");
+        let data_dir = fake_home.path().join("fixture-data");
+        std::fs::create_dir_all(&data_dir).expect("create data dir");
+        std::fs::write(
+            data_dir.join("messages.jsonl"),
+            r#"{"type":"user","text":"hello"}
+{"type":"assistant","text":"world"}
+"#,
+        )
+        .expect("write fixture");
+
+        let fixture = query_manager_with(
+            QueryRuntimeContext {
+                home_dir: Some(fake_home.path().to_path_buf()),
+                ..QueryRuntimeContext::default()
+            },
+            Vec::new(),
+        )
+        .await;
+        fixture.manager.layout.ensure().expect("ensure layout");
+        let workspace_name = WorkspaceName::default();
+        let source_manager = SourceManager::new_for_tests(
+            fixture.manager.config_store.clone(),
+            fixture.manager.credential_manager.clone(),
+            fixture.manager.layout.clone(),
+        );
+        source_manager
+            .import_source(
+                &workspace_name,
+                &ImportSourceCommand {
+                    manifest_yaml: r#"
+name: function_demo
+version: 0.1.0
+dsl_version: 3
+backend: file
+tables:
+  - name: messages
+    description: Fixture messages
+    format: jsonl
+    source:
+      location: file://~/fixture-data/
+      glob: "**/*.jsonl"
+    columns:
+      - name: type
+        type: Utf8
+      - name: text
+        type: Utf8
+"#
+                    .to_string(),
+                    bindings: SourceBindings::default(),
+                },
+            )
+            .expect("import source");
+
+        let function_sql = r"/*
+name: messages_by_type
+schema: functions
+description: Messages filtered by sender type
+*/
+
+select text
+from function_demo.messages
+where type = $kind
+";
+        let validated_function = fixture
+            .manager
+            .validate_udf_sql(&workspace_name, function_sql)
+            .await
+            .expect("validate function");
+        fixture
+            .manager
+            .function_manager
+            .install_validated_user_function(&workspace_name, function_sql, &validated_function)
+            .expect("install function");
+
+        let catalog = fixture
+            .manager
+            .list_catalog(
+                &workspace_name,
+                Some("functions"),
+                &QueryAttribution::default(),
+            )
+            .await
+            .expect("catalog");
+        let function_function = catalog.table_functions.first().expect("function function");
+        assert_eq!(function_function.function_name, "messages_by_type");
+        assert_eq!(
+            function_function
+                .result_columns
+                .first()
+                .expect("text result column")
+                .name,
+            "text"
+        );
+
+        let functions = fixture
+            .manager
+            .list_functions(&workspace_name)
+            .await
+            .expect("functions");
+        assert_eq!(functions.len(), 1);
+        let function = functions.first().expect("function");
+        let crate::functions::manager::FunctionRuntimeStatus::Ready(definition) = &function.runtime
+        else {
+            panic!("function should be runtime-ready");
+        };
+        let column = definition
+            .result_columns
+            .first()
+            .expect("text result column");
+        assert_eq!(column.name, "text");
+
+        let execution = fixture
+            .manager
+            .execute_sql(
+                &workspace_name,
+                "select text from functions.messages_by_type(kind => 'user')",
+                &QueryAttribution::default(),
+            )
+            .await
+            .expect("function query");
+        assert_eq!(
+            execution_to_rows(&execution),
+            vec![json!({"text": "hello"})]
+        );
+    }
+
+    #[tokio::test]
     async fn load_query_sources_fails_closed_for_missing_v4_materialization() {
         let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
         fixture.manager.layout.ensure().expect("ensure layout");
@@ -1593,48 +1940,12 @@ surfaces:
 
     #[tokio::test]
     async fn load_query_sources_fails_closed_for_unavailable_keychain_source() {
-        let temp = TempDir::new().expect("temp dir");
-        let layout =
-            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
-        layout.ensure().expect("ensure layout");
-        let config_store = ConfigStore::new(layout.clone());
-        let db = test_db(&layout, &config_store).await;
+        let fixture = query_manager_with_unavailable_keychain().await;
         let workspace_name = WorkspaceName::default();
-        let source_name = SourceName::parse("github").expect("source name");
-        config_store
-            .upsert_source(
-                &workspace_name,
-                InstalledSource {
-                    name: source_name,
-                    version: None,
-                    variables: BTreeMap::new(),
-                    secrets: vec!["GITHUB_TOKEN".to_string()],
-                    credential_storage: Some(CredentialStorageKind::Keychain),
-                    origin: SourceOrigin::Bundled,
-                },
-            )
-            .expect("persist source");
-        let credential_store = CredentialStore::with_unavailable_keychain_for_test(
-            layout.clone(),
-            CredentialStoragePreference::Keychain,
-        );
-        let credential_manager = CredentialManager::new(credential_store);
-        let workspace_manager = WorkspaceManager::new_for_tests(
-            config_store.clone(),
-            credential_manager.clone(),
-            layout.clone(),
-            None,
-            Arc::clone(&db),
-        );
-        let manager = QueryManager::new(
-            config_store,
-            workspace_manager,
-            credential_manager,
-            QueryRuntimeContext::default(),
-            layout,
-            Vec::new(),
-        );
-        let error = manager
+        install_keychain_github_source(&fixture.manager.config_store, &workspace_name);
+
+        let error = fixture
+            .manager
             .load_query_sources(&workspace_name)
             .await
             .expect_err("unavailable keychain should fail closed");
@@ -1652,6 +1963,130 @@ surfaces:
                 .contains("configured for keychain storage"),
             "keychain-routed query failure should name the routed backend: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn list_functions_keeps_inventory_visible_when_source_preparation_fails() {
+        let fixture = query_manager_with_unavailable_keychain().await;
+        let workspace_name = WorkspaceName::default();
+        let function_sql = r"/*
+name: constant_value
+schema: functions
+description: Returns a constant value
+*/
+
+select 1 as value
+";
+        let validated = fixture
+            .manager
+            .validate_udf_sql(&workspace_name, function_sql)
+            .await
+            .expect("validate constant function before source failure");
+        fixture
+            .manager
+            .function_manager
+            .install_validated_user_function(&workspace_name, function_sql, &validated)
+            .expect("install constant function");
+        install_keychain_github_source(&fixture.manager.config_store, &workspace_name);
+
+        let functions = fixture
+            .manager
+            .list_functions(&workspace_name)
+            .await
+            .expect("source preparation failure should not hide function inventory");
+
+        let function = functions
+            .first()
+            .expect("installed function remains visible");
+        assert_eq!(function.name.as_str(), "constant_value");
+        let crate::functions::manager::FunctionRuntimeStatus::Invalid(error) = &function.runtime
+        else {
+            panic!("function should be invalid while source preparation is unavailable");
+        };
+        assert!(error.contains("configured for keychain storage"));
+    }
+
+    struct PrepareCountingDecorator {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl SourceDecorator for PrepareCountingDecorator {
+        fn name(&self) -> &'static str {
+            "prepare-counter"
+        }
+
+        fn prepare(
+            &mut self,
+            _selected_sources: &[QuerySource],
+        ) -> Result<(), SourceDecoratorError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn decorate_source(
+            &mut self,
+            _source: &QuerySource,
+            tables: SourceTables,
+        ) -> Result<SourceTables, SourceDecoratorError> {
+            Ok(tables)
+        }
+    }
+
+    struct PrepareCountingExtensionsProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl EngineExtensionsProvider for PrepareCountingExtensionsProvider {
+        fn extensions_for(&self, _selected_sources: &[QuerySource]) -> EngineExtensions {
+            let mut extensions = EngineExtensions::default();
+            extensions
+                .source_decorators
+                .push(Box::new(PrepareCountingDecorator {
+                    calls: Arc::clone(&self.calls),
+                }));
+            extensions
+        }
+    }
+
+    #[tokio::test]
+    async fn function_enabled_query_prepares_source_decorators_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(PrepareCountingExtensionsProvider {
+            calls: Arc::clone(&calls),
+        });
+        let fixture = query_manager_with(QueryRuntimeContext::default(), vec![provider]).await;
+        let workspace_name = WorkspaceName::default();
+        let function_sql = r"/*
+name: constant_value
+schema: functions
+description: Returns a constant value
+*/
+
+select 1 as value
+";
+        let validated = fixture
+            .manager
+            .validate_udf_sql(&workspace_name, function_sql)
+            .await
+            .expect("validate constant function");
+        fixture
+            .manager
+            .function_manager
+            .install_validated_user_function(&workspace_name, function_sql, &validated)
+            .expect("install constant function");
+        calls.store(0, Ordering::SeqCst);
+
+        fixture
+            .manager
+            .execute_sql(
+                &workspace_name,
+                "select value from functions.constant_value()",
+                &QueryAttribution::default(),
+            )
+            .await
+            .expect("execute constant function");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[derive(Debug)]

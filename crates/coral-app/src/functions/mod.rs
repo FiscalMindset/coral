@@ -1,11 +1,16 @@
 //! Function lifecycle and inventory workflow.
-#![expect(
-    dead_code,
-    reason = "function inventory and artifact stores are introduced before runtime and service callers in the split app stack"
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "function lifecycle service and CLI callers land upstack in the split stack"
+    )
 )]
 
 pub(crate) mod manager;
 pub(crate) mod model;
+mod runtime;
 mod store;
+mod validation;
 
 pub(crate) use model::FunctionName;
