@@ -60,6 +60,7 @@ Services deployed on Render. Includes static sites, web services, private servic
 
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
+| `type` | Utf8 | | Filter by service type (static_site, web_service, private_service, background_worker, cron_job) |
 | `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
 
 **Columns**
@@ -153,9 +154,10 @@ Owners (users and teams) associated with your Render account. No required filter
 
 ## Provider docs
 
-- Render API reference: https://docs.render.com/api
-- Services API: https://docs.render.com/api/rest-api#services
-- Deploys API: https://docs.render.com/api/rest-api#deploys
+- Render API reference: https://api-docs.render.com
+- Services API: https://api-docs.render.com/reference/list-services
+- Deploys API: https://api-docs.render.com/reference/list-deploys
+- Owners API: https://api-docs.render.com/reference/list-owners
 - API keys: https://dashboard.render.com/u/settings#api-keys
 
 ## Live validation output
@@ -199,7 +201,7 @@ ORDER BY table_name;
 +------------+--------------------------------------------------------------------------------------------------------------+------------------+
 | deploys    | Deployment history for a Render service. Includes commit info, status, trigger, and timing for each deploy. | service_id       |
 | owners     | Owners (users and teams) associated with your Render account.                                                |                  |
-| services   | Services deployed on Render. Includes static sites, web services, private services, ...                     |                  |
+| services   | Services deployed on Render. Includes static sites, web services, private services, background workers, ...  |                  |
 +------------+--------------------------------------------------------------------------------------------------------------+------------------+
 ```
 
@@ -215,28 +217,47 @@ FROM render.services LIMIT 3;
 | service_id               | name               | type        | status        | url                                     |
 +--------------------------+--------------------+-------------+---------------+-----------------------------------------+
 | srv-0000000000000000000g | user-site          | static_site | not_suspended | https://user-site.onrender.com          |
-| srv-0000000000000000000g | user-app           | static_site | not_suspended | https://user-app.onrender.com           |
-| srv-0000000000000000000g | user-frontend      | web_service | not_suspended | https://user-frontend.onrender.com      |
+| srv-0000000000000000001g | user-app           | static_site | not_suspended | https://user-app.onrender.com           |
+| srv-0000000000000000002g | user-frontend      | web_service | not_suspended | https://user-frontend.onrender.com      |
 +--------------------------+--------------------+-------------+---------------+-----------------------------------------+
+```
+
+**Live type filter proof:**
+
+```sql
+SELECT service_id, name, url
+FROM render.services
+WHERE type = 'web_service'
+LIMIT 3;
+```
+
+```text
++--------------------------+----------------+-----------------------------------------+
+| service_id               | name           | url                                     |
++--------------------------+----------------+-----------------------------------------+
+| srv-0000000000000000002g | user-frontend  | https://user-frontend.onrender.com      |
+| srv-0000000000000000003g | user-api       | https://user-api.onrender.com           |
+| srv-0000000000000000004g | user-backend   | https://user-backend.onrender.com       |
++--------------------------+----------------+-----------------------------------------+
 ```
 
 **Live deploys proof:**
 
 ```sql
-SELECT deploy_id, status, trigger
+SELECT service_id, deploy_id, status, trigger
 FROM render.deploys
 WHERE service_id = 'srv-0000000000000000000g'
 LIMIT 3;
 ```
 
 ```text
-+--------------------------+-------------+------------+
-| deploy_id                | status      | trigger    |
-+--------------------------+-------------+------------+
-| dep-0000000000000000000g | live        | new_commit |
-| dep-0000000000000000000g | deactivated | new_commit |
-| dep-0000000000000000000g | deactivated | new_commit |
-+--------------------------+-------------+------------+
++--------------------------+--------------------------+-------------+------------+
+| service_id               | deploy_id                | status      | trigger    |
++--------------------------+--------------------------+-------------+------------+
+| srv-0000000000000000000g | dep-0000000000000000000g | live        | new_commit |
+| srv-0000000000000000000g | dep-0000000000000000001g | deactivated | new_commit |
+| srv-0000000000000000000g | dep-0000000000000000002g | deactivated | new_commit |
++--------------------------+--------------------------+-------------+------------+
 ```
 
 **Live owners proof:**

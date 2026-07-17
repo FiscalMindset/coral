@@ -44,17 +44,28 @@ tables:
       No required filters. Start with:
         SELECT service_id, name, type, status, url
         FROM render.services LIMIT 10
+      Filter by type:
+        SELECT service_id, name, url
+        FROM render.services
+        WHERE type = 'web_service'
       Use the service_id to query deploys for a specific service.
       To retrieve another page, pass the last row's cursor to a new query:
         SELECT cursor, service_id, name FROM render.services
         WHERE cursor = 'cursor_from_last_row' LIMIT 20
     filters:
+      - name: type
+        description: >-
+          Filter by service type. Common values: static_site, web_service,
+          private_service, background_worker, cron_job.
       - name: cursor
         description: Cursor from a previous query for manual pagination.
     request:
       method: GET
       path: /services
       query:
+        - name: type
+          from: filter
+          key: type
         - name: cursor
           from: filter
           key: cursor
@@ -255,7 +266,7 @@ tables:
             - id
       - name: status
         type: Utf8
-        nullable: false
+        nullable: true
         description: Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed).
         expr:
           kind: path
@@ -306,7 +317,7 @@ tables:
               - createdAt
       - name: created_at
         type: Timestamp
-        nullable: false
+        nullable: true
         description: When the deploy was created (ISO 8601).
         expr:
           kind: format_timestamp
