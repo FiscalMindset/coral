@@ -1,10 +1,5 @@
 //! Source-scan observed-values publisher wiring.
 
-#![allow(
-    dead_code,
-    reason = "observed-values provider substrate is staged before app wiring in the next PR"
-)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,6 +7,7 @@ use coral_engine::{
     EngineExtensions, QuerySource, SourceObservationPublisher, SourceObservationSurfaceKind,
     SourceScanObservation,
 };
+use uuid::Uuid;
 
 use crate::bootstrap::AppError;
 use crate::search::observed::collector::ObservedValuesCollector;
@@ -35,6 +31,32 @@ pub(crate) struct SearchObservationHandle {
     collector: ObservedValuesCollector,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SearchObservationSource<'a> {
+    query_source: &'a QuerySource,
+    runtime_contract_fingerprint: &'a str,
+    credential_revision: Uuid,
+}
+
+impl<'a> SearchObservationSource<'a> {
+    pub(crate) const fn new(
+        query_source: &'a QuerySource,
+        runtime_contract_fingerprint: &'a str,
+        credential_revision: Uuid,
+    ) -> Self {
+        Self {
+            query_source,
+            runtime_contract_fingerprint,
+            credential_revision,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test(query_source: &'a QuerySource) -> Self {
+        Self::new(query_source, "v1:test-runtime-contract", Uuid::nil())
+    }
+}
+
 impl SearchObservationHandle {
     pub(crate) fn new(layout: AppStateLayout) -> Self {
         let store = SqliteObservedValuesStore::new(layout);
@@ -49,26 +71,34 @@ impl SearchObservationHandle {
     pub(crate) fn extensions_for(
         &self,
         workspace_name: &WorkspaceName,
-        selected_sources: &[QuerySource],
+        selected_sources: &[SearchObservationSource<'_>],
     ) -> EngineExtensions {
+        let epochs = match self.store.capture_epochs_for_sources(
+            workspace_name,
+            selected_sources
+                .iter()
+                .map(|source| source.query_source.source_name()),
+        ) {
+            Ok(epochs) => epochs,
+            Err(error) => {
+                tracing::debug!(
+                    workspace = %workspace_name.as_str(),
+                    error = %error,
+                    "skipping observed-values publishers"
+                );
+                return EngineExtensions::default();
+            }
+        };
         let mut scopes = HashMap::new();
         for source in selected_sources {
-            let epoch = match self
-                .store
-                .capture_epoch(workspace_name, source.source_name())
-            {
-                Ok(epoch) => epoch,
-                Err(error) => {
-                    tracing::debug!(
-                        workspace = %workspace_name.as_str(),
-                        source = %source.source_name(),
-                        error = %error,
-                        "skipping observed-values publisher for source"
-                    );
-                    continue;
-                }
+            let Some(epoch) = epochs.get(source.query_source.source_name()).copied() else {
+                continue;
             };
-            for scope in source_surface_scopes(source, SourceScopeSeed::PRE_ACTIVATION) {
+            let seed = SourceScopeSeed::new(
+                source.runtime_contract_fingerprint,
+                source.credential_revision,
+            );
+            for scope in source_surface_scopes(source.query_source, seed) {
                 scopes.insert(scope.key(), RegisteredSurface { scope, epoch });
             }
         }
@@ -106,6 +136,14 @@ impl SearchObservationHandle {
         self.store
             .clear_source_and_advance_epoch(workspace_name, source_name)
             .map_err(|error| observed_values_store_error(&error))
+    }
+
+    pub(crate) fn shutdown(&self) -> Result<(), AppError> {
+        self.writer.shutdown().map_err(|error| {
+            AppError::Unavailable(format!(
+                "observed-values background writer failed during shutdown: {error}"
+            ))
+        })
     }
 }
 
@@ -247,7 +285,7 @@ mod tests {
     use tempfile::tempdir;
     use uuid::Uuid;
 
-    use super::SearchObservationHandle;
+    use super::{SearchObservationHandle, SearchObservationSource};
     use crate::search::observed::source_scope::{SourceScopeSeed, source_surface_scopes};
     use crate::search::observed::sqlite_queue::{
         ObservedValueCandidate, ObservedValuesQueuePayload,
@@ -311,7 +349,8 @@ mod tests {
         let workspace = WorkspaceName::default();
         let handle = SearchObservationHandle::new(layout.clone());
         let source = secret_input_query_source();
-        let extensions = handle.extensions_for(&workspace, &[source]);
+        let extensions =
+            handle.extensions_for(&workspace, &[SearchObservationSource::for_test(&source)]);
         let publisher = extensions
             .source_observation_publishers
             .first()
@@ -357,7 +396,9 @@ mod tests {
             AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
         let workspace = WorkspaceName::default();
         let handle = SearchObservationHandle::new(layout.clone());
-        let extensions = handle.extensions_for(&workspace, &[secret_input_query_source()]);
+        let source = secret_input_query_source();
+        let extensions =
+            handle.extensions_for(&workspace, &[SearchObservationSource::for_test(&source)]);
         let publisher = extensions
             .source_observation_publishers
             .first()
@@ -399,7 +440,8 @@ mod tests {
         let workspace = WorkspaceName::default();
         let handle = SearchObservationHandle::new(layout.clone());
         let source = multi_surface_v4_query_source();
-        let extensions = handle.extensions_for(&workspace, &[source]);
+        let extensions =
+            handle.extensions_for(&workspace, &[SearchObservationSource::for_test(&source)]);
         let publisher = extensions
             .source_observation_publishers
             .first()
@@ -450,6 +492,43 @@ mod tests {
                 .expect("queue count"),
             0
         );
+    }
+
+    #[test]
+    fn shutdown_drains_observed_values_writer_queue() {
+        let temp = tempdir().expect("tempdir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let workspace = WorkspaceName::default();
+        let handle = SearchObservationHandle::new(layout.clone());
+        let source = secret_input_query_source();
+        let extensions =
+            handle.extensions_for(&workspace, &[SearchObservationSource::for_test(&source)]);
+        let publisher = extensions
+            .source_observation_publishers
+            .first()
+            .expect("publisher");
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)])),
+            vec![Arc::new(StringArray::from(vec!["Grace"]))],
+        )
+        .expect("batch");
+
+        publisher.publish_source_scan(SourceScanObservation {
+            source_name: "github",
+            surface_kind: SourceObservationSurfaceKind::Table,
+            surface_name: "issues",
+            batch: &batch,
+        });
+        handle.shutdown().expect("shutdown drains writer");
+
+        let store = SqliteObservedValuesStore::new(layout);
+        let payloads = store
+            .queue_payloads(&workspace)
+            .expect("queued observed-values payloads");
+        assert_eq!(payloads.len(), 1);
+        let payload = payloads.first().expect("one payload");
+        assert!(payload.contains("Grace"));
     }
 
     #[test]

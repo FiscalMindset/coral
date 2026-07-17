@@ -8,8 +8,7 @@ use std::time::Instant;
 use coral_engine::{
     CatalogInfo, CoralQuery, CoreError, DescribeTableInfo, PreparedQueryRuntime, QueryExecution,
     QueryExecutionProvenance, QueryPlan, QueryRuntimeConfig, QueryRuntimeContext, QuerySource,
-    RuntimeSourcePackage, SourceInputResolver, SourceValidationReport, StatusCode, TableInfo,
-    UdfRuntimeDefinition,
+    SourceInputResolver, SourceValidationReport, StatusCode, TableInfo, UdfRuntimeDefinition,
 };
 use coral_spec::{ManifestInputKind, ManifestInputSpec};
 use opentelemetry::trace::Status as OtelStatus;
@@ -25,14 +24,14 @@ use crate::query::extensions::{EngineExtensionsProvider, engine_extensions_for_p
 use crate::query::input_resolver::{
     CredentialRefreshingInputResolver, SourceCredentialSnapshot, StoredCredentialInputResolver,
 };
+use crate::search::observed::{SearchObservationHandle, SearchObservationSource};
 use crate::sources::SourceName;
 use crate::sources::catalog::resolve_installed_manifest;
-use crate::sources::materialization::{
-    SourceDiagnosticReporter, SourceLoadDiagnosticStage, incompatible_materialization_error,
-    load_v4_materialization,
-};
+use crate::sources::materialization::{SourceDiagnosticReporter, SourceLoadDiagnosticStage};
 use crate::sources::model::InstalledSource;
-use crate::sources::runtime_package::runtime_components_for_v4_source;
+use crate::sources::runtime_package::{
+    RuntimeContractFingerprint, query_source_from_installed_manifest,
+};
 use crate::state::{AppConfig, AppStateLayout, ConfigStore};
 use crate::task::id::TaskId;
 use crate::telemetry::WORKSPACE_SPAN_ATTRIBUTE;
@@ -61,6 +60,7 @@ enum CredentialResolutionMode {
 struct LoadedQuerySource {
     source: InstalledSource,
     query_source: QuerySource,
+    runtime_contract_fingerprint: RuntimeContractFingerprint,
     credential_material: BTreeMap<String, String>,
 }
 
@@ -75,6 +75,7 @@ pub(crate) struct QueryManager {
     layout: AppStateLayout,
     engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
     diagnostic_reporter: SourceDiagnosticReporter,
+    search_observations: Option<SearchObservationHandle>,
 }
 
 impl QueryManager {
@@ -146,7 +147,16 @@ impl QueryManager {
             layout,
             engine_extensions_providers,
             diagnostic_reporter,
+            search_observations: None,
         }
+    }
+
+    pub(crate) fn with_search_observation_handle(
+        mut self,
+        search_observations: SearchObservationHandle,
+    ) -> Self {
+        self.search_observations = Some(search_observations);
+        self
     }
 
     pub(crate) async fn list_tables(
@@ -173,6 +183,7 @@ impl QueryManager {
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::StoredOnly,
+                        SourceObservationMode::Disabled,
                     )
                     .await?;
                 Ok(runtime.list_tables(schema_filter, table_filter))
@@ -206,6 +217,7 @@ impl QueryManager {
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::StoredOnly,
+                        SourceObservationMode::Disabled,
                     )
                     .await?;
                 Ok(runtime.list_catalog(schema_filter))
@@ -250,6 +262,7 @@ impl QueryManager {
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::Refreshing,
+                        SourceObservationMode::Disabled,
                     )
                     .await?;
                 Ok(runtime.describe_table(schema_name, table_name))
@@ -282,6 +295,7 @@ impl QueryManager {
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::Refreshing,
+                        SourceObservationMode::Enabled,
                     )
                     .await?;
                 runtime
@@ -317,6 +331,7 @@ impl QueryManager {
                         &loaded_sources,
                         &config,
                         CredentialResolutionMode::Refreshing,
+                        SourceObservationMode::Disabled,
                     )
                     .await?;
                 runtime
@@ -357,7 +372,7 @@ impl QueryManager {
             (source, loaded_source, version, config)
         };
         let runtime = self
-            .runtime_config(
+            .runtime_config_without_source_observations(
                 workspace_name,
                 std::slice::from_ref(&loaded_source),
                 &config,
@@ -437,34 +452,7 @@ impl QueryManager {
         source: &InstalledSource,
     ) -> Result<(LoadedQuerySource, Option<String>), AppError> {
         let installed = resolve_installed_manifest(workspace_name, source, &self.layout)?;
-        let source_spec = installed.source_spec;
-        let v4_runtime_components = if let Some(v4) = source_spec.as_v4() {
-            let materialized = load_v4_materialization(
-                &self.layout,
-                workspace_name,
-                &source.name,
-                &installed.manifest_yaml,
-                v4,
-                &self.diagnostic_reporter,
-            )?;
-            Some(
-                runtime_components_for_v4_source(
-                    workspace_name,
-                    &source.name,
-                    v4,
-                    &materialized,
-                    &self.diagnostic_reporter,
-                )
-                .map_err(|error| {
-                    incompatible_materialization_error(
-                        &source.name,
-                        format!("failed to assemble runtime package: {error}"),
-                    )
-                })?,
-            )
-        } else {
-            None
-        };
+        let source_spec = &installed.source_spec;
         validate_required_variables(source, source_spec.declared_inputs())?;
         let stored_secrets =
             if let Some(credential_storage) = source.credential_storage_for_material() {
@@ -499,33 +487,26 @@ impl QueryManager {
                 resolved_secrets.insert(secret_name, value.clone());
             }
         }
-        let query_source = if let Some(components) = v4_runtime_components {
-            QuerySource::from_runtime_components(
-                RuntimeSourcePackage {
-                    source_name: source_spec.schema_name().to_string(),
-                    authored_version: source_spec.source_version().map(ToString::to_string),
-                    description: source_spec.description().to_string(),
-                    declared_inputs: source_spec.declared_inputs().to_vec(),
-                    test_queries: source_spec.test_queries().to_vec(),
-                    components,
-                },
-                source.variables.clone(),
-                resolved_secrets,
-            )
-            .map_err(|error| AppError::FailedPrecondition(error.to_string()))?
-        } else {
-            QuerySource::from_manifest(&source_spec, source.variables.clone(), resolved_secrets)
-        };
+        let loaded_runtime = query_source_from_installed_manifest(
+            &self.layout,
+            workspace_name,
+            source,
+            &installed,
+            &self.diagnostic_reporter,
+            resolved_secrets,
+        )?;
         Ok((
             LoadedQuerySource {
                 source: source.clone(),
-                query_source,
+                query_source: loaded_runtime.query_source,
+                runtime_contract_fingerprint: loaded_runtime.runtime_contract_fingerprint,
                 credential_material: stored_secrets,
             },
             installed.candidate.version,
         ))
     }
 
+    #[cfg(test)]
     fn runtime_config(
         &self,
         workspace_name: &WorkspaceName,
@@ -537,6 +518,22 @@ impl QueryManager {
             selected_sources,
             config,
             CredentialResolutionMode::Refreshing,
+            SourceObservationMode::Enabled,
+        )
+    }
+
+    fn runtime_config_without_source_observations(
+        &self,
+        workspace_name: &WorkspaceName,
+        selected_sources: &[LoadedQuerySource],
+        config: &AppConfig,
+    ) -> Result<QueryRuntimeConfig, AppError> {
+        self.runtime_config_with_credential_mode(
+            workspace_name,
+            selected_sources,
+            config,
+            CredentialResolutionMode::Refreshing,
+            SourceObservationMode::Disabled,
         )
     }
 
@@ -546,10 +543,30 @@ impl QueryManager {
         selected_sources: &[LoadedQuerySource],
         config: &AppConfig,
         credential_resolution_mode: CredentialResolutionMode,
+        source_observation_mode: SourceObservationMode,
     ) -> Result<QueryRuntimeConfig, AppError> {
         let query_sources = query_sources_from_loaded(selected_sources);
         let mut extensions =
             engine_extensions_for_providers(&self.engine_extensions_providers, &query_sources);
+        if matches!(source_observation_mode, SourceObservationMode::Enabled)
+            && let Some(search_observations) = &self.search_observations
+        {
+            let observation_sources = selected_sources
+                .iter()
+                .map(|source| {
+                    SearchObservationSource::new(
+                        &source.query_source,
+                        source.runtime_contract_fingerprint.as_str(),
+                        source.source.credential_revision,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let observed_extensions =
+                search_observations.extensions_for(workspace_name, &observation_sources);
+            extensions
+                .source_observation_publishers
+                .extend(observed_extensions.source_observation_publishers);
+        }
         let provider_input_resolver = extensions.source_input_resolver.take();
         let source_credentials = selected_sources
             .iter()
@@ -602,7 +619,11 @@ impl QueryManager {
         let sources = query_sources_from_loaded(&loaded_sources);
         self.function_manager
             .list_functions(workspace_name, &sources, || {
-                self.runtime_config(workspace_name, &loaded_sources, &config)
+                self.runtime_config_without_source_observations(
+                    workspace_name,
+                    &loaded_sources,
+                    &config,
+                )
             })
             .await
             .map_err(QueryManagerError::App)
@@ -714,7 +735,13 @@ impl QueryManager {
             .validate_user_function_sql(
                 workspace_name,
                 &sources,
-                || self.runtime_config(workspace_name, loaded_sources, config),
+                || {
+                    self.runtime_config_without_source_observations(
+                        workspace_name,
+                        loaded_sources,
+                        config,
+                    )
+                },
                 raw_sql,
             )
             .await
@@ -727,6 +754,7 @@ impl QueryManager {
         selected_sources: &[LoadedQuerySource],
         config: &AppConfig,
         credential_resolution_mode: CredentialResolutionMode,
+        source_observation_mode: SourceObservationMode,
     ) -> Result<PreparedQueryRuntime, QueryManagerError> {
         let runtime_config = self
             .runtime_config_with_credential_mode(
@@ -734,6 +762,7 @@ impl QueryManager {
                 selected_sources,
                 config,
                 credential_resolution_mode,
+                source_observation_mode,
             )
             .map_err(QueryManagerError::App)?;
         let query_sources = query_sources_from_loaded(selected_sources);
@@ -766,6 +795,12 @@ enum QueryOperation {
     ListTables,
     ListCatalog,
     DescribeTable,
+}
+
+#[derive(Clone, Copy)]
+enum SourceObservationMode {
+    Enabled,
+    Disabled,
 }
 
 impl QueryOperation {
@@ -1127,6 +1162,7 @@ mod tests {
                     variables: BTreeMap::new(),
                     secrets: vec!["GITHUB_TOKEN".to_string()],
                     credential_storage: Some(CredentialStorageKind::Keychain),
+                    credential_revision: uuid::Uuid::default(),
                     origin: SourceOrigin::Bundled,
                 },
             )
@@ -1491,6 +1527,122 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metadata_runtime_config_skips_observed_values_publishers() {
+        let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
+        let workspace_name = WorkspaceName::default();
+        let manager =
+            fixture
+                .manager
+                .clone()
+                .with_search_observation_handle(SearchObservationHandle::new(
+                    fixture.manager.layout.clone(),
+                ));
+        let loaded_source = observed_values_loaded_source();
+
+        let runtime = manager
+            .runtime_config_without_source_observations(
+                &workspace_name,
+                std::slice::from_ref(&loaded_source),
+                &AppConfig::default(),
+            )
+            .expect("metadata runtime config");
+
+        assert!(runtime.extensions.source_observation_publishers.is_empty());
+        assert!(
+            !manager.layout.search_sqlite_file(&workspace_name).exists(),
+            "metadata runtime config should not open the observed-values SQLite store"
+        );
+    }
+
+    #[tokio::test]
+    async fn execution_runtime_config_attaches_observed_values_publishers() {
+        let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
+        let workspace_name = WorkspaceName::default();
+        let manager =
+            fixture
+                .manager
+                .clone()
+                .with_search_observation_handle(SearchObservationHandle::new(
+                    fixture.manager.layout.clone(),
+                ));
+        let loaded_source = observed_values_loaded_source();
+
+        let runtime = manager
+            .runtime_config(
+                &workspace_name,
+                std::slice::from_ref(&loaded_source),
+                &AppConfig::default(),
+            )
+            .expect("execution runtime config");
+
+        assert_eq!(runtime.extensions.source_observation_publishers.len(), 1);
+        assert!(
+            manager.layout.search_sqlite_file(&workspace_name).exists(),
+            "execution runtime config should open the observed-values SQLite store"
+        );
+    }
+
+    #[tokio::test]
+    async fn function_metadata_runtimes_do_not_open_observed_values_store() {
+        let fake_home = tempfile::tempdir().expect("fake home");
+        let fixture = query_manager_with(
+            QueryRuntimeContext {
+                home_dir: Some(fake_home.path().to_path_buf()),
+                ..QueryRuntimeContext::default()
+            },
+            Vec::new(),
+        )
+        .await;
+        let workspace_name = WorkspaceName::default();
+        install_function_demo_source(&fixture.manager, &workspace_name, fake_home.path());
+        let function_sql = r"/*
+name: demo_items
+schema: functions
+description: Returns demo messages
+*/
+
+select text from function_demo.messages
+";
+        let validated = fixture
+            .manager
+            .validate_udf_sql(&workspace_name, function_sql)
+            .await
+            .expect("validate function without observations");
+        fixture
+            .manager
+            .function_manager
+            .install_validated_user_function(&workspace_name, function_sql, &validated)
+            .expect("install function");
+
+        let manager =
+            fixture
+                .manager
+                .clone()
+                .with_search_observation_handle(SearchObservationHandle::new(
+                    fixture.manager.layout.clone(),
+                ));
+        let observed_values_path = manager.layout.search_sqlite_file(&workspace_name);
+        manager
+            .validate_udf_sql(&workspace_name, function_sql)
+            .await
+            .expect("validate function with observations enabled");
+        assert!(
+            !observed_values_path.exists(),
+            "function validation should not open the observed-values SQLite store"
+        );
+
+        let functions = manager
+            .list_functions(&workspace_name)
+            .await
+            .expect("list functions with observations enabled");
+        assert_eq!(functions.len(), 1);
+        assert!(
+            !observed_values_path.exists(),
+            "function listing should not open the observed-values SQLite store"
+        );
+    }
+
+    #[tokio::test]
     async fn load_query_source_passes_present_optional_secrets_to_runtime() {
         let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
         fixture.manager.layout.ensure().expect("ensure layout");
@@ -1544,6 +1696,7 @@ tables:
             variables: BTreeMap::new(),
             secrets: vec!["API_KEY".to_string(), "OAUTH_TOKEN".to_string()],
             credential_storage: Some(CredentialStorageKind::File),
+            credential_revision: uuid::Uuid::default(),
             origin: SourceOrigin::Imported,
         };
         fixture
@@ -2058,6 +2211,7 @@ surfaces:
                     variables: BTreeMap::new(),
                     secrets: Vec::new(),
                     credential_storage: None,
+                    credential_revision: uuid::Uuid::default(),
                     origin: SourceOrigin::Imported,
                 },
             )
@@ -2268,6 +2422,7 @@ select 1 as value
             variables: BTreeMap::new(),
             secrets: vec!["API_TOKEN".to_string()],
             credential_storage: Some(CredentialStorageKind::File),
+            credential_revision: uuid::Uuid::default(),
             origin: SourceOrigin::Bundled,
         };
         fixture
@@ -2311,6 +2466,7 @@ tables:
         let loaded_source = LoadedQuerySource {
             source: installed_source,
             query_source: QuerySource::new(source_spec, BTreeMap::new(), BTreeMap::new()),
+            runtime_contract_fingerprint: RuntimeContractFingerprint::for_test("contract"),
             credential_material: BTreeMap::from([(
                 "API_TOKEN".to_string(),
                 "snapshot-token".to_string(),
@@ -2349,6 +2505,92 @@ tables:
         assert_eq!(
             resolved_inputs.get("API_TOKEN").map(String::as_str),
             Some("snapshot-token")
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_contract_fingerprint_ignores_refreshed_credential_material() {
+        let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
+        fixture.manager.layout.ensure().expect("ensure layout");
+        let workspace = WorkspaceName::default();
+        let source_name = SourceName::parse("secured_messages").expect("source name");
+        let credential_set_id = CredentialSetId::for_source(&source_name);
+        let installed_source = InstalledSource {
+            name: source_name.clone(),
+            version: Some("0.1.0".to_string()),
+            variables: BTreeMap::new(),
+            secrets: vec!["API_TOKEN".to_string()],
+            credential_storage: Some(CredentialStorageKind::File),
+            credential_revision: uuid::Uuid::new_v4(),
+            origin: SourceOrigin::Imported,
+        };
+        std::fs::create_dir_all(fixture.manager.layout.source_dir(&workspace, &source_name))
+            .expect("source directory");
+        std::fs::write(
+            fixture
+                .manager
+                .layout
+                .manifest_file(&workspace, &source_name),
+            r"
+name: secured_messages
+version: 0.1.0
+dsl_version: 3
+backend: http
+inputs:
+  API_TOKEN:
+    kind: secret
+base_url: https://example.com
+tables:
+  - name: messages
+    description: Secured messages
+    request:
+      path: /messages
+    columns:
+      - name: id
+        type: Utf8
+",
+        )
+        .expect("write manifest");
+        fixture
+            .manager
+            .config_store
+            .upsert_source(&workspace, installed_source.clone())
+            .expect("persist source");
+        fixture
+            .manager
+            .credential_manager
+            .replace_material(
+                &workspace,
+                &credential_set_id,
+                CredentialStorageKind::File,
+                &BTreeMap::from([("API_TOKEN".to_string(), "first-token".to_string())]),
+            )
+            .expect("first credential material");
+        let first = fixture
+            .manager
+            .load_query_source(&workspace, &installed_source)
+            .expect("first runtime")
+            .0;
+
+        fixture
+            .manager
+            .credential_manager
+            .replace_material(
+                &workspace,
+                &credential_set_id,
+                CredentialStorageKind::File,
+                &BTreeMap::from([("API_TOKEN".to_string(), "refreshed-token".to_string())]),
+            )
+            .expect("refreshed credential material");
+        let refreshed = fixture
+            .manager
+            .load_query_source(&workspace, &installed_source)
+            .expect("refreshed runtime")
+            .0;
+
+        assert_eq!(
+            first.runtime_contract_fingerprint,
+            refreshed.runtime_contract_fingerprint
         );
     }
 
@@ -2397,9 +2639,11 @@ tables:
                 variables: BTreeMap::new(),
                 secrets: vec!["API_TOKEN".to_string()],
                 credential_storage: None,
+                credential_revision: uuid::Uuid::default(),
                 origin: SourceOrigin::Bundled,
             },
             query_source: QuerySource::new(source_spec, BTreeMap::new(), BTreeMap::new()),
+            runtime_contract_fingerprint: RuntimeContractFingerprint::for_test("contract"),
             credential_material: BTreeMap::from([(
                 "API_TOKEN".to_string(),
                 "stored-token".to_string(),
@@ -2445,5 +2689,40 @@ tables:
                 .as_deref(),
             Some("stored-token")
         );
+    }
+
+    fn observed_values_loaded_source() -> LoadedQuerySource {
+        let source_spec = parse_source_manifest_yaml(
+            r"
+name: github
+version: 0.1.0
+dsl_version: 3
+backend: http
+base_url: https://api.github.com
+tables:
+  - name: issues
+    description: Issues
+    request:
+      path: /issues
+    columns:
+      - name: title
+        type: Utf8
+",
+        )
+        .expect("parse source manifest");
+        LoadedQuerySource {
+            source: InstalledSource {
+                name: SourceName::parse("github").expect("source name"),
+                version: None,
+                variables: BTreeMap::new(),
+                secrets: Vec::new(),
+                credential_storage: None,
+                credential_revision: uuid::Uuid::default(),
+                origin: SourceOrigin::Bundled,
+            },
+            query_source: QuerySource::new(source_spec, BTreeMap::new(), BTreeMap::new()),
+            runtime_contract_fingerprint: RuntimeContractFingerprint::for_test("contract"),
+            credential_material: BTreeMap::new(),
+        }
     }
 }

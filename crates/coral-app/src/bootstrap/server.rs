@@ -45,6 +45,7 @@ use crate::EngineExtensionsProvider;
 use crate::catalog::service::CatalogService;
 use crate::credentials::config::CredentialStorageConfig;
 use crate::credentials::{CredentialManager, CredentialStore};
+use crate::features::{Feature, FeatureOverrides, FeatureStore};
 use crate::feedback::manager::FeedbackManager;
 use crate::feedback::publisher::{
     FeedbackPublisher, HostedFeedbackPublisher, NoopFeedbackPublisher,
@@ -55,6 +56,7 @@ use crate::identity::{SingleUserPrincipalProvider, UserPrincipalProvider};
 use crate::query::manager::QueryManager;
 use crate::query::service::QueryService;
 use crate::search::manager::SearchManager;
+use crate::search::observed::SearchObservationHandle;
 use crate::search::service::SearchService;
 use crate::sources::manager::SourceManager;
 use crate::sources::materialization::SourceDiagnosticReporter;
@@ -96,6 +98,7 @@ pub(crate) struct ServerConfig {
     engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
     user_principal_provider: Arc<dyn UserPrincipalProvider>,
     feedback_publisher: Arc<dyn FeedbackPublisher>,
+    feature_overrides: FeatureOverrides,
     enable_stderr_logs: bool,
 }
 
@@ -113,6 +116,7 @@ impl ServerConfig {
             engine_extensions_providers: Vec::new(),
             user_principal_provider: Arc::new(SingleUserPrincipalProvider),
             feedback_publisher: Arc::new(HostedFeedbackPublisher::new()),
+            feature_overrides: FeatureOverrides::default(),
             enable_stderr_logs: false,
         }
     }
@@ -139,6 +143,11 @@ impl ServerConfig {
     #[must_use]
     pub(crate) fn with_stderr_logs(mut self, enable_stderr_logs: bool) -> Self {
         self.enable_stderr_logs = enable_stderr_logs;
+        self
+    }
+
+    pub(crate) fn with_feature_overrides(mut self, feature_overrides: FeatureOverrides) -> Self {
+        self.feature_overrides = feature_overrides;
         self
     }
 }
@@ -256,6 +265,13 @@ impl ServerBuilder {
         self
     }
 
+    #[must_use]
+    /// Applies process-local runtime feature overrides to this server instance.
+    pub fn with_feature_overrides(mut self, feature_overrides: FeatureOverrides) -> Self {
+        self.config = self.config.with_feature_overrides(feature_overrides);
+        self
+    }
+
     /// Disables hosted feedback upload for tests and controlled local harnesses.
     #[doc(hidden)]
     #[must_use]
@@ -278,6 +294,8 @@ impl ServerBuilder {
         let env = AppEnvironment::discover();
         let layout = env.app_state_layout(self.config.config_dir)?;
         layout.ensure()?;
+        let features = FeatureStore::from_layout(layout.clone())
+            .load_with_overrides(&self.config.feature_overrides)?;
         let coral_db = init_database(&layout).await?;
         let config_store = ConfigStore::new(layout.clone());
         run_state_migrations(&coral_db, &config_store).await?;
@@ -340,6 +358,9 @@ impl ServerBuilder {
             self.config.engine_extensions_providers,
             diagnostic_reporter.clone(),
         );
+        let search_observations = features
+            .enabled(Feature::ObservedValuesSearch)
+            .then(|| SearchObservationHandle::new(layout.clone()));
         let search_manager = SearchManager::with_diagnostic_reporter(
             layout,
             &config_store,
@@ -354,11 +375,12 @@ impl ServerBuilder {
                 }
             });
         start_server(
-            ServerManagers {
+            ServerDependencies {
                 source: source_manager,
                 workspace: workspace_manager,
                 query: query_manager,
                 search: search_manager,
+                search_observations,
                 feedback: feedback_manager,
                 task: task_manager,
             },
@@ -405,6 +427,7 @@ fn resolve_database_config(layout: &AppStateLayout) -> Result<ResolvedDatabaseCo
 pub struct RunningServer {
     endpoint_uri: String,
     local_trace_store_dir: Option<PathBuf>,
+    search_observations: Mutex<Option<SearchObservationHandle>>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     task: Mutex<Option<JoinHandle<Result<(), tonic::transport::Error>>>>,
 }
@@ -451,8 +474,28 @@ impl RunningServer {
         }
 
         let task = self.task.lock().expect("task mutex poisoned").take();
-        if let Some(task) = task {
-            task.await??;
+        let task_result = match task {
+            Some(task) => match task.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(error)) => Err(AppError::from(error)),
+                Err(error) => Err(AppError::from(error)),
+            },
+            None => Ok(()),
+        };
+        let search_observations_result = self.shutdown_search_observations().await;
+        task_result?;
+        search_observations_result?;
+        Ok(())
+    }
+
+    async fn shutdown_search_observations(&self) -> Result<(), AppError> {
+        let search_observations = self
+            .search_observations
+            .lock()
+            .expect("search observation mutex poisoned")
+            .take();
+        if let Some(search_observations) = search_observations {
+            tokio::task::spawn_blocking(move || search_observations.shutdown()).await??;
         }
         Ok(())
     }
@@ -481,17 +524,18 @@ struct TraceServerComponents {
     local_trace_store_dir: Option<PathBuf>,
 }
 
-struct ServerManagers {
+struct ServerDependencies {
     source: SourceManager,
     workspace: WorkspaceManager,
     query: QueryManager,
     search: SearchManager,
+    search_observations: Option<SearchObservationHandle>,
     feedback: FeedbackManager,
     task: TaskManager,
 }
 
 async fn start_server(
-    managers: ServerManagers,
+    dependencies: ServerDependencies,
     trace_components: TraceServerComponents,
     user_principal_provider: Arc<dyn UserPrincipalProvider>,
     mode: ServerMode,
@@ -500,14 +544,22 @@ async fn start_server(
         service: trace_service,
         local_trace_store_dir,
     } = trace_components;
-    let ServerManagers {
+    let ServerDependencies {
         source,
         workspace,
         query,
         search,
+        search_observations,
         feedback,
         task,
-    } = managers;
+    } = dependencies;
+    let (source, query) = match &search_observations {
+        Some(search_observations) => (
+            source.with_search_observation_handle(search_observations.clone()),
+            query.with_search_observation_handle(search_observations.clone()),
+        ),
+        None => (source, query),
+    };
     let source_service = SourceService::new(source, query.clone(), workspace.clone());
     let workspace_service = WorkspaceService::new(workspace);
     let catalog_service = CatalogService::new(query.clone());
@@ -562,6 +614,7 @@ async fn start_server(
     Ok(RunningServer {
         endpoint_uri,
         local_trace_store_dir,
+        search_observations: Mutex::new(search_observations),
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
         task: Mutex::new(Some(task)),
     })
@@ -763,7 +816,7 @@ mod tests {
     use std::borrow::Cow;
     use std::net::{Ipv4Addr, TcpListener};
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use coral_api::v1::query_service_client::QueryServiceClient;
@@ -782,13 +835,17 @@ mod tests {
     use tonic::{Code, Request};
 
     use super::{
-        ServerBuilder, ServerManagers, ServerMode, StaticAsset, StaticAssetsProvider,
-        TraceServerComponents, is_grpc_web_content_type, is_native_grpc_content_type, start_server,
+        RunningServer, ServerBuilder, ServerDependencies, ServerMode, StaticAsset,
+        StaticAssetsProvider, TraceServerComponents, is_grpc_web_content_type,
+        is_native_grpc_content_type, start_server,
     };
+    use crate::bootstrap::AppError;
     use crate::credentials::{CredentialManager, CredentialStore};
+    use crate::features::{Feature, FeatureOverrides};
     use crate::feedback::manager::FeedbackManager;
     use crate::query::manager::QueryManager;
     use crate::search::manager::SearchManager;
+    use crate::search::observed::SearchObservationHandle;
     use crate::sources::manager::SourceManager;
     use crate::state::db::{CoralDb, DatabaseConfig, ResolvedDatabaseConfig, run_state_migrations};
     use crate::state::{AppStateLayout, ConfigStore};
@@ -820,6 +877,33 @@ enabled = false
         .expect("write telemetry config");
     }
 
+    fn configure_observed_values_search(config_dir: &Path, enabled: bool) {
+        std::fs::create_dir_all(config_dir).expect("create config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            format!(
+                r"
+version = 1
+
+[features]
+observed_values_search = {enabled}
+
+[trace_history]
+enabled = false
+"
+            ),
+        )
+        .expect("write feature config");
+    }
+
+    fn has_search_observation_handle(server: &RunningServer) -> bool {
+        server
+            .search_observations
+            .lock()
+            .expect("search observation mutex")
+            .is_some()
+    }
+
     #[derive(Debug)]
     struct RejectingUserPrincipalProvider;
 
@@ -848,6 +932,103 @@ enabled = false
             .await
             .expect("run state migrations");
         Arc::new(db)
+    }
+
+    #[tokio::test]
+    async fn shutdown_attempts_observed_values_shutdown_after_server_task_error() {
+        let temp = TempDir::new().expect("temp dir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let search_observations = SearchObservationHandle::new(layout);
+        let task = tokio::spawn(async {
+            let should_panic = true;
+            assert!(!should_panic, "server task panicked");
+            Ok::<(), tonic::transport::Error>(())
+        });
+        let server = RunningServer {
+            endpoint_uri: "http://127.0.0.1:0".to_string(),
+            local_trace_store_dir: None,
+            search_observations: Mutex::new(Some(search_observations)),
+            shutdown_tx: Mutex::new(None),
+            task: Mutex::new(Some(task)),
+        };
+
+        let result = server.shutdown_inner().await;
+
+        assert!(matches!(result, Err(AppError::TaskJoin(_))));
+        assert!(
+            server
+                .search_observations
+                .lock()
+                .expect("search observation mutex")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn server_builder_leaves_observation_handle_detached_by_default() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        disable_internal_tracing(&config_dir);
+
+        let server = ServerBuilder::new()
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start server");
+
+        assert!(!has_search_observation_handle(&server));
+        server.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn server_builder_attaches_observation_handle_when_config_enabled() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        configure_observed_values_search(&config_dir, true);
+
+        let server = ServerBuilder::new()
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start server");
+
+        assert!(has_search_observation_handle(&server));
+        server.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn server_builder_process_overrides_control_observation_handle() {
+        let temp = TempDir::new().expect("temp dir");
+        let disabled_config_dir = temp.path().join("disabled-config");
+        configure_observed_values_search(&disabled_config_dir, false);
+        let mut enable_override = FeatureOverrides::default();
+        enable_override.set(Feature::ObservedValuesSearch, true);
+
+        let enabled_server = ServerBuilder::new()
+            .with_config_dir(disabled_config_dir)
+            .with_feature_overrides(enable_override)
+            .start()
+            .await
+            .expect("start process-enabled server");
+
+        assert!(has_search_observation_handle(&enabled_server));
+        enabled_server.shutdown().await.expect("shutdown");
+
+        let enabled_config_dir = temp.path().join("enabled-config");
+        configure_observed_values_search(&enabled_config_dir, true);
+        let mut disable_override = FeatureOverrides::default();
+        disable_override.set(Feature::ObservedValuesSearch, false);
+
+        let disabled_server = ServerBuilder::new()
+            .with_config_dir(enabled_config_dir)
+            .with_feature_overrides(disable_override)
+            .start()
+            .await
+            .expect("start process-disabled server");
+
+        assert!(!has_search_observation_handle(&disabled_server));
+        disabled_server.shutdown().await.expect("shutdown");
     }
 
     #[tokio::test]
@@ -1001,16 +1182,18 @@ backend = "unsupported"
             layout.clone(),
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
+        let search_observations = SearchObservationHandle::new(layout.clone());
         let search_manager =
             SearchManager::new(layout.clone(), &config_store, workspace_manager.clone());
         let trace_service =
             TraceService::new(temp.path().join("trace-store"), Duration::from_mins(1));
         let server = start_server(
-            ServerManagers {
+            ServerDependencies {
                 source: source_manager,
                 workspace: workspace_manager,
                 query: query_manager,
                 search: search_manager,
+                search_observations: Some(search_observations),
                 feedback: feedback_manager,
                 task: task_manager,
             },
@@ -1444,14 +1627,16 @@ tables:
             layout.clone(),
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
+        let search_observations = SearchObservationHandle::new(layout.clone());
         let search_manager =
             SearchManager::new(layout.clone(), &config_store, workspace_manager.clone());
         let running = start_server(
-            ServerManagers {
+            ServerDependencies {
                 source: source_manager,
                 workspace: workspace_manager,
                 query: query_manager,
                 search: search_manager,
+                search_observations: Some(search_observations),
                 feedback: feedback_manager,
                 task: task_manager,
             },
@@ -1561,14 +1746,16 @@ tables:
             layout.clone(),
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
+        let search_observations = SearchObservationHandle::new(layout.clone());
         let search_manager =
             SearchManager::new(layout.clone(), &config_store, workspace_manager.clone());
         let running = start_server(
-            ServerManagers {
+            ServerDependencies {
                 source: source_manager,
                 workspace: workspace_manager,
                 query: query_manager,
                 search: search_manager,
+                search_observations: Some(search_observations),
                 feedback: feedback_manager,
                 task: task_manager,
             },
@@ -1678,14 +1865,16 @@ tables:
             layout.clone(),
             vec![Arc::new(NoopEngineExtensionsProvider)],
         );
+        let search_observations = SearchObservationHandle::new(layout.clone());
         let search_manager =
             SearchManager::new(layout.clone(), &config_store, workspace_manager.clone());
         let running = start_server(
-            ServerManagers {
+            ServerDependencies {
                 source: source_manager,
                 workspace: workspace_manager,
                 query: query_manager,
                 search: search_manager,
+                search_observations: Some(search_observations),
                 feedback: feedback_manager,
                 task: task_manager,
             },
