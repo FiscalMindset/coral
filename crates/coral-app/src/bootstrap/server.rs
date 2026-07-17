@@ -30,7 +30,7 @@ use coral_api::{
 };
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
+use tokio::task::{self, JoinHandle};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::codegen::http::header::CONTENT_TYPE;
 use tonic::codegen::http::{HeaderValue, Method, Request, Response, StatusCode};
@@ -427,6 +427,7 @@ fn resolve_database_config(layout: &AppStateLayout) -> Result<ResolvedDatabaseCo
 pub struct RunningServer {
     endpoint_uri: String,
     local_trace_store_dir: Option<PathBuf>,
+    search: SearchManager,
     search_observations: Mutex<Option<SearchObservationHandle>>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     task: Mutex<Option<JoinHandle<Result<(), tonic::transport::Error>>>>,
@@ -495,7 +496,10 @@ impl RunningServer {
             .expect("search observation mutex poisoned")
             .take();
         if let Some(search_observations) = search_observations {
-            tokio::task::spawn_blocking(move || search_observations.shutdown()).await??;
+            let shutdown_result =
+                task::spawn_blocking(move || search_observations.shutdown()).await;
+            drain_search_before_shutdown(self.search.clone()).await;
+            shutdown_result??;
         }
         Ok(())
     }
@@ -553,7 +557,7 @@ async fn start_server(
         feedback,
         task,
     } = dependencies;
-    let (source, query) = match &search_observations {
+    let (source, query) = match search_observations.as_ref() {
         Some(search_observations) => (
             source.with_search_observation_handle(search_observations.clone()),
             query.with_search_observation_handle(search_observations.clone()),
@@ -565,7 +569,7 @@ async fn start_server(
     let catalog_service = CatalogService::new(query.clone());
     let function_service = FunctionService::new(query.clone());
     let query_service = QueryService::new(query);
-    let search_service = SearchService::new(search);
+    let search_service = SearchService::new(search.clone());
     let feedback_service = FeedbackService::new(feedback);
     let task_service = TaskService::new(task);
     let mut routes = Routes::default()
@@ -614,6 +618,7 @@ async fn start_server(
     Ok(RunningServer {
         endpoint_uri,
         local_trace_store_dir,
+        search,
         search_observations: Mutex::new(search_observations),
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
         task: Mutex::new(Some(task)),
@@ -663,6 +668,15 @@ fn start_grpc_web_server(
             })
             .await
     })
+}
+
+async fn drain_search_before_shutdown(search: SearchManager) {
+    if let Err(error) = search.drain_before_shutdown().await {
+        tracing::debug!(
+            error = ?error,
+            "failed to prepare search state before shutdown"
+        );
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -845,7 +859,10 @@ mod tests {
     use crate::feedback::manager::FeedbackManager;
     use crate::query::manager::QueryManager;
     use crate::search::manager::SearchManager;
-    use crate::search::observed::SearchObservationHandle;
+    use crate::search::observed::{
+        ObservedValuesQueueJob, ObservedValuesSurfaceKind, SearchObservationHandle,
+        SqliteObservedValuesStore,
+    };
     use crate::sources::manager::SourceManager;
     use crate::state::db::{CoralDb, DatabaseConfig, ResolvedDatabaseConfig, run_state_migrations};
     use crate::state::{AppStateLayout, ConfigStore};
@@ -939,6 +956,39 @@ enabled = false
         let temp = TempDir::new().expect("temp dir");
         let layout =
             AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        layout.ensure().expect("layout dirs");
+        let config_store = ConfigStore::new(layout.clone());
+        let credential_store = CredentialStore::new(layout.clone());
+        let credential_manager = CredentialManager::new(credential_store);
+        let db = test_db(&layout, &config_store).await;
+        let workspace_manager = WorkspaceManager::new_for_tests(
+            config_store.clone(),
+            credential_manager,
+            layout.clone(),
+            None,
+            db,
+        );
+        let search = SearchManager::new(layout.clone(), &config_store, workspace_manager);
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout.clone());
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        store
+            .enqueue_if_current(
+                &workspace,
+                &ObservedValuesQueueJob {
+                    owner_source_name: "github".to_string(),
+                    source_name: "github".to_string(),
+                    source_scope_id: "scope".to_string(),
+                    surface_kind: ObservedValuesSurfaceKind::Table,
+                    surface_name: "issues".to_string(),
+                    payload_json: r#"{"values":[{"column_name":"title","display_value":"Payment outage","search_text":"payment outage","value_key":"payment-outage"}]}"#
+                        .to_string(),
+                },
+                generation,
+            )
+            .expect("enqueue observed value");
         let search_observations = SearchObservationHandle::new(layout);
         let task = tokio::spawn(async {
             let should_panic = true;
@@ -948,6 +998,7 @@ enabled = false
         let server = RunningServer {
             endpoint_uri: "http://127.0.0.1:0".to_string(),
             local_trace_store_dir: None,
+            search,
             search_observations: Mutex::new(Some(search_observations)),
             shutdown_tx: Mutex::new(None),
             task: Mutex::new(Some(task)),
@@ -962,6 +1013,18 @@ enabled = false
                 .lock()
                 .expect("search observation mutex")
                 .is_none()
+        );
+        assert_eq!(
+            store
+                .projected_value_count(&workspace)
+                .expect("projected value count"),
+            1
+        );
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("pending queue depth"),
+            0
         );
     }
 
@@ -1148,6 +1211,104 @@ backend = "unsupported"
             "task events should contain end status, got: {tasks}"
         );
         server.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_observed_values_queue() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        configure_observed_values_search(&config_dir, true);
+        let layout = AppStateLayout::discover(Some(config_dir.clone())).expect("layout");
+        layout.ensure().expect("layout dirs");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout);
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        store
+            .enqueue_if_current(
+                &workspace,
+                &ObservedValuesQueueJob {
+                    owner_source_name: "github".to_string(),
+                    source_name: "github".to_string(),
+                    source_scope_id: "scope".to_string(),
+                    surface_kind: ObservedValuesSurfaceKind::Table,
+                    surface_name: "issues".to_string(),
+                    payload_json: r#"{"values":[{"column_name":"title","display_value":"Payment outage","search_text":"payment outage","value_key":"payment-outage"}]}"#
+                        .to_string(),
+                },
+                generation,
+            )
+            .expect("enqueue observed value");
+
+        let server = ServerBuilder::new()
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start server");
+        server.shutdown().await.expect("shutdown");
+
+        assert_eq!(
+            store
+                .projected_value_count(&workspace)
+                .expect("projected value count"),
+            1
+        );
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("pending queue depth"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_leaves_observed_values_queue_untouched_when_feature_is_disabled() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        disable_internal_tracing(&config_dir);
+        let layout = AppStateLayout::discover(Some(config_dir.clone())).expect("layout");
+        layout.ensure().expect("layout dirs");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout);
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        store
+            .enqueue_if_current(
+                &workspace,
+                &ObservedValuesQueueJob {
+                    owner_source_name: "github".to_string(),
+                    source_name: "github".to_string(),
+                    source_scope_id: "scope".to_string(),
+                    surface_kind: ObservedValuesSurfaceKind::Table,
+                    surface_name: "issues".to_string(),
+                    payload_json: r#"{"values":[{"column_name":"title","display_value":"Payment outage","search_text":"payment outage","value_key":"payment-outage"}]}"#
+                        .to_string(),
+                },
+                generation,
+            )
+            .expect("enqueue observed value");
+
+        let server = ServerBuilder::new()
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start server");
+        server.shutdown().await.expect("shutdown");
+
+        assert_eq!(
+            store
+                .projected_value_count(&workspace)
+                .expect("projected value count"),
+            0
+        );
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("pending queue depth"),
+            1
+        );
     }
 
     #[tokio::test]

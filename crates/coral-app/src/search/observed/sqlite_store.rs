@@ -1,9 +1,14 @@
 //! `SQLite` observed-values queue and governance operations.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehavior, params};
 
+use crate::search::observed::sqlite_projection;
+use crate::search::observed::sqlite_projection::{
+    MAX_OBSERVED_QUEUE_JOB_ATTEMPTS, ObservedValuesDrainBudget, ObservedValuesDrainResult,
+};
 use crate::search::observed::sqlite_queue::{
     ObservedValuesEnqueueResult, ObservedValuesEpoch, ObservedValuesQueueJob,
 };
@@ -19,6 +24,13 @@ const MAX_PENDING_QUEUE_JOBS_PER_WORKSPACE: i64 = 2;
 #[derive(Debug, Clone)]
 pub(crate) struct SqliteObservedValuesStore {
     layout: AppStateLayout,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ObservedValuesClearResult {
+    pub(crate) values: u32,
+    pub(crate) fts_rows: u32,
+    pub(crate) queue_jobs: u32,
 }
 
 impl SqliteObservedValuesStore {
@@ -74,26 +86,37 @@ impl SqliteObservedValuesStore {
     pub(crate) fn clear_workspace_and_advance_epoch(
         &self,
         workspace_name: &WorkspaceName,
-    ) -> Result<(), SqliteSearchError> {
+    ) -> Result<ObservedValuesClearResult, SqliteSearchError> {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let mut connection = store.connect()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        clear_workspace_in_transaction(&transaction, workspace_name)?;
+        let result = clear_workspace_in_transaction(&transaction, workspace_name)?;
         transaction.commit()?;
-        Ok(())
+        Ok(result)
     }
 
     pub(crate) fn clear_source_and_advance_epoch(
         &self,
         workspace_name: &WorkspaceName,
         owner_source_name: &str,
-    ) -> Result<(), SqliteSearchError> {
+    ) -> Result<ObservedValuesClearResult, SqliteSearchError> {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let mut connection = store.connect()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        clear_source_in_transaction(&transaction, workspace_name, owner_source_name)?;
+        let result = clear_source_in_transaction(&transaction, workspace_name, owner_source_name)?;
         transaction.commit()?;
-        Ok(())
+        Ok(result)
+    }
+
+    pub(crate) fn drain_queue(
+        &self,
+        workspace_name: &WorkspaceName,
+        budget: ObservedValuesDrainBudget,
+    ) -> Result<ObservedValuesDrainResult, SqliteSearchError> {
+        let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
+        let mut connection = store.connect()?;
+        configure_drain_busy_timeout(&connection, budget)?;
+        sqlite_projection::drain_observed_queue(&mut connection, workspace_name, budget)
     }
 
     #[cfg(test)]
@@ -103,8 +126,19 @@ impl SqliteObservedValuesStore {
     ) -> Result<usize, SqliteSearchError> {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let connection = store.connect()?;
+        let count = pending_queue_job_count(&connection, workspace_name)?;
+        Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn projected_value_count(
+        &self,
+        workspace_name: &WorkspaceName,
+    ) -> Result<usize, SqliteSearchError> {
+        let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
+        let connection = store.connect()?;
         let count: i64 = connection.query_row(
-            "SELECT COUNT(*) FROM observed_queue_jobs WHERE workspace = ?1",
+            "SELECT COUNT(*) FROM observed_values WHERE workspace = ?1",
             params![workspace_name.as_str()],
             |row| row.get(0),
         )?;
@@ -148,6 +182,28 @@ impl SqliteObservedValuesStore {
         )?;
         let rows = statement.query_map(params![workspace_name.as_str()], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(SqliteSearchError::from)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queue_attempts_and_errors(
+        &self,
+        workspace_name: &WorkspaceName,
+    ) -> Result<Vec<(i64, String)>, SqliteSearchError> {
+        let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
+        let connection = store.connect()?;
+        let mut statement = connection.prepare(
+            "
+            SELECT attempts, last_error
+            FROM observed_queue_jobs
+            WHERE workspace = ?1
+            ORDER BY id
+            ",
+        )?;
+        let rows = statement.query_map(params![workspace_name.as_str()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
         })?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(SqliteSearchError::from)
@@ -234,42 +290,50 @@ fn enqueue_if_current_in_transaction(
 fn clear_workspace_in_transaction(
     transaction: &Transaction<'_>,
     workspace_name: &WorkspaceName,
-) -> Result<(), SqliteSearchError> {
-    transaction.execute(
+) -> Result<ObservedValuesClearResult, SqliteSearchError> {
+    let deleted_fts_count = transaction.execute(
         "DELETE FROM observed_values_fts WHERE workspace = ?1",
         params![workspace_name.as_str()],
     )?;
-    transaction.execute(
+    let deleted_value_count = transaction.execute(
         "DELETE FROM observed_values WHERE workspace = ?1",
         params![workspace_name.as_str()],
     )?;
-    transaction.execute(
+    let deleted_queue_job_count = transaction.execute(
         "DELETE FROM observed_queue_jobs WHERE workspace = ?1",
         params![workspace_name.as_str()],
     )?;
     advance_workspace_epoch(transaction, workspace_name)?;
-    Ok(())
+    Ok(ObservedValuesClearResult {
+        values: u32::try_from(deleted_value_count).unwrap_or(u32::MAX),
+        fts_rows: u32::try_from(deleted_fts_count).unwrap_or(u32::MAX),
+        queue_jobs: u32::try_from(deleted_queue_job_count).unwrap_or(u32::MAX),
+    })
 }
 
 fn clear_source_in_transaction(
     transaction: &Transaction<'_>,
     workspace_name: &WorkspaceName,
     owner_source_name: &str,
-) -> Result<(), SqliteSearchError> {
-    transaction.execute(
+) -> Result<ObservedValuesClearResult, SqliteSearchError> {
+    let deleted_fts_count = transaction.execute(
         "DELETE FROM observed_values_fts WHERE workspace = ?1 AND owner_source_name = ?2",
         params![workspace_name.as_str(), owner_source_name],
     )?;
-    transaction.execute(
+    let deleted_value_count = transaction.execute(
         "DELETE FROM observed_values WHERE workspace = ?1 AND owner_source_name = ?2",
         params![workspace_name.as_str(), owner_source_name],
     )?;
-    transaction.execute(
+    let deleted_queue_job_count = transaction.execute(
         "DELETE FROM observed_queue_jobs WHERE workspace = ?1 AND owner_source_name = ?2",
         params![workspace_name.as_str(), owner_source_name],
     )?;
     advance_source_epoch(transaction, workspace_name, owner_source_name)?;
-    Ok(())
+    Ok(ObservedValuesClearResult {
+        values: u32::try_from(deleted_value_count).unwrap_or(u32::MAX),
+        fts_rows: u32::try_from(deleted_fts_count).unwrap_or(u32::MAX),
+        queue_jobs: u32::try_from(deleted_queue_job_count).unwrap_or(u32::MAX),
+    })
 }
 
 fn pending_queue_job_count(
@@ -278,11 +342,22 @@ fn pending_queue_job_count(
 ) -> Result<i64, SqliteSearchError> {
     connection
         .query_row(
-            "SELECT COUNT(*) FROM observed_queue_jobs WHERE workspace = ?1",
-            params![workspace_name.as_str()],
+            "SELECT COUNT(*) FROM observed_queue_jobs WHERE workspace = ?1 AND attempts < ?2",
+            params![workspace_name.as_str(), MAX_OBSERVED_QUEUE_JOB_ATTEMPTS],
             |row| row.get(0),
         )
         .map_err(SqliteSearchError::from)
+}
+
+fn configure_drain_busy_timeout(
+    connection: &Connection,
+    budget: ObservedValuesDrainBudget,
+) -> Result<(), SqliteSearchError> {
+    if budget.time_budget.is_zero() {
+        return Ok(());
+    }
+    connection.busy_timeout(budget.time_budget.min(Duration::from_secs(5)))?;
+    Ok(())
 }
 
 fn pending_queue_job_id(
@@ -304,6 +379,7 @@ fn pending_queue_job_id(
               AND surface_name = ?6
               AND workspace_generation = ?7
               AND source_generation = ?8
+              AND attempts < ?9
             ",
             params![
                 workspace_name.as_str(),
@@ -314,6 +390,7 @@ fn pending_queue_job_id(
                 &job.surface_name,
                 epoch.workspace_generation,
                 epoch.source_generation,
+                MAX_OBSERVED_QUEUE_JOB_ATTEMPTS,
             ],
             |row| row.get(0),
         )
@@ -402,8 +479,11 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use rusqlite::TransactionBehavior;
+    use rusqlite::{TransactionBehavior, params};
 
+    use super::super::sqlite_projection::{
+        MAX_OBSERVED_QUEUE_JOB_ATTEMPTS, ObservedValuesDrainBudget,
+    };
     use super::{
         SqliteObservedValuesStore, clear_source_in_transaction, enqueue_if_current_in_transaction,
     };
@@ -751,6 +831,182 @@ mod tests {
         );
     }
 
+    #[test]
+    fn drain_queue_projects_observed_values_into_canonical_and_fts_rows() {
+        let temp = tempdir().expect("tempdir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout);
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        store
+            .enqueue_if_current(
+                &workspace,
+                &test_job_with("scope", "issues", "Payment outage"),
+                generation,
+            )
+            .expect("enqueue");
+
+        let result = store
+            .drain_queue(&workspace, drain_budget())
+            .expect("drain queue");
+
+        assert_eq!(result.queue_jobs_processed, 1);
+        assert_eq!(result.canonical_rows_upserted, 1);
+        assert_eq!(result.fts_rows_written, 1);
+        assert_eq!(result.remaining_queue_depth, 0);
+        assert_eq!(
+            store
+                .projected_value_count(&workspace)
+                .expect("projected value count"),
+            1
+        );
+    }
+
+    #[test]
+    fn drain_queue_keeps_failed_payload_for_retry() {
+        let temp = tempdir().expect("tempdir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout);
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        let mut job = test_job();
+        job.payload_json = "{not-json".to_string();
+        store
+            .enqueue_if_current(&workspace, &job, generation)
+            .expect("enqueue");
+
+        let result = store
+            .drain_queue(&workspace, drain_budget())
+            .expect("drain queue");
+
+        assert_eq!(result.failed_jobs, 1);
+        assert_eq!(result.remaining_queue_depth, 1);
+        let attempts = store
+            .queue_attempts_and_errors(&workspace)
+            .expect("attempts");
+        assert_eq!(attempts.len(), 1);
+        let attempt = attempts.first().expect("failed attempt");
+        assert_eq!(attempt.0, 1);
+        assert!(
+            attempt.1.contains("expected ident") || attempt.1.contains("key"),
+            "parse error should be recorded, got: {}",
+            attempt.1
+        );
+    }
+
+    #[test]
+    fn drain_queue_dead_letters_failed_payload_after_retry_cap() {
+        let temp = tempdir().expect("tempdir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout);
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        let mut job = test_job_with("poison", "issues", "Poison");
+        job.payload_json = "{not-json".to_string();
+        store
+            .enqueue_if_current(&workspace, &job, generation)
+            .expect("enqueue poison");
+
+        for _ in 0..MAX_OBSERVED_QUEUE_JOB_ATTEMPTS {
+            store
+                .drain_queue(&workspace, drain_budget())
+                .expect("drain queue");
+        }
+
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("active queue count"),
+            0
+        );
+        let attempts = store
+            .queue_attempts_and_errors(&workspace)
+            .expect("attempts");
+        assert_eq!(attempts.len(), 1);
+        let attempt = attempts.first().expect("failed attempt");
+        assert_eq!(attempt.0, MAX_OBSERVED_QUEUE_JOB_ATTEMPTS);
+        assert!(attempt.1.contains("expected ident") || attempt.1.contains("key"));
+
+        assert!(matches!(
+            store
+                .enqueue_if_current(
+                    &workspace,
+                    &test_job_with("scope-1", "issues", "One"),
+                    generation,
+                )
+                .expect("first active enqueue"),
+            ObservedValuesEnqueueResult::Enqueued { .. }
+        ));
+        assert!(matches!(
+            store
+                .enqueue_if_current(
+                    &workspace,
+                    &test_job_with("scope-2", "issues", "Two"),
+                    generation,
+                )
+                .expect("second active enqueue"),
+            ObservedValuesEnqueueResult::Enqueued { .. }
+        ));
+        let result = store
+            .enqueue_if_current(&workspace, &job, generation)
+            .expect("revive dead-lettered poison job");
+
+        assert_eq!(result, ObservedValuesEnqueueResult::QueueFull);
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("active queue count"),
+            2
+        );
+        let attempts = store
+            .queue_attempts_and_errors(&workspace)
+            .expect("attempts after rejected revive");
+        assert!(
+            attempts
+                .iter()
+                .any(|attempt| attempt.0 == MAX_OBSERVED_QUEUE_JOB_ATTEMPTS),
+            "dead-lettered job should not be reset when active queue is full"
+        );
+    }
+
+    #[test]
+    fn drain_queue_deletes_stale_generation_jobs() {
+        let temp = tempdir().expect("tempdir");
+        let layout =
+            AppStateLayout::discover(Some(temp.path().join("coral-config"))).expect("layout");
+        let workspace = WorkspaceName::default();
+        let store = SqliteObservedValuesStore::new(layout.clone());
+        let generation = store
+            .capture_epoch(&workspace, "github")
+            .expect("generation");
+        store
+            .enqueue_if_current(&workspace, &test_job(), generation)
+            .expect("enqueue");
+        advance_source_epoch_for_test(&layout, &workspace, "github");
+
+        let result = store
+            .drain_queue(&workspace, drain_budget())
+            .expect("drain queue");
+
+        assert_eq!(result.stale_jobs_skipped, 1);
+        assert_eq!(result.remaining_queue_depth, 0);
+        assert_eq!(
+            store
+                .pending_queue_job_count(&workspace)
+                .expect("queue count"),
+            0
+        );
+    }
+
     fn test_job() -> ObservedValuesQueueJob {
         test_job_with("scope", "issues", "Bug")
     }
@@ -775,5 +1031,35 @@ mod tests {
             r#"{{"values":[{{"column_name":"title","display_value":"{display_value}","search_text":"{}","value_key":"key"}}]}}"#,
             display_value.to_ascii_lowercase()
         )
+    }
+
+    fn drain_budget() -> ObservedValuesDrainBudget {
+        ObservedValuesDrainBudget::new(10, Duration::from_secs(1))
+    }
+
+    fn advance_source_epoch_for_test(
+        layout: &AppStateLayout,
+        workspace: &WorkspaceName,
+        source_name: &str,
+    ) {
+        let backing = SqliteSearchStore::open_workspace(layout, workspace).expect("store");
+        let connection = backing.connect_for_test().expect("connection");
+        connection
+            .execute(
+                "
+                INSERT INTO observed_source_generations (
+                    workspace,
+                    source_name,
+                    generation,
+                    updated_at
+                )
+                VALUES (?1, ?2, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ON CONFLICT(workspace, source_name) DO UPDATE SET
+                    generation = generation + 1,
+                    updated_at = excluded.updated_at
+                ",
+                params![workspace.as_str(), source_name],
+            )
+            .expect("increment source generation");
     }
 }
