@@ -20,8 +20,9 @@ use coral_api::v1::search_service_server::{SearchService, SearchServiceServer};
 use coral_api::v1::source_service_server::{SourceService, SourceServiceServer};
 use coral_api::v1::workspace_service_server::{WorkspaceService, WorkspaceServiceServer};
 use coral_api::v1::{
-    AddFunctionRequest, AddFunctionResponse, CatalogCounts, CatalogItem, CatalogMetadata,
-    CatalogSearchResult, Column, ColumnHint, ColumnSearchResult, CreateBundledSourceRequest,
+    AddFunctionRequest, AddFunctionResponse, CatalogClearResult, CatalogCounts, CatalogItem,
+    CatalogMetadata, CatalogRebuildResult, CatalogSearchResult, ClearSearchDataRequest,
+    ClearSearchDataResponse, Column, ColumnHint, ColumnSearchResult, CreateBundledSourceRequest,
     CreateBundledSourceResponse, CreateBundledSourceWithOAuthRequest,
     CreateBundledSourceWithOAuthResponse, CreateWorkspaceRequest, CreateWorkspaceResponse,
     DeleteFunctionRequest, DeleteFunctionResponse, DeleteSourceRequest, DeleteSourceResponse,
@@ -32,13 +33,15 @@ use coral_api::v1::{
     ListCatalogRequest, ListCatalogResponse, ListColumnsRequest, ListColumnsResponse,
     ListFunctionsRequest, ListFunctionsResponse, ListSourcesRequest, ListSourcesResponse,
     ListWorkspacesRequest, ListWorkspacesResponse, PaginationRequest, PaginationResponse,
-    QueryPlan, SearchCatalogRequest, SearchCatalogResponse, SearchFieldRole, SearchProvider,
-    SearchProviderCoverage, SearchProviderState, SearchRequest, SearchResponse, SearchResult,
-    SearchResultTruncation, SearchSurfaceKind, SearchTableColumnPreview,
-    SearchTableColumnPreviewColumn, Source, SourceCredentialStorage, SourceInfo, SourceInputSpec,
-    SourceOrigin, SourceSecretInput, Table, TableSummary, ValidateSourceRequest,
-    ValidateSourceResponse, Workspace, catalog_item, create_bundled_source_with_o_auth_response,
-    import_source_response, search_result, source_input_spec::Input as ProtoSourceInput,
+    QueryPlan, RebuildSearchIndexRequest, RebuildSearchIndexResponse, SearchCatalogRequest,
+    SearchCatalogResponse, SearchFieldRole, SearchMaintenanceResult, SearchMaintenanceState,
+    SearchProvider, SearchProviderCoverage, SearchProviderState, SearchRequest, SearchResponse,
+    SearchResult, SearchResultTruncation, SearchStorageCleanupResult, SearchSurfaceKind,
+    SearchTableColumnPreview, SearchTableColumnPreviewColumn, Source, SourceCredentialStorage,
+    SourceInfo, SourceInputSpec, SourceOrigin, SourceSecretInput, Table, TableSummary,
+    ValidateSourceRequest, ValidateSourceResponse, Workspace, catalog_item,
+    create_bundled_source_with_o_auth_response, import_source_response, search_maintenance_result,
+    search_result, source_input_spec::Input as ProtoSourceInput,
 };
 use coral_api::{
     CORAL_ERROR_DOMAIN, CORAL_ERROR_REASON_SOURCE_NOT_FOUND, CORAL_TASK_ID_METADATA_KEY,
@@ -442,6 +445,43 @@ fn mock_search_response() -> SearchResponse {
     }
 }
 
+fn mock_rebuild_search_index_response() -> RebuildSearchIndexResponse {
+    RebuildSearchIndexResponse {
+        results: vec![SearchMaintenanceResult {
+            provider: SearchProvider::CatalogMetadata as i32,
+            state: SearchMaintenanceState::Completed as i32,
+            note: "force rebuilt catalog search projection".to_string(),
+            detail: Some(search_maintenance_result::Detail::CatalogRebuild(
+                CatalogRebuildResult {
+                    old_document_count: 2,
+                    new_document_count: 3,
+                    projection_changed: false,
+                    rebuild_performed: true,
+                },
+            )),
+        }],
+    }
+}
+
+fn mock_clear_search_data_response() -> ClearSearchDataResponse {
+    ClearSearchDataResponse {
+        results: vec![SearchMaintenanceResult {
+            provider: SearchProvider::CatalogMetadata as i32,
+            state: SearchMaintenanceState::Completed as i32,
+            note: "cleared catalog search projection".to_string(),
+            detail: Some(search_maintenance_result::Detail::CatalogClear(
+                CatalogClearResult {
+                    deleted_document_count: 3,
+                },
+            )),
+        }],
+        storage_cleanup: Some(SearchStorageCleanupResult {
+            state: SearchMaintenanceState::Completed as i32,
+            note: "local search storage cleanup completed".to_string(),
+        }),
+    }
+}
+
 fn mock_provider_status(
     provider: SearchProvider,
     state: SearchProviderState,
@@ -581,6 +621,8 @@ impl<T> MockResult<T> {
 pub(crate) struct MockServerConfig {
     execute_sql_override: Option<MockResult<ExecuteSqlResponse>>,
     search: MockResult<SearchResponse>,
+    rebuild_search_index: MockResult<RebuildSearchIndexResponse>,
+    clear_search_data: MockResult<ClearSearchDataResponse>,
     discover_sources: MockResult<DiscoverSourcesResponse>,
     list_sources: MockResult<ListSourcesResponse>,
     list_workspaces: MockResult<ListWorkspacesResponse>,
@@ -596,6 +638,8 @@ impl Default for MockServerConfig {
         Self {
             execute_sql_override: None,
             search: MockResult::ok(mock_search_response()),
+            rebuild_search_index: MockResult::ok(mock_rebuild_search_index_response()),
+            clear_search_data: MockResult::ok(mock_clear_search_data_response()),
             discover_sources: MockResult::ok(mock_discover_response()),
             list_sources: MockResult::ok(ListSourcesResponse {
                 sources: vec![
@@ -634,6 +678,14 @@ impl Default for MockServerConfig {
 }
 
 impl MockServerConfig {
+    pub(crate) fn with_rebuild_search_index(
+        mut self,
+        response: RebuildSearchIndexResponse,
+    ) -> Self {
+        self.rebuild_search_index = MockResult::ok(response);
+        self
+    }
+
     pub(crate) fn with_discover_sources(mut self, response: DiscoverSourcesResponse) -> Self {
         self.discover_sources = MockResult::ok(response);
         self
@@ -747,6 +799,8 @@ struct Captured {
     execute_sql: Mutex<Vec<ExecuteSqlRequest>>,
     search: Mutex<Vec<SearchRequest>>,
     execute_sql_task_ids: Mutex<Vec<Option<String>>>,
+    rebuild_search_index: Mutex<Vec<RebuildSearchIndexRequest>>,
+    clear_search_data: Mutex<Vec<ClearSearchDataRequest>>,
     list_catalog: Mutex<Vec<ListCatalogRequest>>,
     search_catalog: Mutex<Vec<SearchCatalogRequest>>,
     describe_table: Mutex<Vec<DescribeTableRequest>>,
@@ -802,6 +856,37 @@ impl SearchService for MockSearchService {
             .push(request.into_inner());
         Ok(Response::new(
             self.config.search.clone().into_tonic_result()?,
+        ))
+    }
+
+    async fn rebuild_search_index(
+        &self,
+        request: Request<RebuildSearchIndexRequest>,
+    ) -> Result<Response<RebuildSearchIndexResponse>, Status> {
+        self.captured
+            .rebuild_search_index
+            .lock()
+            .expect("rebuild search index capture")
+            .push(request.into_inner());
+        Ok(Response::new(
+            self.config
+                .rebuild_search_index
+                .clone()
+                .into_tonic_result()?,
+        ))
+    }
+
+    async fn clear_search_data(
+        &self,
+        request: Request<ClearSearchDataRequest>,
+    ) -> Result<Response<ClearSearchDataResponse>, Status> {
+        self.captured
+            .clear_search_data
+            .lock()
+            .expect("clear search data capture")
+            .push(request.into_inner());
+        Ok(Response::new(
+            self.config.clear_search_data.clone().into_tonic_result()?,
         ))
     }
 }
@@ -1398,6 +1483,22 @@ impl MockServer {
             .execute_sql_task_ids
             .lock()
             .expect("execute_sql task id capture")
+            .clone()
+    }
+
+    pub(crate) fn rebuild_search_index_requests(&self) -> Vec<RebuildSearchIndexRequest> {
+        self.captured
+            .rebuild_search_index
+            .lock()
+            .expect("rebuild search index capture")
+            .clone()
+    }
+
+    pub(crate) fn clear_search_data_requests(&self) -> Vec<ClearSearchDataRequest> {
+        self.captured
+            .clear_search_data
+            .lock()
+            .expect("clear search data capture")
             .clone()
     }
 

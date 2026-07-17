@@ -29,9 +29,11 @@ use clap::{
 };
 use clap_complete::{Shell, generate};
 use coral_api::v1::{
-    AddFunctionRequest, CreateWorkspaceRequest, DeleteFunctionRequest, DeleteWorkspaceRequest,
-    ExecuteSqlRequest, Function, FunctionRuntimeReady, ListFunctionsRequest, ListWorkspacesRequest,
-    SearchRequest, Workspace, function,
+    AddFunctionRequest, ClearSearchDataRequest, CreateWorkspaceRequest, DeleteFunctionRequest,
+    DeleteWorkspaceRequest, ExecuteSqlRequest, Function, FunctionRuntimeReady,
+    ListFunctionsRequest, ListWorkspacesRequest, RebuildSearchIndexRequest, SearchClearTarget,
+    SearchDataScope, SearchProvider, SearchRequest, Workspace, function, search_clear_target,
+    search_maintenance_result,
 };
 #[cfg(feature = "embedded-ui")]
 use coral_app::StaticAssetsProvider;
@@ -77,6 +79,8 @@ enum Command {
     Sql(SqlArgs),
     /// Find relevant Coral tables, functions, columns, and filters
     Search(SearchArgs),
+    /// Manage Coral's local search indexes
+    SearchIndex(SearchIndexArgs),
     /// Manage data sources
     Source(SourceArgs),
     /// Manage workspaces
@@ -152,9 +156,59 @@ struct SearchArgs {
 }
 
 #[derive(Debug, Args)]
+/// Manage Coral's local search indexes
+struct SearchIndexArgs {
+    #[command(subcommand)]
+    command: SearchIndexCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum SearchIndexCommand {
+    /// Rebuild all local search indexes.
+    ///
+    /// Coral skips the rebuild when the index is already up to date unless you pass `--force`.
+    Rebuild(SearchRebuildArgs),
+    /// Clear Coral's local search data for one workspace.
+    ///
+    /// Clear deletes local search data, so Coral requires both `--yes` and an
+    /// explicit `--workspace NAME`.
+    Clear(SearchClearArgs),
+}
+
+#[derive(Debug, Args)]
+struct SearchRebuildArgs {
+    /// Rebuild even when the stored projection fingerprint is current
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Debug, Args)]
+struct SearchClearArgs {
+    /// Search data scope to clear
+    #[arg(long, value_enum)]
+    scope: SearchClearScope,
+    /// Set when an explicit global `--workspace NAME` selector is present.
+    #[arg(skip)]
+    explicit_workspace: bool,
+    /// Confirm destructive search-data deletion
+    #[arg(long, required = true, action = ArgAction::SetTrue)]
+    yes: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SearchClearScope {
+    All,
+}
+
+#[derive(Debug, Args)]
 struct WorkspaceSelectionArgs {
     /// Workspace to target. Overrides `CORAL_WORKSPACE`.
-    #[arg(long = "workspace", value_name = "NAME", global = true)]
+    #[arg(
+        long = "workspace",
+        value_name = "NAME",
+        global = true,
+        value_parser = clap::builder::NonEmptyStringValueParser::new()
+    )]
     workspace: Option<String>,
 }
 
@@ -451,6 +505,7 @@ impl Command {
         match self {
             Command::Sql(_)
             | Command::Search(_)
+            | Command::SearchIndex(_)
             | Command::Source(_)
             | Command::Workspace(_)
             | Command::Function(_)
@@ -471,11 +526,26 @@ impl Command {
             self,
             Command::Sql(_)
                 | Command::Search(_)
+                | Command::SearchIndex(_)
                 | Command::Source(_)
                 | Command::Function(_)
                 | Command::Onboard
                 | Command::McpStdio(_)
         )
+    }
+
+    fn apply_workspace_flag_presence(&mut self, present: bool) {
+        if let Command::SearchIndex(args) = self {
+            args.apply_workspace_flag_presence(present);
+        }
+    }
+}
+
+impl SearchIndexArgs {
+    fn apply_workspace_flag_presence(&mut self, present: bool) {
+        if let SearchIndexCommand::Clear(args) = &mut self.command {
+            args.explicit_workspace = present;
+        }
     }
 }
 
@@ -533,8 +603,10 @@ pub async fn run_from_env() -> Result<(), CliError> {
     let Cli {
         feature_overrides,
         workspace_selection,
-        command,
+        mut command,
     } = Cli::parse();
+    let workspace_flag_present = workspace_selection.workspace.is_some();
+    command.apply_workspace_flag_presence(workspace_flag_present);
     let feature_overrides = feature_overrides.into_overrides();
     let ctx = coral_app::RunContext {
         trace_parent: env::trace_parent(),
@@ -588,7 +660,6 @@ fn selected_workspace(cli_workspace: Option<String>) -> Workspace {
 
 fn selected_workspace_name(cli_workspace: Option<String>, env_workspace: Option<String>) -> String {
     cli_workspace
-        .filter(|value| !value.is_empty())
         .or_else(|| env_workspace.filter(|value| !value.is_empty()))
         .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_string())
 }
@@ -652,6 +723,7 @@ async fn run_no_runtime_command(
         Command::Ui(args) => run_ui(args).await.map_err(Into::into),
         Command::Sql(_)
         | Command::Search(_)
+        | Command::SearchIndex(_)
         | Command::Source(_)
         | Command::Workspace(_)
         | Command::Function(_)
@@ -692,6 +764,7 @@ async fn run_app_command(
             print_batches(result.batches(), args.format)?;
         }
         Command::Search(args) => run_search(&app, workspace, args).await?,
+        Command::SearchIndex(args) => run_search_index(&app, workspace, args).await?,
         Command::Source(args) => run_source(&app, workspace, args).await?,
         Command::Workspace(args) => run_workspace(&app, args).await?,
         Command::Function(args) => run_function(&app, workspace, args).await?,
@@ -1110,6 +1183,124 @@ fn function_name_arg(name: &str) -> Result<String, anyhow::Error> {
     }
     Ok(trimmed.to_string())
 }
+
+async fn run_search_index(
+    app: &AppClient,
+    workspace: &Workspace,
+    args: SearchIndexArgs,
+) -> Result<(), CliError> {
+    match args.command {
+        SearchIndexCommand::Rebuild(args) => {
+            let response = app
+                .search_client()
+                .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+                    workspace: Some(workspace.clone()),
+                    force: args.force,
+                }))
+                .await
+                .map_err(anyhow::Error::from)?
+                .into_inner();
+            print_search_rebuild_response(&response);
+        }
+        SearchIndexCommand::Clear(args) => {
+            if !args.explicit_workspace || !args.yes {
+                return Err(anyhow::anyhow!(
+                    "`coral search-index clear --scope all` requires an explicit `--workspace NAME` and `--yes`"
+                )
+                .into());
+            }
+            let response = app
+                .search_client()
+                .clear_search_data(Request::new(ClearSearchDataRequest {
+                    workspace: Some(workspace.clone()),
+                    scope: search_clear_scope_to_proto(args.scope) as i32,
+                    target: Some(SearchClearTarget {
+                        target: Some(search_clear_target::Target::Workspace(true)),
+                    }),
+                }))
+                .await
+                .map_err(anyhow::Error::from)?
+                .into_inner();
+            print_search_clear_response(&response);
+        }
+    }
+    Ok(())
+}
+
+fn search_clear_scope_to_proto(scope: SearchClearScope) -> SearchDataScope {
+    match scope {
+        SearchClearScope::All => SearchDataScope::All,
+    }
+}
+
+fn print_search_rebuild_response(response: &coral_api::v1::RebuildSearchIndexResponse) {
+    for result in &response.results {
+        match result.detail.as_ref() {
+            Some(search_maintenance_result::Detail::CatalogRebuild(detail)) => {
+                if detail.rebuild_performed {
+                    println!(
+                        "Rebuilt {} search index: old documents {}, new documents {}, projection changed {}.",
+                        search_provider_label(result.provider),
+                        detail.old_document_count,
+                        detail.new_document_count,
+                        yes_no(detail.projection_changed)
+                    );
+                } else {
+                    println!(
+                        "Skipped rebuilding {} search index: projection already current with {} documents.",
+                        search_provider_label(result.provider),
+                        detail.new_document_count
+                    );
+                }
+            }
+            _ => {
+                println!(
+                    "{} search index maintenance: {}",
+                    search_provider_label(result.provider),
+                    result.note
+                );
+            }
+        }
+    }
+}
+
+fn print_search_clear_response(response: &coral_api::v1::ClearSearchDataResponse) {
+    for result in &response.results {
+        match result.detail.as_ref() {
+            Some(search_maintenance_result::Detail::CatalogClear(detail)) => {
+                println!(
+                    "Cleared {} search data: deleted {} documents.",
+                    search_provider_label(result.provider),
+                    detail.deleted_document_count
+                );
+            }
+            _ => {
+                println!(
+                    "{} search data maintenance: {}",
+                    search_provider_label(result.provider),
+                    result.note
+                );
+            }
+        }
+    }
+    if let Some(storage_cleanup) = response.storage_cleanup.as_ref() {
+        println!("Storage cleanup: {}.", storage_cleanup.note);
+    }
+}
+
+fn search_provider_label(provider: i32) -> &'static str {
+    match SearchProvider::try_from(provider).ok() {
+        Some(SearchProvider::CatalogMetadata) => "catalog",
+        Some(SearchProvider::ObservedValues) => "observed-values",
+        Some(SearchProvider::NativeFanout) => "native-fanout",
+        Some(SearchProvider::Unspecified) | None => "unknown",
+    }
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
 fn print_batches(
     batches: &[arrow::record_batch::RecordBatch],
     format: OutputFormat,
@@ -1396,6 +1587,61 @@ mod tests {
     }
 
     #[test]
+    fn search_rebuild_parses_as_free_text_query() {
+        let cli = Cli::try_parse_from(["coral", "search", "rebuild"])
+            .expect("search rebuild should parse as query text");
+
+        let super::Command::Search(args) = cli.command else {
+            panic!("expected search command");
+        };
+        assert_eq!(args.query, vec!["rebuild".to_string()]);
+    }
+
+    #[test]
+    fn workspace_flag_requires_a_non_empty_name() {
+        Cli::try_parse_from([
+            "coral",
+            "search-index",
+            "clear",
+            "--scope",
+            "all",
+            "--workspace",
+            "--yes",
+        ])
+        .expect_err("bare workspace flag must be rejected");
+        Cli::try_parse_from([
+            "coral",
+            "search-index",
+            "clear",
+            "--scope",
+            "all",
+            "--workspace",
+            "",
+            "--yes",
+        ])
+        .expect_err("empty workspace name must be rejected");
+    }
+
+    #[test]
+    fn former_workspace_confirmation_marker_is_a_regular_name() {
+        let cli = Cli::try_parse_from([
+            "coral",
+            "search-index",
+            "clear",
+            "--scope",
+            "all",
+            "--workspace",
+            "__coral_current_workspace_confirmation__",
+            "--yes",
+        ])
+        .expect("former confirmation marker should parse as a workspace name");
+        assert_eq!(
+            cli.workspace_selection.workspace.as_deref(),
+            Some("__coral_current_workspace_confirmation__")
+        );
+    }
+
+    #[test]
     fn search_limit_rejects_values_outside_cli_contract() {
         Cli::try_parse_from(["coral", "search", "--limit", "0", "github"])
             .expect_err("zero limit should fail before contacting the server");
@@ -1430,10 +1676,13 @@ mod tests {
     }
 
     #[test]
-    fn selected_workspace_treats_empty_cli_value_as_unset() {
-        let workspace = super::selected_workspace_name(Some(String::new()), None);
+    fn selected_workspace_preserves_former_confirmation_marker() {
+        let workspace = super::selected_workspace_name(
+            Some("__coral_current_workspace_confirmation__".to_string()),
+            None,
+        );
 
-        assert_eq!(workspace, super::DEFAULT_WORKSPACE_ID);
+        assert_eq!(workspace, "__coral_current_workspace_confirmation__");
     }
 
     #[test]

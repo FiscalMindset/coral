@@ -15,8 +15,8 @@ use std::time::Duration;
 use rusqlite::{Connection, ErrorCode};
 
 use crate::search::catalog::sqlite_index::{
-    CatalogClearResult, CatalogIndexSnapshot, CatalogRefreshResult, CatalogSearchHits,
-    SqliteCatalogIndex,
+    CatalogClearResult, CatalogIndexSnapshot, CatalogRebuildResult, CatalogRefreshResult,
+    CatalogSearchHits, SqliteCatalogIndex,
 };
 use crate::state::AppStateLayout;
 use crate::storage::fs::create_new_file_private;
@@ -123,6 +123,15 @@ impl SqliteSearchStore {
         SqliteCatalogIndex::new().refresh(&mut connection, &self.workspace_name, snapshot)
     }
 
+    pub(crate) fn rebuild_catalog_projection(
+        &self,
+        snapshot: &CatalogIndexSnapshot,
+        force: bool,
+    ) -> Result<CatalogRebuildResult, SqliteSearchError> {
+        let mut connection = self.connect()?;
+        SqliteCatalogIndex::new().rebuild(&mut connection, &self.workspace_name, snapshot, force)
+    }
+
     pub(crate) fn catalog_document_count(&self) -> Result<u32, SqliteSearchError> {
         let connection = self.connect()?;
         SqliteCatalogIndex::new().document_count(&connection, &self.workspace_name)
@@ -131,6 +140,55 @@ impl SqliteSearchStore {
     pub(crate) fn clear_catalog_workspace(&self) -> Result<CatalogClearResult, SqliteSearchError> {
         let mut connection = self.connect()?;
         SqliteCatalogIndex::new().clear_workspace(&mut connection, &self.workspace_name)
+    }
+
+    pub(crate) fn compact_after_clear(&self) -> SqliteSearchCompactionResult {
+        let mut notes = Vec::new();
+        let wal_checkpoint_truncate_completed = match self.wal_checkpoint_truncate() {
+            Ok(WalCheckpointOutcome::Completed) => true,
+            Ok(WalCheckpointOutcome::Busy {
+                log_frame_count,
+                checkpointed_frame_count,
+            }) => {
+                notes.push(format!(
+                        "WAL checkpoint/truncate did not complete because a reader is active (log frames: {log_frame_count}, checkpointed frames: {checkpointed_frame_count})"
+                    ));
+                false
+            }
+            Err(error) => {
+                notes.push(format!("WAL checkpoint/truncate failed: {error}"));
+                false
+            }
+        };
+        let vacuum_completed = match self.execute_maintenance_batch("VACUUM;") {
+            Ok(()) => true,
+            Err(error) => {
+                notes.push(format!("VACUUM failed: {error}"));
+                false
+            }
+        };
+
+        let note = if notes.is_empty() {
+            "WAL checkpoint/truncate and VACUUM completed".to_string()
+        } else {
+            notes.join("; ")
+        };
+        SqliteSearchCompactionResult {
+            wal_checkpoint_truncate_completed,
+            vacuum_completed,
+            note,
+        }
+    }
+
+    fn wal_checkpoint_truncate(&self) -> Result<WalCheckpointOutcome, SqliteSearchError> {
+        let connection = self.connect()?;
+        wal_checkpoint_truncate(&connection)
+    }
+
+    fn execute_maintenance_batch(&self, sql: &str) -> Result<(), SqliteSearchError> {
+        let connection = self.connect()?;
+        connection.execute_batch(sql)?;
+        Ok(())
     }
 
     pub(crate) fn search_catalog(
@@ -148,6 +206,22 @@ pub(crate) struct SqliteSearchCapabilities {
     pub(crate) sqlite_version: String,
     pub(crate) fts5: bool,
     pub(crate) trigram: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SqliteSearchCompactionResult {
+    pub(crate) wal_checkpoint_truncate_completed: bool,
+    pub(crate) vacuum_completed: bool,
+    pub(crate) note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalCheckpointOutcome {
+    Completed,
+    Busy {
+        log_frame_count: i64,
+        checkpointed_frame_count: i64,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -181,10 +255,52 @@ impl SqliteSearchError {
                 )
         )
     }
+
+    pub(crate) fn is_storage_exhaustion(&self) -> bool {
+        match self {
+            Self::Io(error) => matches!(
+                error.kind(),
+                io::ErrorKind::StorageFull
+                    | io::ErrorKind::QuotaExceeded
+                    | io::ErrorKind::OutOfMemory
+                    | io::ErrorKind::FileTooLarge
+            ),
+            Self::Sqlite(error) => matches!(
+                error.sqlite_error_code(),
+                Some(ErrorCode::DiskFull | ErrorCode::OutOfMemory | ErrorCode::TooBig)
+            ),
+            Self::UnsupportedCapability { .. } | Self::UnsupportedSchemaVersion { .. } => false,
+        }
+    }
+}
+
+fn wal_checkpoint_truncate(
+    connection: &Connection,
+) -> Result<WalCheckpointOutcome, SqliteSearchError> {
+    let (busy, log_frame_count, checkpointed_frame_count) =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+    if busy == 0 {
+        Ok(WalCheckpointOutcome::Completed)
+    } else {
+        Ok(WalCheckpointOutcome::Busy {
+            log_frame_count,
+            checkpointed_frame_count,
+        })
+    }
 }
 
 fn ensure_sqlite_file(path: &Path) -> Result<(), SqliteSearchError> {
-    match create_new_file_private(path) {
+    sqlite_file_creation_result(create_new_file_private(path))
+}
+
+fn sqlite_file_creation_result(result: io::Result<std::fs::File>) -> Result<(), SqliteSearchError> {
+    match result {
         Ok(file) => {
             drop(file);
             Ok(())
@@ -211,29 +327,45 @@ fn detect_capabilities(
 ) -> Result<SqliteSearchCapabilities, SqliteSearchError> {
     let sqlite_version =
         connection.query_row("SELECT sqlite_version()", [], |row| row.get::<_, String>(0))?;
-    let fts5 = connection
-        .execute_batch(
-            "
-            CREATE VIRTUAL TABLE temp.coral_search_fts5_check USING fts5(value);
-            DROP TABLE temp.coral_search_fts5_check;
-            ",
-        )
-        .is_ok();
-    let trigram = connection
-        .execute_batch(
+    let fts5 = probe_capability(
+        connection,
+        "
+        CREATE VIRTUAL TABLE temp.coral_search_fts5_check USING fts5(value);
+        DROP TABLE temp.coral_search_fts5_check;
+        ",
+    )?;
+    let trigram = if fts5 {
+        probe_capability(
+            connection,
             "
             CREATE VIRTUAL TABLE temp.coral_search_trigram_check
             USING fts5(value, tokenize = 'trigram');
             DROP TABLE temp.coral_search_trigram_check;
             ",
-        )
-        .is_ok();
+        )?
+    } else {
+        false
+    };
 
     Ok(SqliteSearchCapabilities {
         sqlite_version,
         fts5,
         trigram,
     })
+}
+
+fn probe_capability(connection: &Connection, sql: &str) -> Result<bool, SqliteSearchError> {
+    classify_capability_probe(connection.execute_batch(sql))
+}
+
+fn classify_capability_probe(result: rusqlite::Result<()>) -> Result<bool, SqliteSearchError> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(rusqlite::Error::SqliteFailure(error, _)) if error.code == ErrorCode::Unknown => {
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn ensure_supported(capabilities: &SqliteSearchCapabilities) -> Result<(), SqliteSearchError> {
@@ -327,12 +459,15 @@ fn schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError>
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::OptionalExtension as _;
+    use std::{io, time::Duration};
+
+    use rusqlite::{Connection, OptionalExtension as _};
     use tempfile::tempdir;
 
     use super::{
         SEARCH_SQLITE_MIGRATIONS, SEARCH_SQLITE_SCHEMA_VERSION, SqliteSearchError,
-        SqliteSearchStore,
+        SqliteSearchStore, WalCheckpointOutcome, classify_capability_probe, configure_connection,
+        sqlite_file_creation_result, wal_checkpoint_truncate,
     };
     use crate::state::AppStateLayout;
     use crate::workspaces::WorkspaceName;
@@ -407,6 +542,109 @@ mod tests {
         };
 
         assert!(!error.is_lock_contention());
+    }
+
+    #[test]
+    fn disk_full_error_is_storage_exhaustion() {
+        let error = SqliteSearchError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+            None,
+        ));
+
+        assert!(error.is_storage_exhaustion());
+    }
+
+    #[test]
+    fn storage_full_file_creation_error_preserves_exhaustion_category() {
+        let error = sqlite_file_creation_result(Err(io::Error::new(
+            io::ErrorKind::StorageFull,
+            "fixture disk full",
+        )))
+        .expect_err("storage-full file creation must fail");
+
+        assert!(matches!(
+            &error,
+            SqliteSearchError::Io(error) if error.kind() == io::ErrorKind::StorageFull
+        ));
+        assert!(error.is_storage_exhaustion());
+    }
+
+    #[test]
+    fn capability_probe_only_treats_plain_sqlite_error_as_unsupported() {
+        assert!(classify_capability_probe(Ok(())).expect("successful probe"));
+        assert!(
+            !classify_capability_probe(Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+                Some("fixture unsupported capability".to_string()),
+            )))
+            .expect("plain SQLite error should mean unsupported capability")
+        );
+    }
+
+    #[test]
+    fn capability_probe_preserves_operational_sqlite_errors() {
+        for code in [
+            rusqlite::ffi::SQLITE_FULL,
+            rusqlite::ffi::SQLITE_NOMEM,
+            rusqlite::ffi::SQLITE_IOERR,
+            rusqlite::ffi::SQLITE_CORRUPT,
+        ] {
+            let expected = rusqlite::ffi::Error::new(code).code;
+            let error = classify_capability_probe(Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(code),
+                None,
+            )))
+            .expect_err("operational probe failure must be preserved");
+
+            match error {
+                SqliteSearchError::Sqlite(error) => {
+                    assert_eq!(error.sqlite_error_code(), Some(expected));
+                }
+                other => panic!("expected SQLite error for code {code}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn wal_checkpoint_reports_reader_contention() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("checkpoint.sqlite3");
+        let writer = Connection::open(&path).expect("writer");
+        configure_connection(&writer).expect("configure writer");
+        writer
+            .pragma_update(None, "wal_autocheckpoint", 0)
+            .expect("disable automatic checkpoints");
+        writer
+            .execute_batch(
+                "
+                CREATE TABLE records (value TEXT NOT NULL);
+                INSERT INTO records (value) VALUES ('initial');
+                PRAGMA wal_checkpoint(TRUNCATE);
+                ",
+            )
+            .expect("seed database");
+
+        let reader = Connection::open(&path).expect("reader");
+        configure_connection(&reader).expect("configure reader");
+        reader.execute_batch("BEGIN").expect("begin reader");
+        let count: i64 = reader
+            .query_row("SELECT COUNT(*) FROM records", [], |row| row.get(0))
+            .expect("establish reader snapshot");
+        assert_eq!(count, 1);
+
+        writer
+            .execute("INSERT INTO records (value) VALUES ('new')", [])
+            .expect("write after reader snapshot");
+
+        let checkpoint = Connection::open(&path).expect("checkpoint connection");
+        configure_connection(&checkpoint).expect("configure checkpoint connection");
+        checkpoint
+            .busy_timeout(Duration::ZERO)
+            .expect("disable checkpoint wait");
+        let outcome = wal_checkpoint_truncate(&checkpoint).expect("checkpoint result");
+
+        assert!(matches!(outcome, WalCheckpointOutcome::Busy { .. }));
+        reader.execute_batch("ROLLBACK").expect("end reader");
     }
 
     #[test]

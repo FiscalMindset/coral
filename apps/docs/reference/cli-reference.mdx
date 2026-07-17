@@ -87,6 +87,48 @@ With `--json`, the response separates `results`, `provider_statuses`, and `trunc
 
 For catalog search, the `catalog_metadata` provider status reports whether search found matches, completed with no matches, returned partial coverage, or failed. `truncation` reports when more matches were available than returned.
 
+## `coral search-index`
+
+Manage Coral's local search indexes.
+
+### `coral search-index rebuild`
+
+Rebuild all local search indexes. Coral skips a rebuild when an index is already
+up to date unless you pass `--force`.
+
+```shellscript
+coral search-index rebuild
+coral search-index rebuild --force
+```
+
+#### Options
+
+| Option    | Type | Default | Description                                                    |
+| --------- | ---- | ------- | -------------------------------------------------------------- |
+| `--force` | flag | `false` | Rebuild even when the stored projection fingerprint is current |
+
+### `coral search-index clear`
+
+Clear Coral's local search data for one workspace.
+
+Clear deletes local search data, so Coral requires both `--yes` and an explicit
+`--workspace NAME`.
+
+`all` is currently the only supported scope. It clears all local search data
+for the selected workspace.
+
+```shellscript
+coral search-index clear --scope all --workspace work --yes
+```
+
+#### Options
+
+| Option                    | Type   | Default  | Description                               |
+| ------------------------- | ------ | -------- | ----------------------------------------- |
+| `--scope <SCOPE>`         | enum   | required | Scope to clear. Supported value: `all`    |
+| global `--workspace NAME` | string | required | Workspace whose search data will be cleared |
+| `--yes`                   | flag   | required | Confirm destructive search-data deletion  |
+
 ## `coral source`
 
 Manage configured sources, either the bundled ones, or your custom source specs.

@@ -17,10 +17,12 @@ use arrow::record_batch::RecordBatch;
 #[cfg(feature = "embedded-ui")]
 use assert_cmd::Command;
 use coral_api::v1::{
-    AddFunctionResponse, DiscoverSourcesResponse, ExecuteSqlResponse, Function, FunctionArgument,
-    FunctionRuntimeInvalid, FunctionRuntimeReady, ListFunctionsResponse, ListSourcesResponse,
-    ListWorkspacesResponse, Source, SourceCredentialStorage, SourceInfo, SourceOrigin, Workspace,
-    function,
+    AddFunctionResponse, CatalogRebuildResult, DiscoverSourcesResponse, ExecuteSqlResponse,
+    Function, FunctionArgument, FunctionRuntimeInvalid, FunctionRuntimeReady,
+    ListFunctionsResponse, ListSourcesResponse, ListWorkspacesResponse, RebuildSearchIndexResponse,
+    SearchDataScope, SearchMaintenanceResult, SearchMaintenanceState, SearchProvider, Source,
+    SourceCredentialStorage, SourceInfo, SourceOrigin, Workspace, function, search_clear_target,
+    search_maintenance_result,
 };
 use tempfile::tempdir;
 use tonic::Code;
@@ -1012,6 +1014,183 @@ async fn search_json_output_preserves_typed_payloads_and_statuses() {
     assert_eq!(requests[0].limit, 5);
     assert_default_workspace(requests[0].workspace.as_ref());
 
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_rebuild_remains_free_text_query() {
+    let server = MockServer::start().await;
+
+    server.cmd().args(["search", "rebuild"]).assert().success();
+
+    let requests = server.search_requests();
+    assert_eq!(requests.len(), 1, "expected one search call");
+    assert_eq!(requests[0].query, "rebuild");
+    assert!(
+        server.rebuild_search_index_requests().is_empty(),
+        "plain search must not call maintenance"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_index_rebuild_calls_app_maintenance_rpc() {
+    let server = MockServer::start().await;
+
+    let assert = server
+        .cmd()
+        .args(["search-index", "rebuild", "--force"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("Rebuilt catalog search index"),
+        "expected rebuild output: {stdout}"
+    );
+
+    assert!(
+        server.search_requests().is_empty(),
+        "maintenance command must not call Search"
+    );
+    let requests = server.rebuild_search_index_requests();
+    assert_eq!(requests.len(), 1, "expected one rebuild call");
+    assert_default_workspace(requests[0].workspace.as_ref());
+    assert!(requests[0].force);
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_index_rebuild_reports_current_projection_as_skipped() {
+    let server = MockServer::start_with_config(
+        MockServerConfig::default().with_rebuild_search_index(RebuildSearchIndexResponse {
+            results: vec![SearchMaintenanceResult {
+                provider: SearchProvider::CatalogMetadata as i32,
+                state: SearchMaintenanceState::Noop as i32,
+                note: "catalog search projection already current".to_string(),
+                detail: Some(search_maintenance_result::Detail::CatalogRebuild(
+                    CatalogRebuildResult {
+                        old_document_count: 3,
+                        new_document_count: 3,
+                        projection_changed: false,
+                        rebuild_performed: false,
+                    },
+                )),
+            }],
+        }),
+    )
+    .await;
+
+    let assert = server
+        .cmd()
+        .args(["search-index", "rebuild"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(
+        stdout.contains(
+            "Skipped rebuilding catalog search index: projection already current with 3 documents."
+        ),
+        "expected no-op rebuild output: {stdout}"
+    );
+    assert!(
+        !stdout.contains("Rebuilt catalog"),
+        "no-op rebuild must not claim a rebuild: {stdout}"
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_index_clear_calls_app_maintenance_rpc() {
+    let server = MockServer::start().await;
+
+    let assert = server
+        .cmd()
+        .args([
+            "search-index",
+            "clear",
+            "--scope",
+            "all",
+            "--workspace",
+            "default",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("Cleared catalog search data"),
+        "expected clear output: {stdout}"
+    );
+    assert!(
+        stdout.contains("Storage cleanup: local search storage cleanup completed."),
+        "expected storage cleanup output: {stdout}"
+    );
+
+    assert!(
+        server.search_requests().is_empty(),
+        "maintenance command must not call Search"
+    );
+    let requests = server.clear_search_data_requests();
+    assert_eq!(requests.len(), 1, "expected one clear call");
+    assert_default_workspace(requests[0].workspace.as_ref());
+    assert_eq!(requests[0].scope, SearchDataScope::All as i32);
+    match requests[0]
+        .target
+        .as_ref()
+        .and_then(|target| target.target.as_ref())
+    {
+        Some(search_clear_target::Target::Workspace(workspace_scope)) => {
+            assert!(*workspace_scope);
+        }
+        other => panic!("expected workspace clear target, got {other:?}"),
+    }
+
+    server
+        .cmd()
+        .args([
+            "search-index",
+            "clear",
+            "--scope",
+            "all",
+            "--workspace",
+            "work",
+            "--yes",
+        ])
+        .assert()
+        .success();
+    let requests = server.clear_search_data_requests();
+    assert_eq!(requests.len(), 2, "expected second clear call");
+    assert_workspace_name(requests[1].workspace.as_ref(), "work");
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_index_clear_requires_explicit_workspace_even_when_env_is_set() {
+    let server = MockServer::start().await;
+
+    let assert = server
+        .cmd()
+        .env("CORAL_WORKSPACE", "work")
+        .args(["search-index", "clear", "--scope", "all", "--yes"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        stderr.contains("requires an explicit `--workspace NAME` and `--yes`"),
+        "expected explicit workspace error: {stderr}"
+    );
+
+    assert!(
+        server.clear_search_data_requests().is_empty(),
+        "implicit environment selection must not authorize destructive clear"
+    );
     server.shutdown().await;
 }
 
