@@ -1,6 +1,6 @@
 //! App-owned assembly of query-engine runtime source packages.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use coral_engine::RuntimeSourceComponent;
 use coral_spec::backends::http::{HttpSourceManifest, HttpTableSpec};
@@ -8,10 +8,11 @@ use coral_spec::backends::mcp::{
     McpSourceManifest, McpTableFilterBinding, McpTableFunctionSpec, McpTableSpec,
 };
 use coral_spec::v4::{
-    IrExecutionAttachment, Projection, ProjectionKind, ProjectionVisibility, SqlInputExposure,
-    SurfaceType, V4MaterializedSource, V4SourceManifest, mcp_projection_arg_specs,
-    openapi_document_metadata, projection_arg_specs, projection_column_specs,
-    projection_filter_specs, request_spec_for_projection, validate_openapi_base_url_template,
+    Diagnostic, DiagnosticSeverity, IrExecutionAttachment, Projection, ProjectionKind,
+    ProjectionVisibility, SqlInputExposure, SurfaceType, V4MaterializedSource, V4SourceManifest,
+    mcp_projection_arg_specs, openapi_document_metadata, projection_arg_specs,
+    projection_column_specs, projection_filter_specs, request_spec_for_projection,
+    validate_openapi_base_url_template,
 };
 use coral_spec::{
     PaginationSpec, ParsedTemplate, RequestSpec, ResponseSpec, SourceManifestCommon,
@@ -19,32 +20,66 @@ use coral_spec::{
 };
 
 use crate::bootstrap::AppError;
+use crate::sources::SourceName;
+use crate::sources::materialization::SourceDiagnosticReporter;
+use crate::workspaces::WorkspaceName;
 
 pub(crate) fn runtime_components_for_v4_source(
+    workspace_name: &WorkspaceName,
+    source_name: &SourceName,
     manifest: &V4SourceManifest,
     materialized: &V4MaterializedSource,
+    diagnostic_reporter: &SourceDiagnosticReporter,
 ) -> Result<Vec<RuntimeSourceComponent>, AppError> {
     let mut components = Vec::new();
+    let mut diagnostics = Vec::new();
+    let mut published_surface_count = 0_usize;
+    let mut first_surface_error = None;
     for surface in &manifest.surfaces {
         if !has_published_projection(materialized, &surface.id) {
             continue;
         }
-        match surface.surface_type {
-            SurfaceType::OpenApi => {
-                components.push(RuntimeSourceComponent::Http(http_manifest_for_surface(
-                    manifest,
-                    materialized,
-                    &surface.id,
-                )?));
-            }
-            SurfaceType::Mcp => {
-                components.push(RuntimeSourceComponent::Mcp(mcp_manifest_for_surface(
-                    manifest,
-                    materialized,
-                    &surface.id,
-                )?));
+        published_surface_count += 1;
+        let component = validate_surface_projection_names(materialized, &surface.id).and_then(
+            |()| match surface.surface_type {
+                SurfaceType::OpenApi => {
+                    http_manifest_for_surface(manifest, materialized, &surface.id)
+                        .map(RuntimeSourceComponent::Http)
+                }
+                SurfaceType::Mcp => mcp_manifest_for_surface(manifest, materialized, &surface.id)
+                    .map(RuntimeSourceComponent::Mcp),
+            },
+        );
+        match component {
+            Ok(component) => components.push(component),
+            Err(error) => {
+                if first_surface_error.is_none() {
+                    first_surface_error = Some(error.to_string());
+                }
+                diagnostics.push(Diagnostic {
+                    code: "V4_RUNTIME_SURFACE_ASSEMBLY_FAILED".to_string(),
+                    severity: DiagnosticSeverity::Warning,
+                    message: error.to_string(),
+                    surface_id: Some(surface.id.clone()),
+                    operation_id: None,
+                    projection_name: None,
+                });
             }
         }
+    }
+    diagnostic_reporter.report_runtime_surface_diagnostics(
+        workspace_name,
+        source_name,
+        &diagnostics,
+    );
+    if published_surface_count > 0 && components.is_empty() {
+        return Err(AppError::FailedPrecondition(format!(
+            "DSL v4 source '{}' has no usable published surfaces{}",
+            manifest.common.name,
+            first_surface_error
+                .map(|error| format!(": {error}"))
+                .unwrap_or_default()
+        )));
     }
     Ok(components)
 }
@@ -58,6 +93,30 @@ fn has_published_projection(materialized: &V4MaterializedSource, surface_id: &st
             projection.surface_id == surface_id
                 && projection.visibility == ProjectionVisibility::Published
         })
+}
+
+fn validate_surface_projection_names(
+    materialized: &V4MaterializedSource,
+    surface_id: &str,
+) -> Result<(), AppError> {
+    let mut names = BTreeSet::new();
+    for projection in materialized
+        .projections
+        .projections
+        .iter()
+        .filter(|projection| {
+            projection.surface_id == surface_id
+                && projection.visibility == ProjectionVisibility::Published
+        })
+    {
+        if !names.insert(projection.name.as_str()) {
+            return Err(AppError::FailedPrecondition(format!(
+                "DSL v4 projection '{}' is repeated for surface '{surface_id}'",
+                projection.name
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn http_manifest_for_surface(
@@ -410,7 +469,21 @@ mod tests {
     };
     use coral_spec::{PageSizeSpec, PaginationMode, PaginationSpec, ResponseSpec};
 
-    use super::{runtime_components_for_v4_source, surface_base_url};
+    use super::{runtime_components_for_v4_source as build_runtime_components, surface_base_url};
+
+    fn runtime_components_for_v4_source(
+        manifest: &V4SourceManifest,
+        materialized: &V4MaterializedSource,
+    ) -> Result<Vec<coral_engine::RuntimeSourceComponent>, crate::bootstrap::AppError> {
+        let source_name = crate::sources::SourceName::parse(&manifest.common.name)?;
+        build_runtime_components(
+            &crate::workspaces::WorkspaceName::default(),
+            &source_name,
+            manifest,
+            materialized,
+            &crate::sources::materialization::SourceDiagnosticReporter::default(),
+        )
+    }
 
     fn surface_without_authored_base_url() -> V4Surface {
         openapi_surface_with_base_url("rest", "demo", "")
@@ -486,7 +559,7 @@ mod tests {
                 types: Vec::new(),
                 diagnostics: Vec::new(),
             },
-            source_document_sha256: String::new(),
+            source_document_sha256: None,
             normalized_source_document_path: PathBuf::from("/tmp/source-document.yaml"),
             raw_source_document_path: PathBuf::from("/tmp/source-document.raw"),
         }
@@ -518,7 +591,7 @@ mod tests {
                 types: Vec::new(),
                 diagnostics: Vec::new(),
             },
-            source_document_sha256: String::new(),
+            source_document_sha256: None,
             normalized_source_document_path: raw_source_document_path.clone(),
             raw_source_document_path,
         }
@@ -598,7 +671,7 @@ mod tests {
                 types: Vec::new(),
                 diagnostics: Vec::new(),
             },
-            source_document_sha256: String::new(),
+            source_document_sha256: None,
             normalized_source_document_path: PathBuf::from("/tmp/source-document.yaml"),
             raw_source_document_path: PathBuf::from("/tmp/source-document.raw"),
         }
@@ -638,14 +711,14 @@ mod tests {
             declared_inputs: Vec::new(),
         };
         let materialized = V4MaterializedSource {
-            fingerprint: Fingerprint {
+            fingerprint: Some(Fingerprint {
                 artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
                 source_name: "github_v4".to_string(),
                 manifest_sha256: String::new(),
                 surfaces: Vec::new(),
                 importer_version: SURFACE_IMPORTER_VERSION.to_string(),
                 projection_generator_version: PROJECTION_GENERATOR_VERSION.to_string(),
-            },
+            }),
             surfaces: vec![
                 mcp_materialized_surface("rest", "rest_list_issues"),
                 mcp_materialized_surface("mcp", "mcp_list_issues"),
@@ -671,6 +744,101 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(schema_names, ["github_v4_rest", "github_v4_mcp"]);
+    }
+
+    #[test]
+    fn runtime_components_skip_only_the_unusable_surface() {
+        let manifest = V4SourceManifest {
+            common: V4SourceCommon {
+                dsl_version: 4,
+                name: "github_v4".to_string(),
+                description: String::new(),
+                test_queries: Vec::new(),
+            },
+            surfaces: vec![
+                mcp_surface("healthy", "github_v4_healthy"),
+                mcp_surface("broken", "github_v4_broken"),
+            ],
+            declared_inputs: Vec::new(),
+        };
+        let materialized = V4MaterializedSource {
+            fingerprint: None,
+            surfaces: vec![mcp_materialized_surface("healthy", "healthy_list_issues")],
+            projections: ProjectionCatalog {
+                artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
+                source_name: "github_v4".to_string(),
+                generator_version: Some(PROJECTION_GENERATOR_VERSION.to_string()),
+                projections: vec![
+                    published_projection("healthy", "github_v4_healthy", "healthy_list_issues"),
+                    published_projection("broken", "github_v4_broken", "broken_list_issues"),
+                ],
+                diagnostics: Vec::new(),
+            },
+            diagnostics: Vec::new(),
+        };
+
+        let components = runtime_components_for_v4_source(&manifest, &materialized)
+            .expect("healthy surface should survive");
+
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components
+                .first()
+                .map(coral_engine::RuntimeSourceComponent::source_name),
+            Some("github_v4_healthy")
+        );
+    }
+
+    #[test]
+    fn runtime_components_skip_surface_with_duplicate_names_across_namespaces() {
+        let manifest = V4SourceManifest {
+            common: V4SourceCommon {
+                dsl_version: 4,
+                name: "github_v4".to_string(),
+                description: String::new(),
+                test_queries: Vec::new(),
+            },
+            surfaces: vec![
+                mcp_surface("healthy", "github_v4_healthy"),
+                mcp_surface("duplicate", "github_v4_duplicate"),
+            ],
+            declared_inputs: Vec::new(),
+        };
+        let mut duplicate_a =
+            published_projection("duplicate", "github_v4_duplicate", "duplicate_list_issues");
+        let mut duplicate_b = duplicate_a.clone();
+        duplicate_a.namespace = "first_artifact_namespace".to_string();
+        duplicate_b.namespace = "second_artifact_namespace".to_string();
+        let materialized = V4MaterializedSource {
+            fingerprint: None,
+            surfaces: vec![
+                mcp_materialized_surface("healthy", "healthy_list_issues"),
+                mcp_materialized_surface("duplicate", "duplicate_list_issues"),
+            ],
+            projections: ProjectionCatalog {
+                artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
+                source_name: "github_v4".to_string(),
+                generator_version: Some(PROJECTION_GENERATOR_VERSION.to_string()),
+                projections: vec![
+                    published_projection("healthy", "github_v4_healthy", "healthy_list_issues"),
+                    duplicate_a,
+                    duplicate_b,
+                ],
+                diagnostics: Vec::new(),
+            },
+            diagnostics: Vec::new(),
+        };
+
+        let components = runtime_components_for_v4_source(&manifest, &materialized)
+            .expect("healthy surface should survive duplicate names on another surface");
+
+        assert_eq!(components.len(), 1);
+        assert_eq!(
+            components
+                .first()
+                .map(coral_engine::RuntimeSourceComponent::source_name),
+            Some("github_v4_healthy")
+        );
     }
 
     #[test]
@@ -700,14 +868,14 @@ mod tests {
             ..PaginationSpec::default()
         };
         let materialized = V4MaterializedSource {
-            fingerprint: Fingerprint {
+            fingerprint: Some(Fingerprint {
                 artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
                 source_name: "github_v4".to_string(),
                 manifest_sha256: String::new(),
                 surfaces: Vec::new(),
                 importer_version: SURFACE_IMPORTER_VERSION.to_string(),
                 projection_generator_version: PROJECTION_GENERATOR_VERSION.to_string(),
-            },
+            }),
             surfaces: vec![rest_materialized_surface_with_pagination(
                 "rest",
                 "rest_list_issues",
@@ -768,14 +936,14 @@ mod tests {
             max_pages: None,
         };
         let materialized = V4MaterializedSource {
-            fingerprint: Fingerprint {
+            fingerprint: Some(Fingerprint {
                 artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
                 source_name: "github_v4".to_string(),
                 manifest_sha256: String::new(),
                 surfaces: Vec::new(),
                 importer_version: SURFACE_IMPORTER_VERSION.to_string(),
                 projection_generator_version: PROJECTION_GENERATOR_VERSION.to_string(),
-            },
+            }),
             surfaces: vec![mcp_materialized_surface_with_pagination(
                 "mcp",
                 "mcp_list_issues",
@@ -831,14 +999,14 @@ mod tests {
             max_pages: None,
         };
         let materialized = V4MaterializedSource {
-            fingerprint: Fingerprint {
+            fingerprint: Some(Fingerprint {
                 artifact_schema_version: V4_ARTIFACT_SCHEMA_VERSION,
                 source_name: "github_v4".to_string(),
                 manifest_sha256: String::new(),
                 surfaces: Vec::new(),
                 importer_version: SURFACE_IMPORTER_VERSION.to_string(),
                 projection_generator_version: PROJECTION_GENERATOR_VERSION.to_string(),
-            },
+            }),
             surfaces: vec![mcp_materialized_surface_with_pagination_and_offset(
                 "mcp",
                 "mcp_list_issues",

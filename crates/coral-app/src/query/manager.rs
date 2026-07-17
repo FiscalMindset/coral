@@ -18,7 +18,7 @@ use tracing::Instrument as _;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
 use crate::bootstrap::AppError;
-use crate::credentials::{CredentialManager, CredentialSetId, CredentialsError};
+use crate::credentials::{CredentialManager, CredentialSetId};
 use crate::functions::manager::{FunctionListing, FunctionManager, ValidatedFunctionInstall};
 use crate::query::QueryAttribution;
 use crate::query::extensions::{EngineExtensionsProvider, engine_extensions_for_providers};
@@ -28,7 +28,8 @@ use crate::query::input_resolver::{
 use crate::sources::SourceName;
 use crate::sources::catalog::resolve_installed_manifest;
 use crate::sources::materialization::{
-    incompatible_materialization_error, load_v4_materialization,
+    SourceDiagnosticReporter, SourceLoadDiagnosticStage, incompatible_materialization_error,
+    load_v4_materialization,
 };
 use crate::sources::model::InstalledSource;
 use crate::sources::runtime_package::runtime_components_for_v4_source;
@@ -73,6 +74,7 @@ pub(crate) struct QueryManager {
     runtime_context: QueryRuntimeContext,
     layout: AppStateLayout,
     engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
+    diagnostic_reporter: SourceDiagnosticReporter,
 }
 
 impl QueryManager {
@@ -96,6 +98,7 @@ impl QueryManager {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn new(
         config_store: ConfigStore,
         workspace_manager: WorkspaceManager,
@@ -104,6 +107,32 @@ impl QueryManager {
         layout: AppStateLayout,
         lifecycle_lock: WorkspaceLifecycleLock,
         engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
+    ) -> Self {
+        Self::with_diagnostic_reporter(
+            config_store,
+            workspace_manager,
+            credential_manager,
+            runtime_context,
+            layout,
+            lifecycle_lock,
+            engine_extensions_providers,
+            SourceDiagnosticReporter::default(),
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the composition root passes shared lifecycle and diagnostic state explicitly"
+    )]
+    pub(crate) fn with_diagnostic_reporter(
+        config_store: ConfigStore,
+        workspace_manager: WorkspaceManager,
+        credential_manager: CredentialManager,
+        runtime_context: QueryRuntimeContext,
+        layout: AppStateLayout,
+        lifecycle_lock: WorkspaceLifecycleLock,
+        engine_extensions_providers: Vec<Arc<dyn EngineExtensionsProvider>>,
+        diagnostic_reporter: SourceDiagnosticReporter,
     ) -> Self {
         let function_manager =
             FunctionManager::new(config_store.clone(), &layout, lifecycle_lock.clone());
@@ -116,6 +145,7 @@ impl QueryManager {
             runtime_context,
             layout,
             engine_extensions_providers,
+            diagnostic_reporter,
         }
     }
 
@@ -353,7 +383,7 @@ impl QueryManager {
         self.require_workspace(workspace_name).await?;
         let _state_lock = self.config_store.state_lock_shared()?;
         let config = self.config_store.load_config_unlocked()?;
-        let sources = self.load_query_sources_from_config(workspace_name, &config)?;
+        let sources = self.load_query_sources_from_config(workspace_name, &config);
         Ok((sources, config))
     }
 
@@ -367,7 +397,7 @@ impl QueryManager {
         &self,
         workspace_name: &WorkspaceName,
         config: &AppConfig,
-    ) -> Result<Vec<LoadedQuerySource>, AppError> {
+    ) -> Vec<LoadedQuerySource> {
         let span = tracing::info_span!(
             "coral.app.query_sources.load",
             workspace = tracing::field::Empty,
@@ -378,25 +408,27 @@ impl QueryManager {
         let mut loaded_sources = Vec::new();
         for source in config.workspace_sources(workspace_name) {
             match self.load_query_source(workspace_name, &source) {
-                Ok((loaded_source, _version)) => loaded_sources.push(loaded_source),
-                Err(
-                    error @ (AppError::Credentials(CredentialsError::Unavailable(_))
-                    | AppError::MissingOrIncompatibleV4Materialization { .. }
-                    | AppError::InvalidV4ProjectionOverride { .. }),
-                ) => {
-                    return Err(error);
+                Ok((loaded_source, _version)) => {
+                    self.diagnostic_reporter.clear_source_load_failure(
+                        SourceLoadDiagnosticStage::Query,
+                        workspace_name,
+                        &source.name,
+                    );
+                    loaded_sources.push(loaded_source);
                 }
                 Err(error) => {
-                    tracing::warn!(
-                        source = %source.name,
-                        detail = %error,
-                        "skipping source during query-source load"
+                    self.diagnostic_reporter.report_source_load_failure(
+                        SourceLoadDiagnosticStage::Query,
+                        workspace_name,
+                        &source.name,
+                        "SOURCE_LOAD_FAILED",
+                        &error.to_string(),
                     );
                 }
             }
         }
         span.record("source.count", loaded_sources.len());
-        Ok(loaded_sources)
+        loaded_sources
     }
 
     fn load_query_source(
@@ -413,9 +445,17 @@ impl QueryManager {
                 &source.name,
                 &installed.manifest_yaml,
                 v4,
+                &self.diagnostic_reporter,
             )?;
             Some(
-                runtime_components_for_v4_source(v4, &materialized).map_err(|error| {
+                runtime_components_for_v4_source(
+                    workspace_name,
+                    &source.name,
+                    v4,
+                    &materialized,
+                    &self.diagnostic_reporter,
+                )
+                .map_err(|error| {
                     incompatible_materialization_error(
                         &source.name,
                         format!("failed to assemble runtime package: {error}"),
@@ -449,10 +489,10 @@ impl QueryManager {
             } else {
                 format!("secret '{first}' and {} other(s)", rest.len())
             };
-            return Err(AppError::FailedPrecondition(format!(
-                "source '{}' is missing {detail}",
-                source.name
-            )));
+            return Err(AppError::MissingSourceInputs {
+                source_name: source.name.to_string(),
+                detail,
+            });
         }
         for secret_name in source_spec.declared_secret_names() {
             if let Some(value) = stored_secrets.get(&secret_name) {
@@ -555,20 +595,10 @@ impl QueryManager {
         &self,
         workspace_name: &WorkspaceName,
     ) -> Result<Vec<FunctionListing>, QueryManagerError> {
-        let (loaded_sources, config) = match self.load_query_sources(workspace_name).await {
-            Ok(loaded) => loaded,
-            Err(
-                error @ (AppError::Credentials(CredentialsError::Unavailable(_))
-                | AppError::MissingOrIncompatibleV4Materialization { .. }
-                | AppError::InvalidV4ProjectionOverride { .. }),
-            ) => {
-                return self
-                    .function_manager
-                    .list_functions_with_preparation_failure(workspace_name, &error)
-                    .map_err(QueryManagerError::App);
-            }
-            Err(error) => return Err(QueryManagerError::App(error)),
-        };
+        let (loaded_sources, config) = self
+            .load_query_sources(workspace_name)
+            .await
+            .map_err(QueryManagerError::App)?;
         let sources = query_sources_from_loaded(&loaded_sources);
         self.function_manager
             .list_functions(workspace_name, &sources, || {
@@ -666,9 +696,7 @@ impl QueryManager {
                 .config_store
                 .load_config_unlocked()
                 .map_err(QueryManagerError::App)?;
-            let loaded_sources = self
-                .load_query_sources_from_config(workspace_name, &config)
-                .map_err(QueryManagerError::App)?;
+            let loaded_sources = self.load_query_sources_from_config(workspace_name, &config);
             (loaded_sources, config)
         };
         Ok((loaded_sources, config))
@@ -929,6 +957,7 @@ fn app_error_type(error: &AppError) -> &'static str {
         AppError::WorkspaceAlreadyExists(_) => "WORKSPACE_ALREADY_EXISTS",
         AppError::InvalidInput(_) => "INVALID_INPUT",
         AppError::FailedPrecondition(_) => "FAILED_PRECONDITION",
+        AppError::MissingSourceInputs { .. } => "MISSING_SOURCE_INPUTS",
         AppError::MissingOrIncompatibleV4Materialization { .. } => {
             "MISSING_OR_INCOMPATIBLE_V4_MATERIALIZATION"
         }
@@ -986,10 +1015,10 @@ fn validate_required_variables(
         } else {
             format!("variable '{}' and {} other(s)", first.key, rest.len())
         };
-        return Err(AppError::FailedPrecondition(format!(
-            "source '{}' is missing {detail}",
-            source.name
-        )));
+        return Err(AppError::MissingSourceInputs {
+            source_name: source.name.to_string(),
+            detail,
+        });
     }
     Ok(())
 }
@@ -1995,7 +2024,7 @@ tables:
     }
 
     #[tokio::test]
-    async fn load_query_sources_fails_closed_for_missing_v4_materialization() {
+    async fn load_query_sources_skips_missing_v4_materialization() {
         let fixture = query_manager_with(QueryRuntimeContext::default(), Vec::new()).await;
         fixture.manager.layout.ensure().expect("ensure layout");
         let workspace_name = WorkspaceName::default();
@@ -2034,50 +2063,31 @@ surfaces:
             )
             .expect("persist source");
 
-        let error = fixture
+        let (sources, _) = fixture
             .manager
             .load_query_sources(&workspace_name)
             .await
-            .expect_err("missing materialization should fail closed");
+            .expect("missing materialization should be isolated");
 
-        assert!(
-            matches!(
-                error,
-                AppError::MissingOrIncompatibleV4Materialization { .. }
-            ),
-            "unexpected error: {error:#}"
-        );
+        assert!(sources.is_empty());
     }
 
     #[tokio::test]
-    async fn load_query_sources_fails_closed_for_unavailable_keychain_source() {
+    async fn load_query_sources_skips_unavailable_keychain_source() {
         let fixture = query_manager_with_unavailable_keychain().await;
         let workspace_name = WorkspaceName::default();
         install_keychain_github_source(&fixture.manager.config_store, &workspace_name);
 
-        let error = fixture
+        let (sources, _) = fixture
             .manager
             .load_query_sources(&workspace_name)
             .await
-            .expect_err("unavailable keychain should fail closed");
-
-        assert!(
-            matches!(
-                error,
-                AppError::Credentials(CredentialsError::Unavailable(_))
-            ),
-            "unexpected error: {error:#}"
-        );
-        assert!(
-            error
-                .to_string()
-                .contains("configured for keychain storage"),
-            "keychain-routed query failure should name the routed backend: {error}"
-        );
+            .expect("unavailable keychain source should be isolated");
+        assert!(sources.is_empty());
     }
 
     #[tokio::test]
-    async fn list_functions_keeps_inventory_visible_when_source_preparation_fails() {
+    async fn list_functions_keeps_unrelated_function_ready_when_source_preparation_fails() {
         let fixture = query_manager_with_unavailable_keychain().await;
         let workspace_name = WorkspaceName::default();
         let function_sql = r"/*
@@ -2110,11 +2120,9 @@ select 1 as value
             .first()
             .expect("installed function remains visible");
         assert_eq!(function.name.as_str(), "constant_value");
-        let crate::functions::manager::FunctionRuntimeStatus::Invalid(error) = &function.runtime
-        else {
-            panic!("function should be invalid while source preparation is unavailable");
+        let crate::functions::manager::FunctionRuntimeStatus::Ready(_) = &function.runtime else {
+            panic!("unrelated function should remain ready when source preparation fails");
         };
-        assert!(error.contains("configured for keychain storage"));
     }
 
     struct PrepareCountingDecorator {
