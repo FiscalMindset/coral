@@ -22,7 +22,7 @@ use crate::state::AppStateLayout;
 use crate::storage::fs::create_new_file_private;
 use crate::workspaces::WorkspaceName;
 
-pub(crate) const SEARCH_SQLITE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const SEARCH_SQLITE_SCHEMA_VERSION: u32 = 2;
 
 struct SearchSqliteMigration {
     version: u32,
@@ -32,10 +32,16 @@ struct SearchSqliteMigration {
 // These migrations are intentionally local to the SQLite search sidecar. The
 // schema uses SQLite FTS5/trigram features that are not portable to the shared
 // app database migration stream.
-const SEARCH_SQLITE_MIGRATIONS: &[SearchSqliteMigration] = &[SearchSqliteMigration {
-    version: 1,
-    sql: include_str!("migrations/0001_catalog_search.sql"),
-}];
+const SEARCH_SQLITE_MIGRATIONS: &[SearchSqliteMigration] = &[
+    SearchSqliteMigration {
+        version: 1,
+        sql: include_str!("migrations/0001_catalog_search.sql"),
+    },
+    SearchSqliteMigration {
+        version: 2,
+        sql: include_str!("migrations/0002_observed_values.sql"),
+    },
+];
 
 #[derive(Debug, Clone)]
 pub(crate) struct SqliteSearchStore {
@@ -83,7 +89,7 @@ impl SqliteSearchStore {
         })
     }
 
-    fn connect(&self) -> Result<Connection, SqliteSearchError> {
+    pub(super) fn connect(&self) -> Result<Connection, SqliteSearchError> {
         let connection = Connection::open(&self.path)?;
         configure_connection(&connection)?;
         Ok(connection)
@@ -242,6 +248,8 @@ pub(crate) enum SqliteSearchError {
         database_version: u32,
         supported_version: u32,
     },
+    #[error("SQLite search schema is incomplete after rebuilding version {schema_version}")]
+    IncompleteSchemaAfterRebuild { schema_version: u32 },
 }
 
 impl SqliteSearchError {
@@ -269,7 +277,9 @@ impl SqliteSearchError {
                 error.sqlite_error_code(),
                 Some(ErrorCode::DiskFull | ErrorCode::OutOfMemory | ErrorCode::TooBig)
             ),
-            Self::UnsupportedCapability { .. } | Self::UnsupportedSchemaVersion { .. } => false,
+            Self::UnsupportedCapability { .. }
+            | Self::UnsupportedSchemaVersion { .. }
+            | Self::IncompleteSchemaAfterRebuild { .. } => false,
         }
     }
 }
@@ -397,15 +407,161 @@ fn migrate_if_needed(connection: &mut Connection) -> Result<(), SqliteSearchErro
         });
     }
 
-    let repair_current_version = user_version == SEARCH_SQLITE_SCHEMA_VERSION;
-    for migration in SEARCH_SQLITE_MIGRATIONS {
-        let should_apply = migration.version > user_version
-            || (repair_current_version && migration.version == user_version);
-        if !should_apply {
-            continue;
+    // Replay the full idempotent history before upgrading so a damaged older
+    // schema cannot carry missing objects into the current version.
+    match apply_all_migrations(connection) {
+        Ok(()) if schema_is_current(connection)? => return Ok(()),
+        Ok(()) => {
+            tracing::warn!("SQLite search schema remained incomplete after replaying migrations");
         }
+        Err(error) if schema_rebuild_can_recover(&error) => {
+            tracing::warn!(
+                error = %error,
+                "SQLite search schema repair failed while replaying migrations"
+            );
+        }
+        Err(error) => return Err(error),
+    }
+
+    if catalog_schema_is_current(connection)? {
+        tracing::warn!(
+            "resetting incompatible observed-values schema while preserving the catalog index"
+        );
+        discard_observed_values_schema(connection)?;
+        apply_all_migrations(connection)?;
+        if schema_is_current(connection)? {
+            return Ok(());
+        }
+        return Err(SqliteSearchError::IncompleteSchemaAfterRebuild {
+            schema_version: SEARCH_SQLITE_SCHEMA_VERSION,
+        });
+    }
+
+    tracing::warn!("rebuilding the disposable search index after catalog schema repair failed");
+    discard_search_index_schema(connection)?;
+    apply_all_migrations(connection)?;
+    if !schema_is_current(connection)? {
+        return Err(SqliteSearchError::IncompleteSchemaAfterRebuild {
+            schema_version: SEARCH_SQLITE_SCHEMA_VERSION,
+        });
+    }
+    Ok(())
+}
+
+fn schema_rebuild_can_recover(error: &SqliteSearchError) -> bool {
+    matches!(
+        error,
+        SqliteSearchError::Sqlite(error)
+            if matches!(
+                sqlite_error_code(error),
+                Some(
+                    ErrorCode::Unknown
+                        | ErrorCode::SchemaChanged
+                        | ErrorCode::ConstraintViolation
+                )
+            )
+    )
+}
+
+fn sqlite_error_code(error: &rusqlite::Error) -> Option<ErrorCode> {
+    match error {
+        rusqlite::Error::SqliteFailure(error, _) | rusqlite::Error::SqlInputError { error, .. } => {
+            Some(error.code)
+        }
+        _ => None,
+    }
+}
+
+fn apply_all_migrations(connection: &mut Connection) -> Result<(), SqliteSearchError> {
+    for migration in SEARCH_SQLITE_MIGRATIONS {
         apply_migration(connection, migration)?;
     }
+    Ok(())
+}
+
+fn discard_observed_values_schema(connection: &mut Connection) -> Result<(), SqliteSearchError> {
+    let objects = {
+        let mut statement = connection.prepare(
+            "
+            SELECT type, name
+            FROM sqlite_schema
+            WHERE type IN ('trigger', 'view', 'index', 'table')
+              AND (
+                  name GLOB 'observed_*'
+                  OR name GLOB 'idx_observed_*'
+              )
+            ORDER BY CASE
+                WHEN type = 'trigger' THEN 0
+                WHEN type = 'view' THEN 1
+                WHEN type = 'index' THEN 2
+                WHEN sql LIKE 'CREATE VIRTUAL TABLE%' THEN 3
+                ELSE 4
+            END,
+            name
+            ",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let transaction = connection.transaction()?;
+    for (object_type, name) in objects {
+        let drop_kind = match object_type.as_str() {
+            "trigger" => "TRIGGER",
+            "view" => "VIEW",
+            "index" => "INDEX",
+            "table" => "TABLE",
+            _ => continue,
+        };
+        let quoted_name = format!("\"{}\"", name.replace('"', "\"\""));
+        transaction.execute_batch(&format!("DROP {drop_kind} IF EXISTS {quoted_name}"))?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn discard_search_index_schema(connection: &mut Connection) -> Result<(), SqliteSearchError> {
+    let objects = {
+        let mut statement = connection.prepare(
+            "
+            SELECT type, name
+            FROM sqlite_schema
+            WHERE type IN ('trigger', 'view', 'index', 'table')
+              AND name NOT GLOB 'sqlite_*'
+            ORDER BY CASE
+                WHEN type = 'trigger' THEN 0
+                WHEN type = 'view' THEN 1
+                WHEN type = 'index' THEN 2
+                WHEN sql LIKE 'CREATE VIRTUAL TABLE%' THEN 3
+                ELSE 4
+            END,
+            name
+            ",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let transaction = connection.transaction()?;
+    for (object_type, name) in objects {
+        let drop_kind = match object_type.as_str() {
+            "trigger" => "TRIGGER",
+            "view" => "VIEW",
+            "index" => "INDEX",
+            "table" => "TABLE",
+            _ => continue,
+        };
+        let quoted_name = format!("\"{}\"", name.replace('"', "\"\""));
+        transaction.execute_batch(&format!("DROP {drop_kind} IF EXISTS {quoted_name}"))?;
+    }
+    transaction.pragma_update(None, "user_version", 0)?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -437,7 +593,157 @@ fn schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError>
         return Ok(false);
     }
 
-    for table_name in ["search_meta", "catalog_documents", "catalog_documents_fts"] {
+    Ok(catalog_schema_is_current(connection)? && observed_values_schema_is_current(connection)?)
+}
+
+fn catalog_schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError> {
+    if !tables_exist(
+        connection,
+        &["search_meta", "catalog_documents", "catalog_documents_fts"],
+    )? {
+        return Ok(false);
+    }
+    let search_meta_is_valid = schema_query_is_valid(
+        connection,
+        "SELECT key, value, updated_at FROM search_meta LIMIT 0",
+    )?;
+    let catalog_table_is_valid = schema_query_is_valid(
+        connection,
+        "
+        SELECT
+            workspace,
+            doc_id,
+            doc_kind,
+            source_name,
+            surface_kind,
+            surface_name,
+            field_name,
+            field_role,
+            qualified_name,
+            title,
+            description,
+            payload_json,
+            snapshot_fingerprint,
+            updated_at
+        FROM catalog_documents
+        LIMIT 0
+        ",
+    )?;
+    let catalog_fts_is_valid = schema_query_is_valid(
+        connection,
+        "
+        SELECT
+            workspace,
+            doc_id,
+            title,
+            qualified_name,
+            description,
+            searchable_text
+        FROM catalog_documents_fts
+        LIMIT 0
+        ",
+    )?;
+    Ok(search_meta_is_valid && catalog_table_is_valid && catalog_fts_is_valid)
+}
+
+fn observed_values_schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError> {
+    if !tables_exist(
+        connection,
+        &[
+            "observed_workspace_generations",
+            "observed_source_generations",
+            "observed_values",
+            "observed_values_fts",
+            "observed_queue_jobs",
+        ],
+    )? {
+        return Ok(false);
+    }
+
+    for query in [
+        "
+        SELECT workspace, generation, updated_at
+        FROM observed_workspace_generations
+        LIMIT 0
+        ",
+        "
+        SELECT workspace, source_name, generation, updated_at
+        FROM observed_source_generations
+        LIMIT 0
+        ",
+        "
+        SELECT
+            workspace,
+            owner_source_name,
+            source_name,
+            source_scope_id,
+            surface_kind,
+            surface_name,
+            column_name,
+            value_key,
+            display_value,
+            search_text,
+            first_observed_at,
+            last_observed_at,
+            observation_count,
+            source_generation,
+            workspace_generation
+        FROM observed_values
+        LIMIT 0
+        ",
+        "
+        SELECT
+            workspace,
+            owner_source_name,
+            source_name,
+            source_scope_id,
+            surface_kind,
+            surface_name,
+            column_name,
+            value_key,
+            display_value,
+            search_text
+        FROM observed_values_fts
+        LIMIT 0
+        ",
+        "
+        SELECT
+            id,
+            workspace,
+            owner_source_name,
+            source_name,
+            source_scope_id,
+            surface_kind,
+            surface_name,
+            workspace_generation,
+            source_generation,
+            payload_json,
+            attempts,
+            last_error,
+            created_at,
+            updated_at
+        FROM observed_queue_jobs
+        LIMIT 0
+        ",
+    ] {
+        if !schema_query_is_valid(connection, query)? {
+            return Ok(false);
+        }
+    }
+
+    indexes_exist(
+        connection,
+        &[
+            "idx_observed_queue_jobs_workspace_id",
+            "idx_observed_queue_jobs_source",
+            "idx_observed_queue_jobs_pending_scope",
+            "idx_observed_values_source",
+        ],
+    )
+}
+
+fn tables_exist(connection: &Connection, table_names: &[&str]) -> Result<bool, SqliteSearchError> {
+    for table_name in table_names {
         let exists: bool = connection.query_row(
             "
             SELECT EXISTS (
@@ -446,7 +752,7 @@ fn schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError>
                 WHERE type IN ('table', 'virtual table') AND name = ?1
             )
             ",
-            [table_name],
+            [*table_name],
             |row| row.get(0),
         )?;
         if !exists {
@@ -455,6 +761,42 @@ fn schema_is_current(connection: &Connection) -> Result<bool, SqliteSearchError>
     }
 
     Ok(true)
+}
+
+fn indexes_exist(connection: &Connection, index_names: &[&str]) -> Result<bool, SqliteSearchError> {
+    for index_name in index_names {
+        let exists: bool = connection.query_row(
+            "
+            SELECT EXISTS (
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'index' AND name = ?1
+            )
+            ",
+            [*index_name],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn schema_query_is_valid(connection: &Connection, query: &str) -> Result<bool, SqliteSearchError> {
+    match connection.prepare(query) {
+        Ok(_) => Ok(true),
+        Err(error)
+            if matches!(
+                sqlite_error_code(&error),
+                Some(ErrorCode::Unknown | ErrorCode::SchemaChanged)
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[cfg(test)]
@@ -481,6 +823,109 @@ mod tests {
         }
 
         assert_eq!(previous_version, SEARCH_SQLITE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn search_sqlite_migrations_are_rerunnable() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let mut connection = rusqlite::Connection::open(&path).expect("raw connection");
+
+        for migration in SEARCH_SQLITE_MIGRATIONS {
+            super::apply_migration(&mut connection, migration).expect("first apply");
+            super::apply_migration(&mut connection, migration).expect("second apply");
+        }
+
+        let user_version: u32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("user_version");
+        assert_eq!(user_version, SEARCH_SQLITE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn opening_v1_repairs_missing_search_meta_before_upgrade() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = v1_search_connection(&path);
+        seed_catalog_document(&connection);
+        connection
+            .execute_batch("DROP TABLE search_meta")
+            .expect("remove v1 metadata table");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        assert_eq!(catalog_document_count(&connection), 1);
+    }
+
+    #[test]
+    fn opening_v1_repairs_missing_catalog_table_before_upgrade() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = v1_search_connection(&path);
+        connection
+            .execute_batch("DROP TABLE catalog_documents")
+            .expect("remove v1 catalog table");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        assert_eq!(catalog_document_count(&connection), 0);
+    }
+
+    #[test]
+    fn opening_v1_repairs_missing_catalog_fts_before_upgrade() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = v1_search_connection(&path);
+        seed_catalog_document(&connection);
+        connection
+            .execute_batch("DROP TABLE catalog_documents_fts")
+            .expect("remove v1 catalog FTS table");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        assert_eq!(catalog_document_count(&connection), 1);
+    }
+
+    #[test]
+    fn opening_v1_rebuilds_disposable_index_when_repair_stays_invalid() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = v1_search_connection(&path);
+        connection
+            .execute(
+                "INSERT INTO search_meta (key, value) VALUES ('sentinel', 'discarded')",
+                [],
+            )
+            .expect("seed disposable search metadata");
+        connection
+            .execute_batch(
+                "
+                DROP TABLE catalog_documents;
+                CREATE VIEW catalog_documents AS SELECT 1 AS malformed;
+                ",
+            )
+            .expect("replace catalog table with malformed v1 object");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        let object_type = connection
+            .query_row(
+                "SELECT type FROM sqlite_schema WHERE name = 'catalog_documents'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("catalog object type");
+        let sentinel = connection
+            .query_row(
+                "SELECT value FROM search_meta WHERE key = 'sentinel'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .expect("sentinel metadata query");
+
+        assert_eq!(object_type, "table");
+        assert_eq!(sentinel, None);
     }
 
     #[test]
@@ -606,6 +1051,31 @@ mod tests {
     }
 
     #[test]
+    fn schema_rebuild_only_follows_repairable_schema_errors() {
+        let schema_error = SqliteSearchError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+            None,
+        ));
+        let locked = SqliteSearchError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            None,
+        ));
+        let constraint = SqliteSearchError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+            None,
+        ));
+        let disk_full = SqliteSearchError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
+            None,
+        ));
+
+        assert!(super::schema_rebuild_can_recover(&schema_error));
+        assert!(super::schema_rebuild_can_recover(&constraint));
+        assert!(!super::schema_rebuild_can_recover(&locked));
+        assert!(!super::schema_rebuild_can_recover(&disk_full));
+    }
+
+    #[test]
     fn wal_checkpoint_reports_reader_contention() {
         let temp = tempdir().expect("tempdir");
         let path = temp.path().join("checkpoint.sqlite3");
@@ -706,5 +1176,183 @@ mod tests {
                 .expect("schema object lookup");
             assert!(exists, "{table_name} should exist after repair");
         }
+    }
+
+    #[test]
+    fn opening_current_version_repairs_observed_schema_without_dropping_data() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = open_current_search_connection(&path);
+        seed_observed_queue_job(&connection);
+        connection
+            .execute_batch("DROP INDEX idx_observed_queue_jobs_workspace_id")
+            .expect("remove observed queue index");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+
+        assert_eq!(observed_queue_job_count(&connection), 1);
+    }
+
+    #[test]
+    fn opening_current_version_resets_only_incompatible_observed_schema() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = open_current_search_connection(&path);
+        seed_catalog_document(&connection);
+        seed_observed_queue_job(&connection);
+        connection
+            .execute(
+                "INSERT INTO search_meta (key, value) VALUES ('sentinel', 'preserved')",
+                [],
+            )
+            .expect("seed preserved search metadata");
+        connection
+            .execute_batch(
+                "
+                DROP TABLE observed_queue_jobs;
+                CREATE TABLE observed_queue_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace TEXT NOT NULL,
+                    owner_source_name TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    surface_kind TEXT NOT NULL,
+                    surface_name TEXT NOT NULL,
+                    workspace_generation INTEGER NOT NULL,
+                    source_generation INTEGER NOT NULL
+                );
+                ",
+            )
+            .expect("replace queue table with incompatible shape");
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        let sentinel = connection
+            .query_row(
+                "SELECT value FROM search_meta WHERE key = 'sentinel'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("preserved search metadata");
+
+        assert_eq!(catalog_document_count(&connection), 1);
+        assert_eq!(observed_queue_job_count(&connection), 0);
+        assert_eq!(sentinel, "preserved");
+    }
+
+    #[test]
+    fn opening_current_version_resets_duplicate_observed_rows_after_repair_fails() {
+        let temp = tempdir().expect("tempdir");
+        let path = temp.path().join("search.sqlite3");
+        let connection = open_current_search_connection(&path);
+        seed_catalog_document(&connection);
+        connection
+            .execute(
+                "INSERT INTO search_meta (key, value) VALUES ('sentinel', 'preserved')",
+                [],
+            )
+            .expect("seed preserved search metadata");
+        connection
+            .execute_batch("DROP INDEX idx_observed_queue_jobs_pending_scope")
+            .expect("remove observed queue uniqueness guard");
+        seed_observed_queue_job(&connection);
+        seed_observed_queue_job(&connection);
+        assert_eq!(observed_queue_job_count(&connection), 2);
+        drop(connection);
+
+        let connection = open_current_search_connection(&path);
+        let sentinel = connection
+            .query_row(
+                "SELECT value FROM search_meta WHERE key = 'sentinel'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("preserved search metadata");
+
+        assert_eq!(catalog_document_count(&connection), 1);
+        assert_eq!(observed_queue_job_count(&connection), 0);
+        assert_eq!(sentinel, "preserved");
+    }
+
+    fn v1_search_connection(path: &std::path::Path) -> Connection {
+        let mut connection = Connection::open(path).expect("raw v1 connection");
+        super::apply_migration(
+            &mut connection,
+            SEARCH_SQLITE_MIGRATIONS.first().expect("v1 migration"),
+        )
+        .expect("apply v1 migration");
+        connection
+    }
+
+    fn open_current_search_connection(path: &std::path::Path) -> Connection {
+        let store = SqliteSearchStore::open(path, WorkspaceName::default()).expect("open search");
+        let connection = store.connect_for_test().expect("connect");
+        assert!(super::schema_is_current(&connection).expect("validate current schema"));
+        connection
+    }
+
+    fn seed_catalog_document(connection: &Connection) {
+        connection
+            .execute(
+                "
+                INSERT INTO catalog_documents (
+                    workspace,
+                    doc_id,
+                    doc_kind,
+                    title,
+                    payload_json,
+                    snapshot_fingerprint
+                ) VALUES ('default', 'fixture', 'catalog_table', 'Fixture', '{}', 'fixture')
+                ",
+                [],
+            )
+            .expect("seed catalog document");
+    }
+
+    fn seed_observed_queue_job(connection: &Connection) {
+        connection
+            .execute(
+                "
+                INSERT INTO observed_queue_jobs (
+                    workspace,
+                    owner_source_name,
+                    source_name,
+                    source_scope_id,
+                    surface_kind,
+                    surface_name,
+                    workspace_generation,
+                    source_generation,
+                    payload_json
+                ) VALUES (
+                    'default',
+                    'github',
+                    'github',
+                    'fixture-scope',
+                    'table',
+                    'issues',
+                    0,
+                    0,
+                    '{}'
+                )
+                ",
+                [],
+            )
+            .expect("seed observed queue job");
+    }
+
+    fn catalog_document_count(connection: &Connection) -> i64 {
+        connection
+            .query_row("SELECT COUNT(*) FROM catalog_documents", [], |row| {
+                row.get(0)
+            })
+            .expect("catalog document count")
+    }
+
+    fn observed_queue_job_count(connection: &Connection) -> i64 {
+        connection
+            .query_row("SELECT COUNT(*) FROM observed_queue_jobs", [], |row| {
+                row.get(0)
+            })
+            .expect("observed queue job count")
     }
 }
