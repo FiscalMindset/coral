@@ -4,7 +4,7 @@
 **Backend:** HTTP
 **Tables:** 3
 
-Query services, deploys, and owners from Render. Monitor deployment status, service configuration, and infrastructure through SQL.
+Query services, deploys, and workspaces from Render. Monitor deployment status, service configuration, and infrastructure through SQL.
 
 ## Installation
 
@@ -30,7 +30,7 @@ export RENDER_API_KEY="rnd_your-api-key"
 ## Quick Start
 
 ```sql
--- List all services
+-- List services (one page, up to 100 rows; use cursor filter for more)
 SELECT service_id, name, type, status, url
 FROM render.services;
 
@@ -40,9 +40,9 @@ FROM render.deploys
 WHERE service_id = 'srv-your-service-id'
 LIMIT 10;
 
--- Check service owners
+-- List workspaces
 SELECT owner_id, name, email, type
-FROM render.owners;
+FROM render.workspaces;
 
 -- Find services by type
 SELECT service_id, name, url
@@ -71,11 +71,11 @@ Services deployed on Render. Includes static sites, web services, private servic
 | `service_id` | Utf8 | Unique identifier for the service |
 | `name` | Utf8 | Name of the service |
 | `type` | Utf8 | Service type (static_site, web_service, private_service, background_worker, cron_job) |
-| `status` | Utf8 | Suspension status of the service |
+| `status` | Utf8 | Suspension status of the service (not_suspended, suspended) |
 | `repo` | Utf8 | Git repository URL |
 | `branch` | Utf8 | Git branch used for deployments |
 | `auto_deploy` | Utf8 | Whether auto-deploy is enabled (yes/no) |
-| `url` | Utf8 | Public URL of the service |
+| `url` | Utf8 | URL of the service (private services return a non-public internal URL) |
 | `dashboard_url` | Utf8 | URL to the Render dashboard |
 | `owner_id` | Utf8 | ID of the owner (user or team) |
 | `slug` | Utf8 | URL slug of the service |
@@ -93,6 +93,7 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `service_id` | Utf8 | Yes | ID of the service to list deploys for |
+| `status` | Utf8 | | Filter by deploy status (created, queued, build_in_progress, update_in_progress, live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
 | `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
 
 **Columns**
@@ -102,8 +103,8 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 | `cursor` | Utf8 | Pagination cursor for manual pagination |
 | `service_id` | Utf8 | ID of the service (populated from filter via `from_filter`) |
 | `deploy_id` | Utf8 | Unique identifier for the deploy |
-| `status` | Utf8 | Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
-| `trigger` | Utf8 | What triggered the deploy (new_commit, manual, api) |
+| `status` | Utf8 | Deploy status (created, queued, build_in_progress, update_in_progress, live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed) |
+| `trigger` | Utf8 | What triggered the deploy (api, blueprint_sync, deploy_hook, deployed_by_render, manual, other, new_commit, rollback, service_resumed, service_updated) |
 | `commit_id` | Utf8 | Git commit SHA |
 | `commit_message` | Utf8 | Git commit message |
 | `commit_created_at` | Timestamp | When the commit was created (ISO 8601) |
@@ -114,9 +115,9 @@ Deployment history for a Render service. Includes commit info, status, trigger, 
 
 ---
 
-### `owners`
+### `workspaces`
 
-Owners (users and teams) associated with your Render account. No required filters.
+Workspaces the API key has access to. The key grants access to every workspace the user belongs to. No required filters.
 
 **Filters**
 
@@ -129,10 +130,10 @@ Owners (users and teams) associated with your Render account. No required filter
 | Column | Type | Description |
 |--------|------|-------------|
 | `cursor` | Utf8 | Pagination cursor for manual pagination |
-| `owner_id` | Utf8 | Unique identifier for the owner |
-| `name` | Utf8 | Name of the owner |
-| `email` | Utf8 | Email address of the owner |
-| `type` | Utf8 | Owner type (user or team) |
+| `owner_id` | Utf8 | Unique identifier for the workspace |
+| `name` | Utf8 | Name of the workspace |
+| `email` | Utf8 | Email address of the workspace owner |
+| `type` | Utf8 | Workspace type (user or team) |
 
 ## Source scope
 
@@ -149,7 +150,7 @@ Owners (users and teams) associated with your Render account. No required filter
 - The source provides read-only list access only. Service creation, deployment triggers, environment variable management, and other write operations are out of scope.
 - Render uses per-item cursor pagination. Each row includes a `cursor` column. To retrieve another page, pass the last row's cursor to a new query: `WHERE cursor = 'last_cursor_value'`.
 - Timestamp fields use `Timestamp` type — Render returns RFC3339 strings with timezone (`Z` suffix) which Coral parses natively.
-- The `url` column in `services` is extracted from `serviceDetails.url` which is only present for web services and static sites. Other service types may have null URLs.
+- The `url` column in `services` is extracted from `serviceDetails.url`. Private services return a non-public internal URL. Some service types may have null URLs.
 - The `service_id` column in `deploys` is populated from the required filter via `from_filter` expression.
 
 ## Provider docs
@@ -157,7 +158,7 @@ Owners (users and teams) associated with your Render account. No required filter
 - Render API reference: https://api-docs.render.com
 - Services API: https://api-docs.render.com/reference/list-services
 - Deploys API: https://api-docs.render.com/reference/list-deploys
-- Owners API: https://api-docs.render.com/reference/list-owners
+- Workspaces API: https://api-docs.render.com/reference/list-owners
 - API keys: https://dashboard.render.com/u/settings#api-keys
 
 ## Live validation output
@@ -177,7 +178,7 @@ Added source render
 
     render (3 tables)
     ├─ deploys
-    ├─ owners
+    ├─ workspaces
     └─ services
     Query tests
     1 declared · 1 passed · 0 failed
@@ -196,13 +197,13 @@ ORDER BY table_name;
 ```
 
 ```text
-+------------+--------------------------------------------------------------------------------------------------------------+------------------+
-| table_name | description                                                                                                  | required_filters |
-+------------+--------------------------------------------------------------------------------------------------------------+------------------+
-| deploys    | Deployment history for a Render service. Includes commit info, status, trigger, and timing for each deploy. | service_id       |
-| owners     | Owners (users and teams) associated with your Render account.                                                |                  |
-| services   | Services deployed on Render. Includes static sites, web services, private services, background workers, ...  |                  |
-+------------+--------------------------------------------------------------------------------------------------------------+------------------+
++------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| table_name | description                                                                                                                                                       | required_filters |
++------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
+| deploys    | Deployment history for a Render service. Includes commit info, status, trigger, and timing for each deploy.                                                       | service_id       |
+| services   | Services deployed on Render. Includes static sites, web services, private services, background workers, and cron jobs with their configuration, status, and URLs. |                  |
+| workspaces | Workspaces the API key has access to. The key grants access to every workspace the user belongs to.                                                               |                  |
++------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
 ```
 
 **Live services proof:**
@@ -216,9 +217,9 @@ FROM render.services LIMIT 3;
 +--------------------------+--------------------+-------------+---------------+-----------------------------------------+
 | service_id               | name               | type        | status        | url                                     |
 +--------------------------+--------------------+-------------+---------------+-----------------------------------------+
-| srv-0000000000000000000g | user-site          | static_site | not_suspended | https://user-site.onrender.com          |
-| srv-0000000000000000001g | user-app           | static_site | not_suspended | https://user-app.onrender.com           |
-| srv-0000000000000000002g | user-frontend      | web_service | not_suspended | https://user-frontend.onrender.com      |
+| srv-d8lsuubeo5us738b7k7g | vicky              | static_site | not_suspended | https://vicky-4sjs.onrender.com         |
+| srv-d8lsufbeo5us738b756g | algsochvicky       | static_site | not_suspended | https://algsochvicky-h2rq.onrender.com  |
+| srv-d8k7kicvikkc73buknb0 | polybazar-frontend | web_service | not_suspended | https://polybazar-frontend.onrender.com |
 +--------------------------+--------------------+-------------+---------------+-----------------------------------------+
 ```
 
@@ -232,45 +233,65 @@ LIMIT 3;
 ```
 
 ```text
-+--------------------------+----------------+-----------------------------------------+
-| service_id               | name           | url                                     |
-+--------------------------+----------------+-----------------------------------------+
-| srv-0000000000000000002g | user-frontend  | https://user-frontend.onrender.com      |
-| srv-0000000000000000003g | user-api       | https://user-api.onrender.com           |
-| srv-0000000000000000004g | user-backend   | https://user-backend.onrender.com       |
-+--------------------------+----------------+-----------------------------------------+
++--------------------------+--------------------+-----------------------------------------+
+| service_id               | name               | url                                     |
++--------------------------+--------------------+-----------------------------------------+
+| srv-d8k7kicvikkc73buknb0 | polybazar-frontend | https://polybazar-frontend.onrender.com |
+| srv-d8i03htckfvc73b98a4g | Kairon-2           | https://kairon-2.onrender.com           |
+| srv-d848fkv7f7vs739s6i20 | Kairon             | https://kairon-3.onrender.com           |
++--------------------------+--------------------+-----------------------------------------+
 ```
 
 **Live deploys proof:**
 
 ```sql
-SELECT service_id, deploy_id, status, trigger
+SELECT deploy_id, status, trigger
 FROM render.deploys
-WHERE service_id = 'srv-0000000000000000000g'
+WHERE service_id = 'srv-d8k7kicvikkc73buknb0'
 LIMIT 3;
 ```
 
 ```text
-+--------------------------+--------------------------+-------------+------------+
-| service_id               | deploy_id                | status      | trigger    |
-+--------------------------+--------------------------+-------------+------------+
-| srv-0000000000000000000g | dep-0000000000000000000g | live        | new_commit |
-| srv-0000000000000000000g | dep-0000000000000000001g | deactivated | new_commit |
-| srv-0000000000000000000g | dep-0000000000000000002g | deactivated | new_commit |
-+--------------------------+--------------------------+-------------+------------+
++--------------------------+--------------+------------+
+| deploy_id                | status       | trigger    |
++--------------------------+--------------+------------+
+| dep-d8k7vhgg4nts73fplo2g | build_failed | manual     |
+| dep-d8k7vda8qa3s7389vupg | canceled     | new_commit |
+| dep-d8k7qmbtqb8s7391cbr0 | build_failed | manual     |
++--------------------------+--------------+------------+
 ```
 
-**Live owners proof:**
+**Live deploy status filter proof:**
 
 ```sql
-SELECT owner_id, name, email, type
-FROM render.owners;
+SELECT deploy_id, status, trigger
+FROM render.deploys
+WHERE service_id = 'srv-d8k7kicvikkc73buknb0'
+AND status = 'build_failed'
+LIMIT 3;
 ```
 
 ```text
-+--------------------------+---------+-----------------------+------+
-| owner_id                 | name    | email                 | type |
-+--------------------------+---------+-----------------------+------+
-| tea-0000000000000000000g | user    | user@example.com      | team |
-+--------------------------+---------+-----------------------+------+
++--------------------------+--------------+---------+
+| deploy_id                | status       | trigger |
++--------------------------+--------------+---------+
+| dep-d8k7vhgg4nts73fplo2g | build_failed | manual  |
+| dep-d8k7qmbtqb8s7391cbr0 | build_failed | manual  |
+| dep-d8k7kisvikkc73buknqg | build_failed | manual  |
++--------------------------+--------------+---------+
+```
+
+**Live workspaces proof:**
+
+```sql
+SELECT owner_id, name, email, type
+FROM render.workspaces;
+```
+
+```text
++--------------------------+---------+----------------------+------+
+| owner_id                 | name    | email                | type |
++--------------------------+---------+----------------------+------+
+| tea-cvrsaomr433s73b3f8ag | algsoch | npdimagine@gmail.com | team |
++--------------------------+---------+----------------------+------+
 ```

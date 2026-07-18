@@ -3,7 +3,7 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Query services, deploys, and owners from Render. Monitor deployment
+  Query services, deploys, and workspaces from Render. Monitor deployment
   status, service configuration, and infrastructure through SQL.
 base_url: https://api.render.com/v1
 
@@ -48,6 +48,7 @@ tables:
         SELECT service_id, name, url
         FROM render.services
         WHERE type = 'web_service'
+      The status column includes suspension info (e.g. not_suspended, suspended).
       Use the service_id to query deploys for a specific service.
       To retrieve another page, pass the last row's cursor to a new query:
         SELECT cursor, service_id, name FROM render.services
@@ -112,7 +113,7 @@ tables:
       - name: status
         type: Utf8
         nullable: true
-        description: Suspension status of the service.
+        description: Suspension status of the service (not_suspended, suspended).
         expr:
           kind: path
           path:
@@ -148,7 +149,7 @@ tables:
       - name: url
         type: Utf8
         nullable: true
-        description: Public URL of the service.
+        description: URL of the service. Present for all service types; private services return a non-public internal URL.
         expr:
           kind: path
           path:
@@ -223,9 +224,19 @@ tables:
         SELECT deploy_id, status, trigger, commit_message
         FROM render.deploys
         WHERE service_id = 'srv-your-service-id' LIMIT 10
+      Filter by deploy status:
+        SELECT deploy_id, status, trigger
+        FROM render.deploys
+        WHERE service_id = 'srv-your-service-id'
+        AND status = 'build_failed'
     filters:
       - name: service_id
         required: true
+      - name: status
+        description: >-
+          Filter by deploy status. Values: created, queued, build_in_progress,
+          update_in_progress, live, deactivated, build_failed, update_failed,
+          canceled, pre_deploy_in_progress, pre_deploy_failed.
       - name: cursor
         description: Cursor from a previous query for manual pagination.
     request:
@@ -235,6 +246,9 @@ tables:
         - name: cursor
           from: filter
           key: cursor
+        - name: status
+          from: filter
+          key: status
     response: {}
     pagination:
       mode: none
@@ -267,7 +281,7 @@ tables:
       - name: status
         type: Utf8
         nullable: true
-        description: Deploy status (live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed).
+        description: Deploy status (created, queued, build_in_progress, update_in_progress, live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed).
         expr:
           kind: path
           path:
@@ -276,7 +290,7 @@ tables:
       - name: trigger
         type: Utf8
         nullable: true
-        description: What triggered the deploy (new_commit, manual, api, etc.).
+        description: What triggered the deploy (api, blueprint_sync, deploy_hook, deployed_by_render, manual, other, new_commit, rollback, service_resumed, service_updated).
         expr:
           kind: path
           path:
@@ -365,17 +379,17 @@ tables:
               - updatedAt
 
   # --------------------------------------------------------------------------
-  # render.owners — List owners (users and teams)
+  # render.workspaces — List workspaces
   # GET /v1/owners
-  # Array of {cursor, owner} objects.
+  # Array of {cursor, owner} objects. API key accesses all workspaces the user belongs to.
   # --------------------------------------------------------------------------
-  - name: owners
+  - name: workspaces
     description: >-
-      Owners (users and teams) associated with your Render account.
+      Workspaces the API key has access to. The key grants access to every workspace the user belongs to.
     guide: |
       No required filters. Start with:
         SELECT owner_id, name, email, type
-        FROM render.owners
+        FROM render.workspaces
     filters:
       - name: cursor
         description: Cursor from a previous query for manual pagination.
@@ -402,7 +416,7 @@ tables:
       - name: owner_id
         type: Utf8
         nullable: false
-        description: Unique identifier for the owner.
+        description: Unique identifier for the workspace.
         expr:
           kind: path
           path:
@@ -411,7 +425,7 @@ tables:
       - name: name
         type: Utf8
         nullable: true
-        description: Name of the owner.
+        description: Name of the workspace.
         expr:
           kind: path
           path:
@@ -420,7 +434,7 @@ tables:
       - name: email
         type: Utf8
         nullable: true
-        description: Email address of the owner.
+        description: Email address of the workspace owner.
         expr:
           kind: path
           path:
@@ -429,7 +443,7 @@ tables:
       - name: type
         type: Utf8
         nullable: false
-        description: Owner type (user or team).
+        description: Workspace type (user or team).
         expr:
           kind: path
           path:
