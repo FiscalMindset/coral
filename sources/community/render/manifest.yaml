@@ -149,7 +149,7 @@ tables:
       - name: url
         type: Utf8
         nullable: true
-        description: URL of the service. Present for all service types; private services return a non-public internal URL.
+        description: URL of the service. May be null for service types without a URL; private services may return a non-public internal URL.
         expr:
           kind: path
           path:

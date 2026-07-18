@@ -75,7 +75,7 @@ Services deployed on Render. Includes static sites, web services, private servic
 | `repo` | Utf8 | Git repository URL |
 | `branch` | Utf8 | Git branch used for deployments |
 | `auto_deploy` | Utf8 | Whether auto-deploy is enabled (yes/no) |
-| `url` | Utf8 | URL of the service (private services return a non-public internal URL) |
+| `url` | Utf8 | URL of the service (may be null; private services return a non-public internal URL) |
 | `dashboard_url` | Utf8 | URL to the Render dashboard |
 | `owner_id` | Utf8 | ID of the owner (user or team) |
 | `slug` | Utf8 | URL slug of the service |
@@ -292,6 +292,6 @@ FROM render.workspaces;
 +--------------------------+---------+----------------------+------+
 | owner_id                 | name    | email                | type |
 +--------------------------+---------+----------------------+------+
-| tea-cvrsaomr433s73b3f8ag | algsoch | npdimagine@gmail.com | team |
+| tea-cvrsaomr433s73b3f8ag | algsoch | owner@example.com     | team |
 +--------------------------+---------+----------------------+------+
 ```
