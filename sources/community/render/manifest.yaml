@@ -73,7 +73,7 @@ tables:
           key: type
         - name: suspended
           from: filter
-          key: status
+          key: suspended
         - name: cursor
           from: filter
           key: cursor
