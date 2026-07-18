@@ -27,6 +27,8 @@ To use this source, you will need a Render API key.
 export RENDER_API_KEY="rnd_your-api-key"
 ```
 
+**Important:** The API key grants access to every workspace the user belongs to. There is no way to scope the key to a single workspace.
+
 ## Quick Start
 
 ```sql
@@ -41,7 +43,7 @@ WHERE service_id = 'srv-your-service-id'
 LIMIT 10;
 
 -- List workspaces
-SELECT owner_id, name, email, type
+SELECT workspace_id, name, email, type
 FROM render.workspaces;
 
 -- Find services by type
@@ -61,6 +63,7 @@ Services deployed on Render. Includes static sites, web services, private servic
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `type` | Utf8 | | Filter by service type (static_site, web_service, private_service, background_worker, cron_job) |
+| `suspended` | Utf8 | | Filter by suspension status ('suspended' or 'not_suspended') |
 | `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
 
 **Columns**
@@ -130,7 +133,7 @@ Workspaces the API key has access to. The key grants access to every workspace t
 | Column | Type | Description |
 |--------|------|-------------|
 | `cursor` | Utf8 | Pagination cursor for manual pagination |
-| `owner_id` | Utf8 | Unique identifier for the workspace |
+| `workspace_id` | Utf8 | Unique identifier for the workspace |
 | `name` | Utf8 | Name of the workspace |
 | `email` | Utf8 | Email address of the workspace owner |
 | `type` | Utf8 | Workspace type (user or team) |
@@ -206,7 +209,7 @@ ORDER BY table_name;
 +------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+
 ```
 
-**Live services proof:**
+**Live services proof (redacted):**
 
 ```sql
 SELECT service_id, name, type, status, url
@@ -214,16 +217,16 @@ FROM render.services LIMIT 3;
 ```
 
 ```text
-+--------------------------+--------------------+-------------+---------------+-----------------------------------------+
-| service_id               | name               | type        | status        | url                                     |
-+--------------------------+--------------------+-------------+---------------+-----------------------------------------+
-| srv-d8lsuubeo5us738b7k7g | vicky              | static_site | not_suspended | https://vicky-4sjs.onrender.com         |
-| srv-d8lsufbeo5us738b756g | algsochvicky       | static_site | not_suspended | https://algsochvicky-h2rq.onrender.com  |
-| srv-d8k7kicvikkc73buknb0 | polybazar-frontend | web_service | not_suspended | https://polybazar-frontend.onrender.com |
-+--------------------------+--------------------+-------------+---------------+-----------------------------------------+
++--------------------------+------------------+-------------+---------------+-----------------------------------------+
+| service_id               | name             | type        | status        | url                                     |
++--------------------------+------------------+-------------+---------------+-----------------------------------------+
+| srv-0000000000000000000a | my-static-site   | static_site | not_suspended | https://my-static-site.onrender.com     |
+| srv-0000000000000000000b | my-web-service   | web_service | not_suspended | https://my-web-service.onrender.com     |
+| srv-0000000000000000000c | my-worker        | background_worker | not_suspended |                                        |
++--------------------------+------------------+-------------+---------------+-----------------------------------------+
 ```
 
-**Live type filter proof:**
+**Live type filter proof (redacted):**
 
 ```sql
 SELECT service_id, name, url
@@ -233,21 +236,21 @@ LIMIT 3;
 ```
 
 ```text
-+--------------------------+--------------------+-----------------------------------------+
-| service_id               | name               | url                                     |
-+--------------------------+--------------------+-----------------------------------------+
-| srv-d8k7kicvikkc73buknb0 | polybazar-frontend | https://polybazar-frontend.onrender.com |
-| srv-d8i03htckfvc73b98a4g | Kairon-2           | https://kairon-2.onrender.com           |
-| srv-d848fkv7f7vs739s6i20 | Kairon             | https://kairon-3.onrender.com           |
-+--------------------------+--------------------+-----------------------------------------+
++--------------------------+------------------+-----------------------------------------+
+| service_id               | name             | url                                     |
++--------------------------+------------------+-----------------------------------------+
+| srv-0000000000000000000b | my-web-service   | https://my-web-service.onrender.com     |
+| srv-0000000000000000000d | api-server       | https://api-server.onrender.com         |
+| srv-0000000000000000000e | dashboard        | https://dashboard.onrender.com          |
++--------------------------+------------------+-----------------------------------------+
 ```
 
-**Live deploys proof:**
+**Live deploys proof (redacted):**
 
 ```sql
 SELECT deploy_id, status, trigger
 FROM render.deploys
-WHERE service_id = 'srv-d8k7kicvikkc73buknb0'
+WHERE service_id = 'srv-0000000000000000000b'
 LIMIT 3;
 ```
 
@@ -255,18 +258,18 @@ LIMIT 3;
 +--------------------------+--------------+------------+
 | deploy_id                | status       | trigger    |
 +--------------------------+--------------+------------+
-| dep-d8k7vhgg4nts73fplo2g | build_failed | manual     |
-| dep-d8k7vda8qa3s7389vupg | canceled     | new_commit |
-| dep-d8k7qmbtqb8s7391cbr0 | build_failed | manual     |
+| dep-0000000000000000000a | live         | new_commit |
+| dep-0000000000000000000b | build_failed | manual     |
+| dep-0000000000000000000c | live         | new_commit |
 +--------------------------+--------------+------------+
 ```
 
-**Live deploy status filter proof:**
+**Live deploy status filter proof (redacted):**
 
 ```sql
 SELECT deploy_id, status, trigger
 FROM render.deploys
-WHERE service_id = 'srv-d8k7kicvikkc73buknb0'
+WHERE service_id = 'srv-0000000000000000000b'
 AND status = 'build_failed'
 LIMIT 3;
 ```
@@ -275,23 +278,23 @@ LIMIT 3;
 +--------------------------+--------------+---------+
 | deploy_id                | status       | trigger |
 +--------------------------+--------------+---------+
-| dep-d8k7vhgg4nts73fplo2g | build_failed | manual  |
-| dep-d8k7qmbtqb8s7391cbr0 | build_failed | manual  |
-| dep-d8k7kisvikkc73buknqg | build_failed | manual  |
+| dep-0000000000000000000b | build_failed | manual  |
+| dep-0000000000000000000d | build_failed | manual  |
+| dep-0000000000000000000f | build_failed | manual  |
 +--------------------------+--------------+---------+
 ```
 
-**Live workspaces proof:**
+**Live workspaces proof (redacted):**
 
 ```sql
-SELECT owner_id, name, email, type
+SELECT workspace_id, name, email, type
 FROM render.workspaces;
 ```
 
 ```text
 +--------------------------+---------+----------------------+------+
-| owner_id                 | name    | email                | type |
+| workspace_id             | name    | email                | type |
 +--------------------------+---------+----------------------+------+
-| tea-cvrsaomr433s73b3f8ag | algsoch | owner@example.com     | team |
+| tea-0000000000000000000a | my-team | team@example.com     | team |
 +--------------------------+---------+----------------------+------+
 ```

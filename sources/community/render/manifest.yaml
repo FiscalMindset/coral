@@ -58,6 +58,10 @@ tables:
         description: >-
           Filter by service type. Common values: static_site, web_service,
           private_service, background_worker, cron_job.
+      - name: suspended
+        description: >-
+          Filter by suspension status. Use 'suspended' to find suspended
+          services or 'not_suspended' for active services.
       - name: cursor
         description: Cursor from a previous query for manual pagination.
     request:
@@ -67,6 +71,9 @@ tables:
         - name: type
           from: filter
           key: type
+        - name: suspended
+          from: filter
+          key: status
         - name: cursor
           from: filter
           key: cursor
@@ -281,7 +288,11 @@ tables:
       - name: status
         type: Utf8
         nullable: true
-        description: Deploy status (created, queued, build_in_progress, update_in_progress, live, deactivated, build_failed, update_failed, canceled, pre_deploy_in_progress, pre_deploy_failed).
+        description: >-
+          Deploy status: created, queued, build_in_progress,
+          update_in_progress, live, deactivated, build_failed,
+          update_failed, canceled, pre_deploy_in_progress,
+          pre_deploy_failed.
         expr:
           kind: path
           path:
@@ -290,7 +301,10 @@ tables:
       - name: trigger
         type: Utf8
         nullable: true
-        description: What triggered the deploy (api, blueprint_sync, deploy_hook, deployed_by_render, manual, other, new_commit, rollback, service_resumed, service_updated).
+        description: >-
+          What triggered the deploy: api, blueprint_sync,
+          deploy_hook, deployed_by_render, manual, other,
+          new_commit, rollback, service_resumed, service_updated.
         expr:
           kind: path
           path:
@@ -388,7 +402,7 @@ tables:
       Workspaces the API key has access to. The key grants access to every workspace the user belongs to.
     guide: |
       No required filters. Start with:
-        SELECT owner_id, name, email, type
+        SELECT workspace_id, name, email, type
         FROM render.workspaces
     filters:
       - name: cursor
@@ -413,7 +427,7 @@ tables:
         type: Utf8
         nullable: true
         description: Pagination cursor. Pass to the cursor filter for manual pagination.
-      - name: owner_id
+      - name: workspace_id
         type: Utf8
         nullable: false
         description: Unique identifier for the workspace.
