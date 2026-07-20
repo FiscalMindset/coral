@@ -9,7 +9,8 @@ use super::{
 use crate::bootstrap::AppError;
 use crate::sources::SourceName;
 use crate::sources::materialization::{
-    MaterializationInputs, build_v4_materialization_tmp, replace_v4_materialization,
+    MaterializationInputs, SourceDiagnosticReporter, build_v4_materialization_tmp,
+    replace_v4_materialization,
 };
 use crate::sources::model::{InstalledSource, SourceOrigin};
 use crate::state::{AppStateLayout, ConfigStore};
@@ -182,9 +183,13 @@ tables:
         manifest_yaml,
     );
 
-    let catalog = CatalogSnapshotLoader::new(config_store, layout)
-        .load_catalog(&workspace_name)
-        .expect("catalog");
+    let catalog = CatalogSnapshotLoader::with_diagnostic_reporter(
+        config_store,
+        layout,
+        SourceDiagnosticReporter::default(),
+    )
+    .load_catalog(&workspace_name)
+    .expect("catalog");
 
     assert!(
         catalog
@@ -220,9 +225,13 @@ fn loader_fails_closed_when_installed_manifest_cannot_be_read() {
         )
         .expect("upsert source");
 
-    let error = CatalogSnapshotLoader::new(config_store, layout)
-        .load_catalog(&workspace_name)
-        .expect_err("missing installed manifest should fail closed");
+    let error = CatalogSnapshotLoader::with_diagnostic_reporter(
+        config_store,
+        layout,
+        SourceDiagnosticReporter::default(),
+    )
+    .load_catalog(&workspace_name)
+    .expect_err("missing installed manifest should fail closed");
 
     assert!(
         matches!(error, AppError::Io(_)),
@@ -278,9 +287,13 @@ surface:
 ",
     );
 
-    let catalog = CatalogSnapshotLoader::new(config_store, layout)
-        .load_catalog(&workspace_name)
-        .expect("missing v4 materialization should be isolated");
+    let catalog = CatalogSnapshotLoader::with_diagnostic_reporter(
+        config_store,
+        layout,
+        SourceDiagnosticReporter::default(),
+    )
+    .load_catalog(&workspace_name)
+    .expect("missing v4 materialization should be isolated");
 
     assert!(catalog.tables.iter().any(|table| {
         table.schema_name == healthy_source.as_str() && table.table_name == "messages"
@@ -315,9 +328,13 @@ surfaces:
 ",
     );
 
-    let catalog = CatalogSnapshotLoader::new(config_store, layout)
-        .load_catalog(&workspace_name)
-        .expect("legacy v4 manifest should be isolated");
+    let catalog = CatalogSnapshotLoader::with_diagnostic_reporter(
+        config_store,
+        layout,
+        SourceDiagnosticReporter::default(),
+    )
+    .load_catalog(&workspace_name)
+    .expect("legacy v4 manifest should be isolated");
 
     assert!(catalog.tables.iter().any(|table| {
         table.schema_name == healthy_source.as_str() && table.table_name == "messages"
@@ -386,9 +403,13 @@ surface:
         .expect("create override dir");
     std::fs::write(override_path, b": not yaml").expect("write invalid override");
 
-    let catalog = CatalogSnapshotLoader::new(config_store, layout)
-        .load_catalog(&workspace_name)
-        .expect("invalid v4 metadata override should be isolated");
+    let catalog = CatalogSnapshotLoader::with_diagnostic_reporter(
+        config_store,
+        layout,
+        SourceDiagnosticReporter::default(),
+    )
+    .load_catalog(&workspace_name)
+    .expect("invalid v4 metadata override should be isolated");
 
     assert!(catalog.tables.iter().any(|table| {
         table.schema_name == healthy_source.as_str() && table.table_name == "messages"
