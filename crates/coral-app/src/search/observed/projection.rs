@@ -26,6 +26,15 @@ impl ObservedValuesProjection {
         budget: ObservedValuesDrainBudget,
     ) -> Result<ObservedValuesDrainResult, SqliteSearchError> {
         let result = self.store.drain_queue(workspace_name, budget)?;
+        if result.storage_jobs_dropped > 0 {
+            tracing::debug!(
+                workspace = %workspace_name,
+                storage_jobs_dropped = result.storage_jobs_dropped,
+                remaining_queue_depth = result.remaining_queue_depth,
+                storage_limit_reached = result.storage_limit_reached,
+                "dropped best-effort observed-value jobs to preserve storage headroom"
+            );
+        }
         if result.budget_exhausted {
             tracing::debug!(
                 workspace = %workspace_name,
@@ -33,7 +42,11 @@ impl ObservedValuesProjection {
                 queue_jobs_processed = result.queue_jobs_processed,
                 stale_jobs_skipped = result.stale_jobs_skipped,
                 failed_jobs = result.failed_jobs,
-                "observed-value queue drain soft budget expired"
+                storage_jobs_dropped = result.storage_jobs_dropped,
+                stale_rows_purged = result.stale_rows_purged,
+                evicted_rows = result.evicted_rows,
+                storage_limit_reached = result.storage_limit_reached,
+                "observed-value drain stopped at a cooperative limit"
             );
         }
         Ok(result)
