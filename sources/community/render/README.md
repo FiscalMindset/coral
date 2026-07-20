@@ -175,14 +175,32 @@ Manifest is valid
 
 ```bash
 $ coral source add --file sources/community/render/manifest.yaml
-Added source render
+Added source render (secrets: keychain)
+Validating source...
 
   ✓ render connected successfully
+  Secrets: keychain
 
     render (3 tables)
     ├─ deploys
-    ├─ workspaces
-    └─ services
+    ├─ services
+    └─ workspaces
+    Query tests
+    1 declared · 1 passed · 0 failed
+
+    ✓ SELECT service_id, name, type, status FROM render.services LIMIT 3
+      3 rows
+```
+
+```bash
+$ coral source test render
+  ✓ render connected successfully
+  Secrets: keychain
+
+    render (3 tables)
+    ├─ deploys
+    ├─ services
+    └─ workspaces
     Query tests
     1 declared · 1 passed · 0 failed
 
