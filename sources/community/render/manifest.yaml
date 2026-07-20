@@ -58,7 +58,7 @@ tables:
         description: >-
           Filter by service type. Common values: static_site, web_service,
           private_service, background_worker, cron_job.
-      - name: suspended
+      - name: status
         description: >-
           Filter by suspension status. Use 'suspended' to find suspended
           services or 'not_suspended' for active services.
@@ -73,7 +73,7 @@ tables:
           key: type
         - name: suspended
           from: filter
-          key: suspended
+          key: status
         - name: cursor
           from: filter
           key: cursor
@@ -172,10 +172,10 @@ tables:
           path:
             - service
             - dashboardUrl
-      - name: owner_id
+      - name: workspace_id
         type: Utf8
         nullable: true
-        description: ID of the owner (user or team).
+        description: ID of the workspace (user or team) this service belongs to.
         expr:
           kind: path
           path:

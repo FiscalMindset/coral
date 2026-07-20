@@ -63,7 +63,7 @@ Services deployed on Render. Includes static sites, web services, private servic
 | Filter | Type | Required | Description |
 |--------|------|----------|-------------|
 | `type` | Utf8 | | Filter by service type (static_site, web_service, private_service, background_worker, cron_job) |
-| `suspended` | Utf8 | | Filter by suspension status ('suspended' or 'not_suspended') |
+| `status` | Utf8 | | Filter by suspension status ('suspended' or 'not_suspended') |
 | `cursor` | Utf8 | | Cursor from a previous query for manual pagination |
 
 **Columns**
@@ -80,7 +80,7 @@ Services deployed on Render. Includes static sites, web services, private servic
 | `auto_deploy` | Utf8 | Whether auto-deploy is enabled (yes/no) |
 | `url` | Utf8 | URL of the service (may be null; private services return a non-public internal URL) |
 | `dashboard_url` | Utf8 | URL to the Render dashboard |
-| `owner_id` | Utf8 | ID of the owner (user or team) |
+| `workspace_id` | Utf8 | ID of the workspace (user or team) this service belongs to |
 | `slug` | Utf8 | URL slug of the service |
 | `created_at` | Timestamp | When the service was created (ISO 8601) |
 | `updated_at` | Timestamp | When the service was last updated (ISO 8601) |
@@ -243,6 +243,25 @@ LIMIT 3;
 | srv-0000000000000000000d | api-server       | https://api-server.onrender.com         |
 | srv-0000000000000000000e | dashboard        | https://dashboard.onrender.com          |
 +--------------------------+------------------+-----------------------------------------+
+```
+
+**Live status filter proof (redacted):**
+
+```sql
+SELECT service_id, name, status, url
+FROM render.services
+WHERE status = 'not_suspended'
+LIMIT 3;
+```
+
+```text
++--------------------------+------------------+---------------+-----------------------------------------+
+| service_id               | name             | status        | url                                     |
++--------------------------+------------------+---------------+-----------------------------------------+
+| srv-0000000000000000000a | my-static-site   | not_suspended | https://my-static-site.onrender.com     |
+| srv-0000000000000000000b | my-web-service   | not_suspended | https://my-web-service.onrender.com     |
+| srv-0000000000000000000c | my-worker        | not_suspended |                                          |
++--------------------------+------------------+---------------+-----------------------------------------+
 ```
 
 **Live deploys proof (redacted):**
