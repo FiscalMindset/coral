@@ -720,6 +720,18 @@ async fn source_test_renders_validation_summary() {
         stdout.contains("pull_requests"),
         "expected pull_requests table: {stdout}"
     );
+    assert!(
+        stdout.contains("github (1 table function)"),
+        "expected table-function schema summary: {stdout}"
+    );
+    assert!(
+        stdout.contains("search_issues"),
+        "expected table-function name: {stdout}"
+    );
+    assert!(
+        !stdout.contains("search_issues()"),
+        "table-function summary must not imply a zero-argument signature: {stdout}"
+    );
 
     let requests = server.validate_source_requests();
     assert_eq!(requests.len(), 1, "expected one validate_source call");
@@ -1330,7 +1342,7 @@ surface:
     )
     .expect("write manifest");
 
-    server
+    let assert = server
         .cmd()
         .args([
             "source",
@@ -1340,6 +1352,20 @@ surface:
         ])
         .assert()
         .success();
+
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("github (1 table function)"),
+        "expected table-function schema summary after source add: {stdout}"
+    );
+    assert!(
+        stdout.contains("search_issues"),
+        "expected table-function name after source add: {stdout}"
+    );
+    assert!(
+        !stdout.contains("search_issues()"),
+        "table-function summary must not imply a zero-argument signature after source add: {stdout}"
+    );
 
     let requests = server.import_source_requests();
     assert_eq!(requests.len(), 1, "expected one import_source call");
