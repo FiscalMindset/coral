@@ -9,10 +9,15 @@ use coral_api::v1::{
     CatalogRebuildResult as ProtoCatalogRebuildResult,
     ClearSearchDataRequest as ProtoClearSearchDataRequest,
     ClearSearchDataResponse as ProtoClearSearchDataResponse, ColumnHint,
-    ObservedValue as ProtoObservedValue,
+    DrainSearchQueueRequest as ProtoDrainSearchQueueRequest,
+    DrainSearchQueueResponse as ProtoDrainSearchQueueResponse,
+    ObservedClearResult as ProtoObservedClearResult,
+    ObservedDrainResult as ProtoObservedDrainResult,
+    ObservedRebuildResult as ProtoObservedRebuildResult, ObservedValue as ProtoObservedValue,
     RebuildSearchIndexRequest as ProtoRebuildSearchIndexRequest,
     RebuildSearchIndexResponse as ProtoRebuildSearchIndexResponse,
     SearchDataScope as ProtoSearchDataScope, SearchFieldRole as ProtoSearchFieldRole,
+    SearchIndexProvider as ProtoSearchIndexProvider,
     SearchMaintenanceResult as ProtoSearchMaintenanceResult,
     SearchMaintenanceState as ProtoSearchMaintenanceState, SearchProvider as ProtoSearchProvider,
     SearchProviderCoverage, SearchProviderState, SearchProviderStatus,
@@ -30,10 +35,13 @@ use crate::search::maintenance::{
     CatalogClearMaintenanceResult, CatalogRebuildMaintenanceResult,
     ClearSearchDataRequest as DomainClearSearchDataRequest,
     ClearSearchDataResponse as DomainClearSearchDataResponse,
+    DrainSearchQueueRequest as DomainDrainSearchQueueRequest,
+    DrainSearchQueueResponse as DomainDrainSearchQueueResponse, ObservedClearMaintenanceResult,
+    ObservedDrainMaintenanceResult, ObservedRebuildMaintenanceResult,
     RebuildSearchIndexRequest as DomainRebuildSearchIndexRequest,
     RebuildSearchIndexResponse as DomainRebuildSearchIndexResponse, SearchClearTarget,
-    SearchDataScope, SearchMaintenanceDetail, SearchMaintenanceResult, SearchMaintenanceState,
-    SearchStorageCleanupResult,
+    SearchDataScope, SearchIndexProvider, SearchMaintenanceDetail, SearchMaintenanceResult,
+    SearchMaintenanceState, SearchStorageCleanupResult,
 };
 use crate::search::manager::SearchManager;
 use crate::search::result::{
@@ -42,6 +50,7 @@ use crate::search::result::{
     SearchProviderState as DomainProviderState, SearchRequest, SearchResponse, SearchSurfaceKind,
     TableColumnPreview as DomainTableColumnPreview,
 };
+use crate::sources::SourceName;
 use crate::transport::{
     catalog_item_to_proto, grpc_span, instrument_grpc, workspace_name_from_proto,
 };
@@ -93,6 +102,7 @@ impl SearchServiceApi for SearchService {
             let workspace_name = workspace_name_from_proto(request.workspace.as_ref())?;
             let request = DomainRebuildSearchIndexRequest {
                 workspace_name,
+                provider: index_provider_from_proto(proto_index_provider(request.provider)?),
                 force: request.force,
             };
             let response = search
@@ -100,6 +110,25 @@ impl SearchServiceApi for SearchService {
                 .await
                 .map_err(search_status)?;
             Ok(Response::new(rebuild_response_to_proto(response)))
+        })
+        .await
+    }
+
+    async fn drain_search_queue(
+        &self,
+        request: Request<ProtoDrainSearchQueueRequest>,
+    ) -> Result<Response<ProtoDrainSearchQueueResponse>, Status> {
+        let span = grpc_span(&request);
+        let search = self.search.clone();
+        instrument_grpc(span, async move {
+            let request = request.into_inner();
+            let workspace_name = workspace_name_from_proto(request.workspace.as_ref())?;
+            let request = DomainDrainSearchQueueRequest {
+                workspace_name,
+                budget_ms: request.budget_ms,
+            };
+            let response = search.drain_queue(&request).await.map_err(search_status)?;
+            Ok(Response::new(drain_response_to_proto(response)))
         })
         .await
     }
@@ -170,6 +199,18 @@ fn rebuild_response_to_proto(
     }
 }
 
+fn drain_response_to_proto(
+    response: DomainDrainSearchQueueResponse,
+) -> ProtoDrainSearchQueueResponse {
+    ProtoDrainSearchQueueResponse {
+        results: response
+            .results
+            .into_iter()
+            .map(maintenance_result_to_proto)
+            .collect(),
+    }
+}
+
 fn clear_response_to_proto(
     response: DomainClearSearchDataResponse,
 ) -> ProtoClearSearchDataResponse {
@@ -206,6 +247,15 @@ fn maintenance_detail_to_proto(detail: &SearchMaintenanceDetail) -> ProtoMainten
         SearchMaintenanceDetail::CatalogClear(result) => {
             ProtoMaintenanceDetail::CatalogClear(catalog_clear_to_proto(*result))
         }
+        SearchMaintenanceDetail::ObservedDrain(result) => {
+            ProtoMaintenanceDetail::ObservedDrain(observed_drain_to_proto(*result))
+        }
+        SearchMaintenanceDetail::ObservedRebuild(result) => {
+            ProtoMaintenanceDetail::ObservedRebuild(observed_rebuild_to_proto(*result))
+        }
+        SearchMaintenanceDetail::ObservedClear(result) => {
+            ProtoMaintenanceDetail::ObservedClear(observed_clear_to_proto(*result))
+        }
     }
 }
 
@@ -235,8 +285,61 @@ fn maintenance_state_to_proto(state: SearchMaintenanceState) -> ProtoSearchMaint
     match state {
         SearchMaintenanceState::Completed => ProtoSearchMaintenanceState::Completed,
         SearchMaintenanceState::Noop => ProtoSearchMaintenanceState::Noop,
+        SearchMaintenanceState::Skipped => ProtoSearchMaintenanceState::Skipped,
         SearchMaintenanceState::Partial => ProtoSearchMaintenanceState::Partial,
         SearchMaintenanceState::Failed => ProtoSearchMaintenanceState::Failed,
+    }
+}
+
+fn observed_drain_to_proto(result: ObservedDrainMaintenanceResult) -> ProtoObservedDrainResult {
+    ProtoObservedDrainResult {
+        queue_jobs_processed: result.queue_jobs_processed,
+        stale_jobs_skipped: result.stale_jobs_skipped,
+        failed_jobs: result.failed_jobs,
+        canonical_rows_upserted: result.canonical_rows_upserted,
+        fts_rows_written: result.fts_rows_written,
+        remaining_queue_depth: result.remaining_queue_depth,
+        budget_exhausted: result.budget_exhausted,
+        stale_rows_purged: result.stale_rows_purged,
+        evicted_rows: result.evicted_rows,
+        storage_limit_reached: result.storage_limit_reached,
+        storage_jobs_dropped: result.storage_jobs_dropped,
+    }
+}
+
+fn observed_rebuild_to_proto(
+    result: ObservedRebuildMaintenanceResult,
+) -> ProtoObservedRebuildResult {
+    ProtoObservedRebuildResult {
+        canonical_rows_scanned: result.canonical_rows_scanned,
+        fts_rows_rebuilt: result.fts_rows_rebuilt,
+        drain: Some(observed_drain_to_proto(result.drain)),
+    }
+}
+
+fn observed_clear_to_proto(result: ObservedClearMaintenanceResult) -> ProtoObservedClearResult {
+    ProtoObservedClearResult {
+        deleted_value_count: result.values,
+        deleted_fts_count: result.fts_rows,
+        deleted_queue_job_count: result.queue_jobs,
+    }
+}
+
+fn proto_index_provider(value: i32) -> Result<ProtoSearchIndexProvider, Status> {
+    ProtoSearchIndexProvider::try_from(value).map_err(|_error| {
+        app_status(AppError::InvalidInput(format!(
+            "invalid search index provider value {value}"
+        )))
+    })
+}
+
+fn index_provider_from_proto(provider: ProtoSearchIndexProvider) -> SearchIndexProvider {
+    match provider {
+        ProtoSearchIndexProvider::Catalog => SearchIndexProvider::Catalog,
+        ProtoSearchIndexProvider::ObservedValues => SearchIndexProvider::ObservedValues,
+        ProtoSearchIndexProvider::All | ProtoSearchIndexProvider::Unspecified => {
+            SearchIndexProvider::All
+        }
     }
 }
 
@@ -250,6 +353,7 @@ fn proto_data_scope(value: i32) -> Result<ProtoSearchDataScope, Status> {
 
 fn data_scope_from_proto(scope: ProtoSearchDataScope) -> Result<SearchDataScope, Status> {
     match scope {
+        ProtoSearchDataScope::ObservedValues => Ok(SearchDataScope::ObservedValues),
         ProtoSearchDataScope::All => Ok(SearchDataScope::All),
         ProtoSearchDataScope::Unspecified => Err(app_status(AppError::InvalidInput(
             "search data scope is required".to_string(),
@@ -265,6 +369,16 @@ fn clear_target_from_proto(
         Some(ProtoSearchClearTargetKind::Workspace(false)) => Err(app_status(
             AppError::InvalidInput("search clear workspace target must be true".to_string()),
         )),
+        Some(ProtoSearchClearTargetKind::SourceName(source_name)) => {
+            let parsed = SourceName::parse(&source_name).map_err(app_status)?;
+            if parsed.as_str() != source_name {
+                return Err(app_status(AppError::InvalidInput(
+                    "search clear source_name target must not contain surrounding whitespace"
+                        .to_string(),
+                )));
+            }
+            Ok(SearchClearTarget::Source(parsed))
+        }
         None => Err(app_status(AppError::InvalidInput(
             "search clear target is required".to_string(),
         ))),
@@ -413,9 +527,14 @@ fn field_role_to_proto(field_role: SearchFieldRole) -> ProtoSearchFieldRole {
 
 #[cfg(test)]
 mod tests {
-    use coral_api::v1::SearchProviderState as ProtoSearchProviderState;
+    use coral_api::v1::{
+        SearchClearTarget as ProtoSearchClearTarget,
+        SearchProviderState as ProtoSearchProviderState, search_clear_target,
+    };
+    use tonic::Code;
 
-    use super::provider_status_to_proto;
+    use super::{clear_target_from_proto, provider_status_to_proto};
+    use crate::search::maintenance::SearchClearTarget;
     use crate::search::result::{
         ProviderCoverage, ProviderStatus, SearchProviderKind,
         SearchProviderState as DomainProviderState,
@@ -438,5 +557,48 @@ mod tests {
             proto.coverage.is_none(),
             "skipped provider coverage should be absent"
         );
+    }
+
+    #[test]
+    fn clear_source_target_is_parsed_into_source_identity() {
+        for source_name in ["github_v4", "github issues"] {
+            let target = clear_target_from_proto(Some(ProtoSearchClearTarget {
+                target: Some(search_clear_target::Target::SourceName(
+                    source_name.to_string(),
+                )),
+            }))
+            .expect("valid source target");
+
+            let SearchClearTarget::Source(parsed) = target else {
+                panic!("expected source target");
+            };
+            assert_eq!(parsed.as_str(), source_name);
+        }
+    }
+
+    #[test]
+    fn clear_source_target_rejects_unsafe_source_identities() {
+        for source_name in [
+            "",
+            " github",
+            "github ",
+            "github/child",
+            r"github\child",
+            ".",
+            "..",
+        ] {
+            let status = clear_target_from_proto(Some(ProtoSearchClearTarget {
+                target: Some(search_clear_target::Target::SourceName(
+                    source_name.to_string(),
+                )),
+            }))
+            .expect_err("unsafe source target should fail");
+
+            assert_eq!(
+                status.code(),
+                Code::InvalidArgument,
+                "source={source_name:?}"
+            );
+        }
     }
 }

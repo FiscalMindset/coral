@@ -4,16 +4,17 @@
 )]
 
 use coral_api::v1::{
-    ClearSearchDataRequest, RebuildSearchIndexRequest, SearchClearTarget, SearchDataScope,
-    SearchFieldRole, SearchMaintenanceState, SearchProvider, SearchProviderState, SearchRequest,
-    SearchSurfaceKind, TableFunctionKind, ValidateSourceRequest, Workspace, catalog_item,
-    search_clear_target, search_maintenance_result, search_result,
+    ClearSearchDataRequest, DrainSearchQueueRequest, RebuildSearchIndexRequest, SearchClearTarget,
+    SearchDataScope, SearchFieldRole, SearchIndexProvider, SearchMaintenanceState, SearchProvider,
+    SearchProviderState, SearchRequest, SearchSurfaceKind, TableFunctionKind,
+    ValidateSourceRequest, Workspace, catalog_item, search_clear_target, search_maintenance_result,
+    search_result,
 };
 use coral_client::default_workspace;
 use serde_json::json;
 use tonic::{Code, Request};
 
-use super::harness::{GrpcHarness, manifest_yaml};
+use super::harness::{GrpcHarness, manifest_yaml, source_dir};
 
 // The old live-scope VALUES CTE bound five fields per surface. At 6,553 surfaces, the
 // count query's two additional fields exceeded bundled SQLite's 32,766-variable limit.
@@ -228,6 +229,7 @@ async fn rebuild_search_index_forces_catalog_projection_refresh() {
         .search_client()
         .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
             workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::Catalog as i32,
             force: false,
         }))
         .await
@@ -248,6 +250,7 @@ async fn rebuild_search_index_forces_catalog_projection_refresh() {
         .search_client()
         .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
             workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::Catalog as i32,
             force: true,
         }))
         .await
@@ -275,6 +278,290 @@ async fn rebuild_search_index_forces_catalog_projection_refresh() {
 }
 
 #[tokio::test]
+async fn rebuild_search_index_unspecified_rebuilds_catalog_and_observed_values() {
+    let harness = GrpcHarness::new_with_observed_values_search().await;
+    harness
+        .import_source(searchable_manifest_yaml(), Vec::new(), Vec::new())
+        .await;
+
+    let response = harness
+        .search_client()
+        .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+            workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::Unspecified as i32,
+            force: false,
+        }))
+        .await
+        .expect("rebuild all search indexes")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 2);
+    let catalog_detail = catalog_rebuild_detail(&response);
+    assert!(catalog_detail.new_document_count > 0);
+
+    let observed = rebuild_result(&response, SearchProvider::ObservedValues);
+    assert_eq!(
+        SearchMaintenanceState::try_from(observed.state).expect("observed maintenance state"),
+        SearchMaintenanceState::Completed
+    );
+
+    let observed_rebuild = observed_rebuild_detail(&response);
+    assert_eq!(observed_rebuild.canonical_rows_scanned, 0);
+    assert_eq!(observed_rebuild.fts_rows_rebuilt, 0);
+}
+
+#[tokio::test]
+async fn rebuild_search_index_all_rebuilds_catalog_and_skips_disabled_observed_values() {
+    let harness = GrpcHarness::new().await;
+    harness
+        .import_source(searchable_manifest_yaml(), Vec::new(), Vec::new())
+        .await;
+
+    let response = harness
+        .search_client()
+        .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+            workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::All as i32,
+            force: false,
+        }))
+        .await
+        .expect("rebuild all search indexes")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 2);
+    assert!(catalog_rebuild_detail(&response).new_document_count > 0);
+    assert_disabled_observed_maintenance_result(rebuild_result(
+        &response,
+        SearchProvider::ObservedValues,
+    ));
+}
+
+#[tokio::test]
+async fn rebuild_search_index_observed_values_skips_without_creating_storage_when_disabled() {
+    let harness = GrpcHarness::new().await;
+    let sqlite_path = search_sqlite_path(&harness);
+    assert!(!sqlite_path.exists());
+
+    let response = harness
+        .search_client()
+        .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+            workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::ObservedValues as i32,
+            force: false,
+        }))
+        .await
+        .expect("disabled observed-value search rebuild")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    assert_disabled_observed_maintenance_result(rebuild_result(
+        &response,
+        SearchProvider::ObservedValues,
+    ));
+    assert!(
+        !sqlite_path.exists(),
+        "disabled observed rebuild should not create search storage"
+    );
+}
+
+#[tokio::test]
+async fn rebuild_search_index_observed_values_rebuilds_projection() {
+    let harness = GrpcHarness::new_with_observed_values_search().await;
+
+    let response = harness
+        .search_client()
+        .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+            workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::ObservedValues as i32,
+            force: false,
+        }))
+        .await
+        .expect("rebuild observed-value search index")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    let observed = rebuild_result(&response, SearchProvider::ObservedValues);
+    assert_eq!(
+        SearchMaintenanceState::try_from(observed.state).expect("observed maintenance state"),
+        SearchMaintenanceState::Completed
+    );
+    let detail = observed_rebuild_detail(&response);
+    assert_eq!(detail.canonical_rows_scanned, 0);
+    assert_eq!(detail.fts_rows_rebuilt, 0);
+    let drain = detail.drain.as_ref().expect("pre-rebuild drain detail");
+    assert_eq!(drain.queue_jobs_processed, 0);
+    assert_eq!(drain.remaining_queue_depth, 0);
+    assert_eq!(drain.storage_jobs_dropped, 0);
+}
+
+#[tokio::test]
+async fn drain_search_queue_rejects_invalid_budget_when_disabled() {
+    let harness = GrpcHarness::new().await;
+    let sqlite_path = search_sqlite_path(&harness);
+    assert!(!sqlite_path.exists());
+
+    let status = harness
+        .search_client()
+        .drain_search_queue(Request::new(DrainSearchQueueRequest {
+            workspace: Some(default_workspace()),
+            budget_ms: 60_001,
+        }))
+        .await
+        .expect_err("oversized drain budget should fail");
+
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert!(
+        !sqlite_path.exists(),
+        "invalid disabled drain should not create search storage"
+    );
+}
+
+#[tokio::test]
+async fn drain_search_queue_skips_without_creating_storage_when_disabled() {
+    let harness = GrpcHarness::new().await;
+    let sqlite_path = search_sqlite_path(&harness);
+    assert!(!sqlite_path.exists());
+
+    let response = harness
+        .search_client()
+        .drain_search_queue(Request::new(DrainSearchQueueRequest {
+            workspace: Some(default_workspace()),
+            budget_ms: 1_000,
+        }))
+        .await
+        .expect("disabled observed-value queue drain")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    assert_disabled_observed_maintenance_result(&response.results[0]);
+    assert!(
+        !sqlite_path.exists(),
+        "disabled observed drain should not create search storage"
+    );
+}
+
+#[tokio::test]
+async fn drain_search_queue_reports_observed_provider_detail() {
+    let harness = GrpcHarness::new_with_observed_values_search().await;
+
+    let response = harness
+        .search_client()
+        .drain_search_queue(Request::new(DrainSearchQueueRequest {
+            workspace: Some(default_workspace()),
+            budget_ms: 1_000,
+        }))
+        .await
+        .expect("drain observed-value search queue")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    let observed = response
+        .results
+        .iter()
+        .find(|result| result.provider == SearchProvider::ObservedValues as i32)
+        .expect("observed provider result");
+    assert_eq!(
+        SearchMaintenanceState::try_from(observed.state).expect("observed maintenance state"),
+        SearchMaintenanceState::Noop
+    );
+    match observed.detail.as_ref() {
+        Some(search_maintenance_result::Detail::ObservedDrain(detail)) => {
+            assert_eq!(detail.queue_jobs_processed, 0);
+            assert_eq!(detail.remaining_queue_depth, 0);
+            assert!(!detail.budget_exhausted);
+        }
+        other => panic!("expected observed drain detail, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn clear_search_data_remains_available_when_observed_values_search_is_disabled() {
+    let harness = GrpcHarness::new().await;
+
+    let response = harness
+        .search_client()
+        .clear_search_data(Request::new(ClearSearchDataRequest {
+            workspace: Some(default_workspace()),
+            scope: SearchDataScope::ObservedValues as i32,
+            target: Some(SearchClearTarget {
+                target: Some(search_clear_target::Target::Workspace(true)),
+            }),
+        }))
+        .await
+        .expect("clear disabled observed-value search data")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(
+        response.results[0].provider,
+        SearchProvider::ObservedValues as i32
+    );
+    assert!(matches!(
+        response.results[0].detail.as_ref(),
+        Some(search_maintenance_result::Detail::ObservedClear(_))
+    ));
+    assert!(response.storage_cleanup.is_some());
+}
+
+#[tokio::test]
+async fn clear_search_data_accepts_source_target_with_internal_whitespace() {
+    let harness = GrpcHarness::new().await;
+
+    let response = harness
+        .search_client()
+        .clear_search_data(Request::new(ClearSearchDataRequest {
+            workspace: Some(default_workspace()),
+            scope: SearchDataScope::ObservedValues as i32,
+            target: Some(SearchClearTarget {
+                target: Some(search_clear_target::Target::SourceName(
+                    "github issues".to_string(),
+                )),
+            }),
+        }))
+        .await
+        .expect("valid source target with internal whitespace")
+        .into_inner();
+
+    assert_eq!(response.results.len(), 1);
+}
+
+#[tokio::test]
+async fn clear_search_data_rejects_invalid_source_targets_at_transport_edge() {
+    let harness = GrpcHarness::new().await;
+
+    for source_name in [
+        "",
+        " github",
+        "github ",
+        "github/child",
+        r"github\child",
+        ".",
+        "..",
+    ] {
+        let status = harness
+            .search_client()
+            .clear_search_data(Request::new(ClearSearchDataRequest {
+                workspace: Some(default_workspace()),
+                scope: SearchDataScope::ObservedValues as i32,
+                target: Some(SearchClearTarget {
+                    target: Some(search_clear_target::Target::SourceName(
+                        source_name.to_string(),
+                    )),
+                }),
+            }))
+            .await
+            .expect_err("invalid source target should fail");
+
+        assert_eq!(
+            status.code(),
+            Code::InvalidArgument,
+            "source={source_name:?}, message={}",
+            status.message()
+        );
+    }
+}
+
+#[tokio::test]
 async fn clear_search_data_removes_catalog_projection_and_next_search_recreates_it() {
     let harness = GrpcHarness::new().await;
     harness
@@ -285,6 +572,7 @@ async fn clear_search_data_removes_catalog_projection_and_next_search_recreates_
         .search_client()
         .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
             workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::Catalog as i32,
             force: false,
         }))
         .await
@@ -340,6 +628,67 @@ async fn clear_search_data_removes_catalog_projection_and_next_search_recreates_
         )),
         "next search should recreate and use the catalog projection"
     );
+}
+
+#[tokio::test]
+async fn source_scoped_all_clear_does_not_load_manifest_and_bumps_generation() {
+    let harness = GrpcHarness::new_with_observed_values_search().await;
+    harness
+        .import_source(searchable_manifest_yaml(), Vec::new(), Vec::new())
+        .await;
+    harness
+        .search_client()
+        .rebuild_search_index(Request::new(RebuildSearchIndexRequest {
+            workspace: Some(default_workspace()),
+            provider: SearchIndexProvider::Catalog as i32,
+            force: false,
+        }))
+        .await
+        .expect("seed catalog projection");
+    let sqlite_path = harness
+        .config_dir()
+        .join("workspaces/default/search/search.sqlite3");
+    let initial_generation: i64 = rusqlite::Connection::open(&sqlite_path)
+        .expect("open search sqlite before clear")
+        .query_row(
+            "SELECT generation FROM observed_source_generations WHERE workspace = 'default' AND source_name = 'searchable'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("initial source generation");
+    std::fs::remove_file(source_dir(harness.config_dir(), "searchable").join("manifest.yaml"))
+        .expect("remove manifest before clear");
+
+    let clear = harness
+        .search_client()
+        .clear_search_data(Request::new(ClearSearchDataRequest {
+            workspace: Some(default_workspace()),
+            scope: SearchDataScope::All as i32,
+            target: Some(SearchClearTarget {
+                target: Some(search_clear_target::Target::SourceName(
+                    "searchable".to_string(),
+                )),
+            }),
+        }))
+        .await
+        .expect("source-scoped all clear")
+        .into_inner();
+
+    assert_eq!(clear.results.len(), 2);
+    assert!(catalog_clear_detail(&clear).deleted_document_count > 0);
+    assert!(clear.results.iter().any(|result| matches!(
+        result.detail.as_ref(),
+        Some(search_maintenance_result::Detail::ObservedClear(_))
+    )));
+    let connection = rusqlite::Connection::open(sqlite_path).expect("open search sqlite");
+    let generation: i64 = connection
+        .query_row(
+            "SELECT generation FROM observed_source_generations WHERE workspace = 'default' AND source_name = 'searchable'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("source generation");
+    assert_eq!(generation, initial_generation + 1);
 }
 
 #[tokio::test]
@@ -549,9 +898,7 @@ fn catalog_rebuild_detail(
     let result = catalog_rebuild_result(response);
     match result.detail.as_ref() {
         Some(search_maintenance_result::Detail::CatalogRebuild(detail)) => detail,
-        Some(search_maintenance_result::Detail::CatalogClear(_)) | None => {
-            panic!("expected catalog rebuild detail")
-        }
+        other => panic!("expected catalog rebuild detail, got {other:?}"),
     }
 }
 
@@ -565,6 +912,53 @@ fn catalog_rebuild_result(
         .expect("provider result")
 }
 
+fn rebuild_result(
+    response: &coral_api::v1::RebuildSearchIndexResponse,
+    provider: SearchProvider,
+) -> &coral_api::v1::SearchMaintenanceResult {
+    response
+        .results
+        .iter()
+        .find(|result| result.provider == provider as i32)
+        .expect("maintenance result")
+}
+
+fn observed_rebuild_detail(
+    response: &coral_api::v1::RebuildSearchIndexResponse,
+) -> &coral_api::v1::ObservedRebuildResult {
+    response
+        .results
+        .iter()
+        .find_map(|result| match result.detail.as_ref()? {
+            search_maintenance_result::Detail::ObservedRebuild(detail) => Some(detail),
+            _ => None,
+        })
+        .expect("observed rebuild detail")
+}
+
+fn assert_disabled_observed_maintenance_result(result: &coral_api::v1::SearchMaintenanceResult) {
+    assert_eq!(result.provider, SearchProvider::ObservedValues as i32);
+    assert_eq!(
+        SearchMaintenanceState::try_from(result.state).expect("observed maintenance state"),
+        SearchMaintenanceState::Skipped
+    );
+    assert!(
+        result.note.contains("enable") && result.note.contains("`observed_values_search`"),
+        "disabled observed maintenance note should explain how to enable it: {}",
+        result.note
+    );
+    assert!(
+        result.detail.is_none(),
+        "disabled observed maintenance should not report provider detail"
+    );
+}
+
+fn search_sqlite_path(harness: &GrpcHarness) -> std::path::PathBuf {
+    harness
+        .config_dir()
+        .join("workspaces/default/search/search.sqlite3")
+}
+
 fn catalog_clear_detail(
     response: &coral_api::v1::ClearSearchDataResponse,
 ) -> &coral_api::v1::CatalogClearResult {
@@ -573,7 +967,7 @@ fn catalog_clear_detail(
         .iter()
         .find_map(|result| match result.detail.as_ref()? {
             search_maintenance_result::Detail::CatalogClear(detail) => Some(detail),
-            search_maintenance_result::Detail::CatalogRebuild(_) => None,
+            _ => None,
         })
         .expect("catalog clear detail")
 }

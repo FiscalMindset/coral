@@ -13,8 +13,9 @@ use crate::search::observed::governance::{
 };
 use crate::search::observed::sqlite_projection;
 use crate::search::observed::sqlite_projection::{
-    MAX_OBSERVED_QUEUE_JOB_ATTEMPTS, ObservedValuesDrainBudget, ObservedValuesDrainResult,
-    ObservedValuesRebuildResult, ObservedValuesSearchHits,
+    MAX_OBSERVED_QUEUE_JOB_ATTEMPTS, OBSERVED_FTS_REBUILD_BATCH_PAYLOAD_BYTES,
+    ObservedValuesDrainBudget, ObservedValuesDrainResult, ObservedValuesRebuildResult,
+    ObservedValuesSearchHits,
 };
 use crate::search::observed::sqlite_queue::{
     ObservedValuesEnqueueResult, ObservedValuesEpoch, ObservedValuesQueueJob,
@@ -112,7 +113,7 @@ impl SqliteObservedValuesStore {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let mut connection = store.connect()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = clear_workspace_in_transaction(&transaction, workspace_name)?;
+        let result = clear_observed_workspace_in_transaction(&transaction, workspace_name)?;
         transaction.commit()?;
         Ok(result)
     }
@@ -125,11 +126,14 @@ impl SqliteObservedValuesStore {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let mut connection = store.connect()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = clear_source_in_transaction(&transaction, workspace_name, owner_source_name)?;
+        let result =
+            clear_observed_source_in_transaction(&transaction, workspace_name, owner_source_name)?;
         transaction.commit()?;
         Ok(result)
     }
+}
 
+impl SqliteObservedValuesStore {
     pub(crate) fn drain_queue(
         &self,
         workspace_name: &WorkspaceName,
@@ -204,21 +208,63 @@ impl SqliteObservedValuesStore {
         Ok(result)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "policy-aware rebuild is staged for the final maintenance API PR"
-        )
-    )]
     pub(crate) fn rebuild_fts(
         &self,
         workspace_name: &WorkspaceName,
         policy: &ObservedValuesRetrievalPolicy,
     ) -> Result<ObservedValuesRebuildResult, SqliteSearchError> {
+        self.rebuild_fts_with_limits_and_guard(
+            workspace_name,
+            policy,
+            self.policy.maintenance_batch_rows,
+            OBSERVED_FTS_REBUILD_BATCH_PAYLOAD_BYTES,
+            |connection| storage_limit_reached(connection, self.policy),
+        )
+    }
+
+    fn rebuild_fts_with_limits_and_guard(
+        &self,
+        workspace_name: &WorkspaceName,
+        policy: &ObservedValuesRetrievalPolicy,
+        max_batch_rows: usize,
+        max_batch_payload_bytes: usize,
+        storage_limit_reached: impl FnMut(&Connection) -> Result<bool, SqliteSearchError>,
+    ) -> Result<ObservedValuesRebuildResult, SqliteSearchError> {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let mut connection = store.connect()?;
-        sqlite_projection::rebuild_observed_fts(&mut connection, workspace_name, policy)
+        sqlite_projection::rebuild_observed_fts(
+            &mut connection,
+            workspace_name,
+            policy,
+            max_batch_rows,
+            max_batch_payload_bytes,
+            storage_limit_reached,
+        )
+    }
+
+    #[cfg(test)]
+    fn rebuild_fts_with_limits_guard_and_hook(
+        &self,
+        workspace_name: &WorkspaceName,
+        policy: &ObservedValuesRetrievalPolicy,
+        max_batch_rows: usize,
+        max_batch_payload_bytes: usize,
+        storage_limit_reached: impl FnMut(&Connection) -> Result<bool, SqliteSearchError>,
+        before_batch_write: impl FnMut(
+            sqlite_projection::ObservedFtsRebuildPhase,
+        ) -> Result<(), SqliteSearchError>,
+    ) -> Result<ObservedValuesRebuildResult, SqliteSearchError> {
+        let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
+        let mut connection = store.connect()?;
+        sqlite_projection::rebuild_observed_fts_with_hook(
+            &mut connection,
+            workspace_name,
+            policy,
+            max_batch_rows,
+            max_batch_payload_bytes,
+            storage_limit_reached,
+            before_batch_write,
+        )
     }
 
     pub(crate) fn search(
@@ -231,6 +277,14 @@ impl SqliteObservedValuesStore {
         let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
         let connection = store.connect()?;
         sqlite_projection::search_observed_values(&connection, workspace_name, terms, limit, policy)
+    }
+
+    pub(crate) fn compact_after_clear(
+        &self,
+        workspace_name: &WorkspaceName,
+    ) -> Result<crate::search::sqlite_store::SqliteSearchCompactionResult, SqliteSearchError> {
+        let store = SqliteSearchStore::open_workspace(&self.layout, workspace_name)?;
+        Ok(store.compact_after_clear())
     }
 
     pub(crate) fn pending_queue_job_count(
@@ -407,7 +461,7 @@ fn enqueue_if_current_in_transaction(
     Ok(ObservedValuesEnqueueResult::Enqueued { job_id })
 }
 
-fn clear_workspace_in_transaction(
+pub(crate) fn clear_observed_workspace_in_transaction(
     transaction: &Transaction<'_>,
     workspace_name: &WorkspaceName,
 ) -> Result<ObservedValuesClearResult, SqliteSearchError> {
@@ -431,7 +485,7 @@ fn clear_workspace_in_transaction(
     })
 }
 
-fn clear_source_in_transaction(
+pub(crate) fn clear_observed_source_in_transaction(
     transaction: &Transaction<'_>,
     workspace_name: &WorkspaceName,
     owner_source_name: &str,
