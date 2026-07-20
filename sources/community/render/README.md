@@ -194,6 +194,7 @@ Validating source...
 
 ```bash
 $ coral source test render
+
   ✓ render connected successfully
   Secrets: keychain
 
