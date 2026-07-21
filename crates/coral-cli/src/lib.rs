@@ -19,6 +19,8 @@ mod source_ops;
 
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::future::Future;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 #[cfg(feature = "embedded-ui")]
 use std::sync::Arc;
@@ -92,6 +94,8 @@ enum Command {
     Onboard,
     /// Start the MCP server over stdio
     McpStdio(McpStdioArgs),
+    /// Start the long-running gRPC server
+    Server,
     /// Inspect and manage experimental runtime features
     Features(FeaturesArgs),
     #[cfg(feature = "embedded-ui")]
@@ -535,7 +539,9 @@ impl Command {
             | Command::Function(_)
             | Command::Onboard
             | Command::McpStdio(_) => RequiredRuntime::AppClient,
-            Command::Features(_) | Command::Completion(_) => RequiredRuntime::None,
+            Command::Features(_) | Command::Completion(_) | Command::Server => {
+                RequiredRuntime::None
+            }
             #[cfg(feature = "embedded-ui")]
             Command::Ui(_) => RequiredRuntime::None,
         }
@@ -728,11 +734,77 @@ async fn run_ui(
     }
     println!("Press Ctrl-C to stop the UI.");
 
-    let signal = tokio::signal::ctrl_c().await;
+    run_until_server_stops(server, tokio::signal::ctrl_c()).await
+}
+
+async fn run_server(
+    feature_overrides: coral_app::features::FeatureOverrides,
+) -> Result<(), anyhow::Error> {
+    let server = bootstrap::start_standalone_server(feature_overrides).await?;
+    let endpoint = server.endpoint_uri().to_string();
+
+    if !server_endpoint_is_loopback(&endpoint) {
+        eprintln!(
+            "Warning: the native gRPC server at {endpoint} does not authenticate clients; \
+             any client that can reach the server can access Coral and its configured sources. \
+             Protect it with a trusted network boundary or authenticating proxy."
+        );
+    }
+    println!("Coral gRPC server listening on {endpoint}");
+    println!("Connect clients with CORAL_ENDPOINT={endpoint}");
+    println!("Press Ctrl-C to stop the server.");
+
+    run_until_server_stops(server, wait_for_server_shutdown_signal()).await
+}
+
+async fn run_until_server_stops(
+    server: coral_app::RunningServer,
+    shutdown_signal: impl Future<Output = Result<(), std::io::Error>>,
+) -> Result<(), anyhow::Error> {
+    let signal = tokio::select! {
+        result = shutdown_signal => Some(result),
+        () = server.wait_for_exit() => None,
+    };
     let shutdown = server.shutdown().await;
-    signal?;
+    if let Some(signal) = signal {
+        signal?;
+    }
     shutdown?;
     Ok(())
+}
+
+fn server_endpoint_is_loopback(endpoint: &str) -> bool {
+    endpoint
+        .strip_prefix("http://")
+        .and_then(|authority| authority.parse::<SocketAddr>().ok())
+        .is_some_and(|address| address.ip().is_loopback())
+}
+
+#[cfg(unix)]
+async fn wait_for_server_shutdown_signal() -> Result<(), std::io::Error> {
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        signal = tokio::signal::ctrl_c() => signal,
+        _ = sigterm.recv() => Ok(()),
+    }
+}
+
+#[cfg(windows)]
+async fn wait_for_server_shutdown_signal() -> Result<(), std::io::Error> {
+    let mut ctrl_break = tokio::signal::windows::ctrl_break()?;
+    let mut ctrl_close = tokio::signal::windows::ctrl_close()?;
+    let mut ctrl_shutdown = tokio::signal::windows::ctrl_shutdown()?;
+    tokio::select! {
+        signal = tokio::signal::ctrl_c() => signal,
+        _ = ctrl_break.recv() => Ok(()),
+        _ = ctrl_close.recv() => Ok(()),
+        _ = ctrl_shutdown.recv() => Ok(()),
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
+async fn wait_for_server_shutdown_signal() -> Result<(), std::io::Error> {
+    tokio::signal::ctrl_c().await
 }
 
 async fn run_no_runtime_command(
@@ -747,6 +819,9 @@ async fn run_no_runtime_command(
             Ok(())
         }
         Command::Features(args) => run_features(args, feature_overrides).map_err(Into::into),
+        Command::Server => run_server(feature_overrides.clone())
+            .await
+            .map_err(Into::into),
         #[cfg(feature = "embedded-ui")]
         Command::Ui(args) => run_ui(args, feature_overrides.clone())
             .await
@@ -855,10 +930,7 @@ async fn run_app_command(
             .await
             .map_err(anyhow::Error::from)?;
         }
-        Command::Completion(_) => {
-            unreachable!("no-runtime commands are routed without an app client")
-        }
-        Command::Features(_) => {
+        Command::Completion(_) | Command::Features(_) | Command::Server => {
             unreachable!("no-runtime commands are routed without an app client")
         }
         #[cfg(feature = "embedded-ui")]
@@ -1631,18 +1703,45 @@ mod tests {
 
     use super::{
         Cli, RequiredRuntime, command_enables_stderr_logs, function_columns_summary,
-        function_status_summary,
+        function_status_summary, server_endpoint_is_loopback,
     };
 
     #[test]
-    fn server_command_is_not_available() {
-        let error = Cli::try_parse_from(["coral", "server", "--help"])
-            .expect_err("dev server command should not be exposed");
+    fn server_command_requires_no_app_client_runtime() {
+        let cli = Cli::try_parse_from(["coral", "server"]).expect("server should parse");
 
-        assert!(
-            error.to_string().contains("unrecognized subcommand"),
-            "unexpected parse error: {error}"
-        );
+        assert_eq!(cli.command.required_runtime(), RequiredRuntime::None);
+        assert!(matches!(cli.command, super::Command::Server));
+    }
+
+    #[test]
+    fn server_command_rejects_command_line_bind_overrides() {
+        for args in [
+            ["coral", "server", "--bind", "127.0.0.1"],
+            ["coral", "server", "--port", "14555"],
+        ] {
+            Cli::try_parse_from(args).expect_err("server bind overrides should be rejected");
+        }
+    }
+
+    #[test]
+    fn server_security_warning_targets_non_loopback_endpoints() {
+        for endpoint in ["http://127.0.0.1:14555", "http://[::1]:14555"] {
+            assert!(
+                server_endpoint_is_loopback(endpoint),
+                "endpoint: {endpoint}"
+            );
+        }
+        for endpoint in [
+            "http://0.0.0.0:14555",
+            "http://[::]:14555",
+            "http://192.168.1.10:14555",
+        ] {
+            assert!(
+                !server_endpoint_is_loopback(endpoint),
+                "endpoint: {endpoint}"
+            );
+        }
     }
 
     #[cfg(feature = "embedded-ui")]
