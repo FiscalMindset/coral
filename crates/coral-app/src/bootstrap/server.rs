@@ -114,7 +114,7 @@ impl ServerConfig {
     pub(crate) fn new() -> Self {
         Self {
             config_dir: None,
-            mode: ServerMode::NativeGrpc,
+            mode: ServerMode::EphemeralGrpc,
             engine_extensions_providers: Vec::new(),
             user_principal_provider: Arc::new(SingleUserPrincipalProvider),
             feedback_publisher: Arc::new(HostedFeedbackPublisher::new()),
@@ -160,8 +160,13 @@ impl ServerConfig {
 /// transport or asset-serving knob.
 #[derive(Clone)]
 pub enum ServerMode {
-    /// Native gRPC for CLI, MCP, and local client callers.
-    NativeGrpc,
+    /// Ephemeral native gRPC for CLI, MCP, and local client callers.
+    EphemeralGrpc,
+    /// Native gRPC bound to an explicit address for a standalone server.
+    StandaloneGrpc {
+        /// Address to bind.
+        bind: SocketAddr,
+    },
     /// Loopback gRPC-Web server that also serves embedded UI assets.
     EmbeddedUi {
         /// Port to bind on `127.0.0.1`.
@@ -174,7 +179,8 @@ pub enum ServerMode {
 impl ServerMode {
     fn bind_addr(&self) -> SocketAddr {
         match self {
-            Self::NativeGrpc => SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            Self::EphemeralGrpc => SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            Self::StandaloneGrpc { bind } => *bind,
             Self::EmbeddedUi { port, .. } => SocketAddr::from((Ipv4Addr::LOCALHOST, *port)),
         }
     }
@@ -188,7 +194,7 @@ pub struct ServerBuilder {
 
 impl ServerBuilder {
     #[must_use]
-    /// Creates a builder for the default native gRPC local server.
+    /// Creates a builder for the default ephemeral native gRPC local server.
     pub fn new() -> Self {
         Self {
             config: ServerConfig::new(),
@@ -196,9 +202,15 @@ impl ServerBuilder {
     }
 
     #[must_use]
-    /// Creates a builder for a native gRPC local server.
-    pub fn native_grpc() -> Self {
-        Self::new().with_mode(ServerMode::NativeGrpc)
+    /// Creates a builder for an ephemeral native gRPC local server.
+    pub fn ephemeral_grpc() -> Self {
+        Self::new().with_mode(ServerMode::EphemeralGrpc)
+    }
+
+    #[must_use]
+    /// Creates a standalone native gRPC server bound to an explicit address.
+    pub fn standalone_grpc(bind: SocketAddr) -> Self {
+        Self::new().with_mode(ServerMode::StandaloneGrpc { bind })
     }
 
     #[must_use]
@@ -624,7 +636,9 @@ async fn start_server(
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let task = match mode {
-        ServerMode::NativeGrpc => start_grpc_server(listener, shutdown_rx, routes),
+        ServerMode::EphemeralGrpc | ServerMode::StandaloneGrpc { .. } => {
+            start_grpc_server(listener, shutdown_rx, routes)
+        }
         ServerMode::EmbeddedUi { assets, .. } => {
             start_grpc_web_server(listener, shutdown_rx, routes, assets)
         }
@@ -843,7 +857,7 @@ mod tests {
     )]
 
     use std::borrow::Cow;
-    use std::net::{Ipv4Addr, TcpListener};
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener};
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -1058,6 +1072,36 @@ enabled = false
                 .expect("pending queue depth"),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn standalone_grpc_binds_the_requested_loopback_address() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        disable_internal_tracing(&config_dir);
+        let server = ServerBuilder::standalone_grpc(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start explicit loopback server");
+
+        assert!(server.endpoint_uri().starts_with("http://127.0.0.1:"));
+        server.shutdown().await.expect("shutdown server");
+    }
+
+    #[tokio::test]
+    async fn standalone_grpc_binds_the_requested_non_loopback_address() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        disable_internal_tracing(&config_dir);
+        let server = ServerBuilder::standalone_grpc(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))
+            .with_config_dir(config_dir)
+            .start()
+            .await
+            .expect("start explicit non-loopback server");
+
+        assert!(server.endpoint_uri().starts_with("http://0.0.0.0:"));
+        server.shutdown().await.expect("shutdown server");
     }
 
     #[tokio::test]
@@ -1402,7 +1446,7 @@ backend = "unsupported"
                 local_trace_store_dir: None,
             },
             Arc::new(SingleUserPrincipalProvider),
-            ServerMode::NativeGrpc,
+            ServerMode::EphemeralGrpc,
         )
         .await
         .expect("start server");
@@ -1471,7 +1515,7 @@ backend = "unsupported"
     }
 
     #[tokio::test]
-    async fn server_builder_applies_injected_provider_to_native_grpc() {
+    async fn server_builder_applies_injected_provider_to_ephemeral_grpc() {
         let temp = TempDir::new().expect("temp dir");
         let server = ServerBuilder::new()
             .with_config_dir(temp.path().join("coral-config"))
@@ -1849,7 +1893,7 @@ tables:
             },
             TraceServerComponents::default(),
             Arc::new(SingleUserPrincipalProvider),
-            ServerMode::NativeGrpc,
+            ServerMode::EphemeralGrpc,
         )
         .await
         .expect("start server");
@@ -1975,7 +2019,7 @@ tables:
             },
             TraceServerComponents::default(),
             Arc::new(SingleUserPrincipalProvider),
-            ServerMode::NativeGrpc,
+            ServerMode::EphemeralGrpc,
         )
         .await
         .expect("start server");
@@ -2101,7 +2145,7 @@ tables:
             },
             TraceServerComponents::default(),
             Arc::new(SingleUserPrincipalProvider),
-            ServerMode::NativeGrpc,
+            ServerMode::EphemeralGrpc,
         )
         .await
         .expect("start server");
