@@ -236,13 +236,13 @@ FROM render.services LIMIT 3;
 ```
 
 ```text
-+--------------------------+------------------+-------------+---------------+----------------------------------------+
-| service_id               | name             | type        | status        | url                                    |
-+--------------------------+------------------+-------------+---------------+----------------------------------------+
-| srv-0000000000000000000a | my-static-site   | static_site | not_suspended | https://my-static-site.example.invalid |
-| srv-0000000000000000000b | my-web-service   | web_service | not_suspended | https://my-web-service.example.invalid |
-| srv-0000000000000000000c | my-worker        | background_worker | not_suspended |                                     |
-+--------------------------+------------------+-------------+---------------+----------------------------------------+
++--------------------------+------------------+-------------------+---------------+----------------------------------------+
+| service_id               | name             | type              | status        | url                                    |
++--------------------------+------------------+-------------------+---------------+----------------------------------------+
+| srv-0000000000000000000a | my-static-site   | static_site       | not_suspended | https://my-static-site.example.invalid |
+| srv-0000000000000000000b | my-web-service   | web_service       | not_suspended | https://my-web-service.example.invalid |
+| srv-0000000000000000000c | my-worker        | background_worker | not_suspended |                                        |
++--------------------------+------------------+-------------------+---------------+----------------------------------------+
 ```
 
 **Live type filter proof (redacted):**
@@ -279,7 +279,7 @@ LIMIT 3;
 +--------------------------+------------------+---------------+----------------------------------------+
 | srv-0000000000000000000a | my-static-site   | not_suspended | https://my-static-site.example.invalid |
 | srv-0000000000000000000b | my-web-service   | not_suspended | https://my-web-service.example.invalid |
-| srv-0000000000000000000c | my-worker        | not_suspended |                                         |
+| srv-0000000000000000000c | my-worker        | not_suspended |                                        |
 +--------------------------+------------------+---------------+----------------------------------------+
 ```
 
