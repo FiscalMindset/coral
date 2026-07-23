@@ -144,6 +144,7 @@ pub(crate) fn query_source_from_installed_manifest(
                 description: source_spec.description().to_string(),
                 declared_inputs: source_spec.declared_inputs().to_vec(),
                 test_queries: source_spec.test_queries().to_vec(),
+                identity_requirements: None,
                 components: component.into_iter().collect(),
             },
             source.variables.clone(),

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use coral_engine::{CoralQuery, QuerySource, RuntimeSourceComponent, RuntimeSourcePackage};
-use coral_spec::backends::http::HttpSourceManifest;
 use coral_spec::parse_source_manifest_yaml;
 use coral_spec::{FilterMode, FilterSpec, ManifestDataType};
 use serde_json::json;
@@ -37,6 +36,7 @@ async fn multi_component_source_executes_across_component_tables() {
             description: "Composite GitHub runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![
                 RuntimeSourceComponent::Http(issues),
                 RuntimeSourceComponent::Http(pulls),
@@ -75,6 +75,7 @@ async fn composite_source_rejects_unsupported_lookup_key_component_backend() {
             description: "Composite runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![RuntimeSourceComponent::File(
                 file_component_with_lookup_key_filter(),
             )],
@@ -123,6 +124,7 @@ async fn multi_component_source_can_register_multiple_schemas() {
             description: "Composite GitHub runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![
                 RuntimeSourceComponent::Http(issues),
                 RuntimeSourceComponent::Http(pulls),
@@ -162,6 +164,7 @@ async fn selected_sources_reject_runtime_schema_collisions() {
             description: "Composite GitHub runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![RuntimeSourceComponent::Http(http_component(
                 &server.uri(),
                 "github_v4_rest",
@@ -180,6 +183,7 @@ async fn selected_sources_reject_runtime_schema_collisions() {
             description: "Conflicting runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![RuntimeSourceComponent::Http(http_component(
                 &server.uri(),
                 "github_v4_rest",
@@ -216,6 +220,7 @@ async fn validate_source_reports_only_component_schemas_for_multi_schema_source(
             description: "Composite GitHub runtime package".to_string(),
             declared_inputs: Vec::new(),
             test_queries: Vec::new(),
+            identity_requirements: None,
             components: vec![
                 RuntimeSourceComponent::Http(issues),
                 RuntimeSourceComponent::Http(pulls),
@@ -246,7 +251,7 @@ fn http_component(
     schema_name: &str,
     table_name: &str,
     path: &str,
-) -> HttpSourceManifest {
+) -> coral_spec::backends::http::HttpSourceManifest {
     let manifest = parse_source_manifest_yaml(&format!(
         r"
 name: {schema_name}

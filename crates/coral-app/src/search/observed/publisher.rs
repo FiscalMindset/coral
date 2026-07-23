@@ -638,6 +638,7 @@ tables:
                 description: String::new(),
                 declared_inputs: Vec::new(),
                 test_queries: Vec::new(),
+                identity_requirements: None,
                 components: vec![
                     http_component("github_v4_rest"),
                     http_component("github_v4_mcp"),
