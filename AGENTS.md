@@ -138,9 +138,16 @@
   bash Coral installer and installer-specific support.
 - Keep `xtask` organized by workflow: docs generation lives under
   `xtask/src/docs/`, shared source-manifest discovery lives in
-  `xtask/src/sources.rs`, performance checks live in `xtask/src/perf.rs`, and
-  skill export lives in `xtask/src/skills.rs`. Release signing and
-  notarization automation lives in `xtask/src/release.rs`.
+  `xtask/src/sources.rs`, command-latency checks live in `xtask/src/perf.rs`,
+  representation-efficiency benchmark dispatch lives under
+  `xtask/src/benchmarks/`, and the isolated benchmark package and fixtures live
+  under `xtask/benchmarks/`. Skill export lives in `xtask/src/skills.rs`.
+  Release signing and notarization automation lives in `xtask/src/release.rs`.
+- Use `cargo run --locked -p xtask -- benchmark list-columns` to measure the
+  complete MCP `list_columns` response for the checked-in synthetic wide-table
+  fixture with the `o200k_base` tokenizer. The benchmark must call the real MCP
+  tool in-process, report without enforcing a token budget, and keep
+  benchmark-only code out of production crates.
 - The Electron desktop app version is tied to the CLI release version through
   release-please. The release workflow builds the macOS desktop app from
   `apps/desktop`, uploads its DMG/ZIP/update metadata to the same GitHub
