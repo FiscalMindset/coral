@@ -28,7 +28,8 @@ surface:
     let v4 = manifest.as_v4().expect("v4");
     let surface = &v4.surface;
     let ir = import_openapi_surface(v4, surface, github_openapi().as_bytes()).expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let published = catalog
         .projections
         .iter()
@@ -69,18 +70,22 @@ paths:
       operationId: list_project_items
       parameters:
         - {name: project_id, in: path, required: true, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string}}
       responses: {'200': {content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}}}}}}}}
 ";
     let mut ir = import_openapi_surface(v4, surface, spec.as_bytes()).expect("import");
     if let Some((enabled, exclude)) = lookup_keys {
-        for operation in &mut ir.operations {
-            for input in &mut operation.inputs {
-                input.exclude_from_lookup_keys =
-                    !enabled || exclude.iter().any(|excluded| *excluded == input.name);
+        for metadata in ir.operation_metadata.operations.values_mut() {
+            if let OperationMetadata::Rest { lookup_keys, .. } = metadata {
+                if enabled {
+                    lookup_keys.retain(|key| !exclude.iter().any(|excluded| *excluded == key));
+                } else {
+                    lookup_keys.clear();
+                }
             }
         }
     }
-    generate_projection_catalog(v4, &ir).expect("catalog")
+    generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog")
 }
 
 fn exposure(catalog: &ProjectionCatalog, operation_id: &str, input_name: &str) -> SqlInputExposure {
@@ -97,7 +102,7 @@ fn exposure(catalog: &ProjectionCatalog, operation_id: &str, input_name: &str) -
 }
 
 #[test]
-fn lookup_key_exclusions_control_joinability_not_exposure() {
+fn lookup_key_allowlist_controls_joinability_not_exposure() {
     let filter_lookup_key = |catalog: &ProjectionCatalog, filter_name: &str| {
         let list_items = catalog
             .projections
@@ -113,8 +118,8 @@ fn lookup_key_exclusions_control_joinability_not_exposure() {
 
     let catalog = items_api_catalog(Some((true, &["order_by", "project_id"])));
 
-    // An excluded parameter keeps its exposure and pushdown; it only loses
-    // the dependent-join completeness flag.
+    // A parameter omitted from the allowlist keeps its exposure and pushdown;
+    // it only loses the dependent-join completeness flag.
     assert_eq!(
         exposure(&catalog, "list_items", "order_by"),
         SqlInputExposure::Filter
@@ -126,7 +131,9 @@ fn lookup_key_exclusions_control_joinability_not_exposure() {
     );
     assert!(filter_lookup_key(&catalog, "state"));
 
-    // Function arguments never carry the flag, excluded or not.
+    // Function arguments never carry the flag, allowlisted or not: 'state' is
+    // an allowlisted query input on this table function and 'project_id' is a
+    // non-allowlisted path input, yet neither is flagged.
     let project_items = catalog
         .projections
         .iter()
@@ -134,6 +141,10 @@ fn lookup_key_exclusions_control_joinability_not_exposure() {
         .expect("projection");
     assert_eq!(
         exposure(&catalog, "list_project_items", "project_id"),
+        SqlInputExposure::FunctionArg
+    );
+    assert_eq!(
+        exposure(&catalog, "list_project_items", "state"),
         SqlInputExposure::FunctionArg
     );
     assert!(project_items.inputs.iter().all(|input| !input.lookup_key));
@@ -149,7 +160,7 @@ fn lookup_key_exclusions_control_joinability_not_exposure() {
     assert!(!filter_lookup_key(&catalog, "order_by"));
 
     // Generated metadata is present immediately after OpenAPI import, before
-    // app materialization writes the semantic IR artifact.
+    // app materialization writes the operation-metadata artifact.
     let catalog = items_api_catalog(None);
     assert_eq!(
         exposure(&catalog, "list_items", "state"),
@@ -204,7 +215,8 @@ paths:
     )
     .expect("import");
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let column_types = catalog
         .projections
         .iter()
@@ -379,7 +391,8 @@ components:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let names = catalog
         .projections
         .iter()
@@ -428,7 +441,8 @@ surface:
     let v4 = manifest.as_v4().expect("v4");
     let surface = &v4.surface;
     let ir = import_openapi_surface(v4, surface, github_openapi().as_bytes()).expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -440,13 +454,12 @@ surface:
         .find(|operation| operation.id == projection.operation_id)
         .expect("repo issues operation");
 
-    let IrExecutionAttachment::Rest(rest) = &operation.execution else {
-        panic!("expected REST execution");
-    };
-    assert_eq!(rest.pagination.mode, PaginationMode::Page);
-    assert_eq!(rest.pagination.page_param.as_deref(), Some("page"));
+    let plan = ir.validated_plan().expect("plan");
+    let pagination = plan.rest_pagination(&operation.id);
+    assert_eq!(pagination.mode, PaginationMode::Page);
+    assert_eq!(pagination.page_param.as_deref(), Some("page"));
     assert_eq!(
-        rest.pagination
+        pagination
             .page_size
             .as_ref()
             .and_then(|page_size| page_size.query_param.as_deref()),
@@ -513,6 +526,120 @@ surface:
 }
 
 #[test]
+fn required_header_sharing_pagination_param_name_stays_unsupported() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: items_api
+dsl_version: 4
+surface:
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = &v4.surface;
+    let spec = r"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: list_items
+      parameters:
+        - {name: page, in: query, schema: {type: integer}}
+        - {name: per_page, in: query, schema: {type: integer}}
+        - {name: page, in: header, required: true, schema: {type: string}}
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}}}}}}}}
+";
+    let ir = import_openapi_surface(v4, surface, spec.as_bytes()).expect("import");
+    let plan = ir.validated_plan().expect("plan");
+    let operation = plan
+        .semantic_ir()
+        .operations
+        .iter()
+        .find(|operation| operation.id == "list_items")
+        .expect("operation");
+
+    let pagination = plan.rest_pagination(&operation.id);
+    assert_eq!(pagination.mode, PaginationMode::Page);
+    assert_eq!(pagination.page_param.as_deref(), Some("page"));
+    assert!(plan.pagination_owns_input(operation, "page", IrInputLocation::Query));
+    assert!(!plan.pagination_owns_input(operation, "page", IrInputLocation::Header));
+
+    let catalog = generate_projection_catalog(v4, &plan).expect("catalog");
+    let projection = catalog
+        .projections
+        .iter()
+        .find(|projection| projection.operation_id == "list_items")
+        .expect("projection");
+    assert_eq!(projection.visibility, ProjectionVisibility::Hidden);
+    assert!(
+        projection
+            .diagnostics
+            .iter()
+            .any(
+                |diagnostic| diagnostic.code == "PROJECTION_INPUT_UNSUPPORTED"
+                    && diagnostic.message.contains("Header")
+            ),
+        "required header sharing the pagination param name must stay unsupported: {:?}",
+        projection.diagnostics
+    );
+}
+
+#[test]
+fn optional_header_and_cookie_inputs_stay_published_with_dropped_input_diagnostics() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: items_api
+dsl_version: 4
+surface:
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = &v4.surface;
+    let spec = r"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: list_items
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: X-Api-Version, in: header, schema: {type: string}}
+        - {name: session, in: cookie, schema: {type: string}}
+      responses: {'200': {content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string}}}}}}}}
+";
+    let ir = import_openapi_surface(v4, surface, spec.as_bytes()).expect("import");
+    let plan = ir.validated_plan().expect("plan");
+    let catalog = generate_projection_catalog(v4, &plan).expect("catalog");
+    let projection = catalog
+        .projections
+        .iter()
+        .find(|projection| projection.operation_id == "list_items")
+        .expect("projection");
+
+    assert_eq!(projection.visibility, ProjectionVisibility::Published);
+    for dropped in ["Header input 'X-Api-Version'", "Cookie input 'session'"] {
+        assert!(
+            projection.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == "PROJECTION_INPUT_UNSUPPORTED"
+                    && diagnostic.message.contains(dropped)
+                    && diagnostic
+                        .message
+                        .contains("not sent by generated requests")
+            }),
+            "dropped optional {dropped} must be diagnosed: {:?}",
+            projection.diagnostics
+        );
+    }
+}
+
+#[test]
 fn projection_generation_keeps_link_header_page_inputs_internal() {
     let manifest = parse_source_manifest_yaml(
         r"
@@ -556,7 +683,8 @@ paths:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -568,13 +696,12 @@ paths:
         .find(|operation| operation.id == projection.operation_id)
         .expect("items operation");
 
-    let IrExecutionAttachment::Rest(rest) = &operation.execution else {
-        panic!("expected REST execution");
-    };
-    assert_eq!(rest.pagination.mode, PaginationMode::LinkHeader);
-    assert_eq!(rest.pagination.page_param.as_deref(), Some("page"));
+    let plan = ir.validated_plan().expect("plan");
+    let pagination = plan.rest_pagination(&operation.id);
+    assert_eq!(pagination.mode, PaginationMode::LinkHeader);
+    assert_eq!(pagination.page_param.as_deref(), Some("page"));
     assert_eq!(
-        rest.pagination
+        pagination
             .page_size
             .as_ref()
             .and_then(|page_size| page_size.query_param.as_deref()),
@@ -644,7 +771,8 @@ paths:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -656,13 +784,12 @@ paths:
         .find(|operation| operation.id == projection.operation_id)
         .expect("items operation");
 
-    let IrExecutionAttachment::Rest(rest) = &operation.execution else {
-        panic!("expected REST execution");
-    };
-    assert_eq!(rest.pagination.mode, PaginationMode::LinkHeader);
-    assert_eq!(rest.pagination.page_param, None);
+    let plan = ir.validated_plan().expect("plan");
+    let pagination = plan.rest_pagination(&operation.id);
+    assert_eq!(pagination.mode, PaginationMode::LinkHeader);
+    assert_eq!(pagination.page_param, None);
     assert_eq!(
-        rest.pagination
+        pagination
             .page_size
             .as_ref()
             .and_then(|page_size| page_size.query_param.as_deref()),
@@ -731,7 +858,8 @@ paths:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -845,7 +973,8 @@ components:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let list_projection = catalog
         .projections
         .iter()
@@ -1015,7 +1144,8 @@ components:
         .as_bytes(),
     )
     .expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let names_by_operation = catalog
         .projections
         .iter()
@@ -1175,7 +1305,8 @@ paths:
     let v4 = manifest.as_v4().expect("v4");
     let surface = &v4.surface;
     let ir = import_openapi_surface(v4, surface, openapi.as_bytes()).expect("import");
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog.projections.first().expect("projection");
     let sql_name_by_wire = projection
         .inputs
@@ -1195,7 +1326,8 @@ fn generated_mcp_projection_exposes_current_row_result_columns() {
     let mcp_ir =
         import_mcp_surface(v4, mcp_surface, &search_issues_mcp_catalog()).expect("mcp import");
 
-    let catalog = generate_projection_catalog(v4, &mcp_ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &mcp_ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -1269,7 +1401,8 @@ fn generated_mcp_projection_keeps_pagination_cursor_internal() {
     };
     let mcp_ir = import_mcp_surface(v4, mcp_surface, &catalog).expect("mcp import");
 
-    let projections = generate_projection_catalog(v4, &mcp_ir).expect("catalog");
+    let projections =
+        generate_projection_catalog(v4, &mcp_ir.validated_plan().expect("plan")).expect("catalog");
     let projection = projections
         .projections
         .iter()
@@ -1330,7 +1463,8 @@ fn generated_mcp_projection_with_only_pagination_cursor_is_table() {
     };
     let mcp_ir = import_mcp_surface(v4, mcp_surface, &catalog).expect("mcp import");
 
-    let projections = generate_projection_catalog(v4, &mcp_ir).expect("catalog");
+    let projections =
+        generate_projection_catalog(v4, &mcp_ir.validated_plan().expect("plan")).expect("catalog");
     let projection = projections
         .projections
         .iter()
@@ -1381,7 +1515,8 @@ fn generated_mcp_projection_snake_cases_camel_input_names() {
     };
     let mcp_ir = import_mcp_surface(v4, mcp_surface, &catalog).expect("mcp import");
 
-    let projections = generate_projection_catalog(v4, &mcp_ir).expect("catalog");
+    let projections =
+        generate_projection_catalog(v4, &mcp_ir.validated_plan().expect("plan")).expect("catalog");
     let projection = projections
         .projections
         .iter()
@@ -1404,5 +1539,112 @@ fn generated_mcp_projection_snake_cases_camel_input_names() {
     assert_eq!(
         sql_name_by_wire.get("notificationID"),
         Some(&"notification_id")
+    );
+}
+
+fn imported_items_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+        - {name: per_page, in: query, schema: {type: integer, default: 25, maximum: 100}}
+        - {name: state, in: query, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {type: array, items: {type: object}}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+#[test]
+fn projection_sync_rejects_input_missing_from_operation() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    let projection = catalog.projections.first_mut().expect("projection");
+    let mut stale = projection.inputs.first().expect("input").clone();
+    stale.name = "stale".to_string();
+    stale.wire_name = "renamed_upstream".to_string();
+    projection.inputs.push(stale);
+
+    let error = sync_projection_inputs(
+        &plan,
+        &mut catalog,
+        ProjectionInputSyncMode::PreserveExistingExposure,
+    )
+    .expect_err("stale override input must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("input 'stale' does not match a Query input named 'renamed_upstream'"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_override_identity_survives_policy_reconciliation() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    let projection = catalog.projections.first_mut().expect("projection");
+    projection.name = "authored_items".to_string();
+    projection.guide = "Keep this guide".to_string();
+    projection.inputs.iter_mut().for_each(|input| {
+        input.sql_exposure = SqlInputExposure::FunctionArg;
+    });
+
+    sync_projection_inputs(
+        &plan,
+        &mut catalog,
+        ProjectionInputSyncMode::PreserveExistingExposure,
+    )
+    .expect("sync");
+
+    let projection = catalog.projections.first().expect("projection");
+    assert_eq!(projection.name, "authored_items");
+    assert_eq!(projection.guide, "Keep this guide");
+    assert_eq!(
+        projection
+            .inputs
+            .iter()
+            .find(|input| input.wire_name == "page")
+            .expect("page")
+            .sql_exposure,
+        SqlInputExposure::Internal
+    );
+    assert_eq!(
+        projection
+            .inputs
+            .iter()
+            .find(|input| input.wire_name == "state")
+            .expect("state")
+            .sql_exposure,
+        SqlInputExposure::FunctionArg
     );
 }

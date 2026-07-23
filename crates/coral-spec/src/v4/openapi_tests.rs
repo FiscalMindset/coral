@@ -2,8 +2,24 @@ use std::collections::BTreeMap;
 
 use super::*;
 use crate::{
-    ManifestDataType, PaginationMode, SourceTableFunctionKind, parse_source_manifest_yaml,
+    ManifestDataType, PaginationMode, PaginationSpec, SourceTableFunctionKind,
+    parse_source_manifest_yaml,
 };
+
+fn imported_rest_pagination<'a>(
+    surface: &'a ImportedSurface,
+    operation_id: &str,
+) -> &'a PaginationSpec {
+    match surface
+        .operation_metadata
+        .operations
+        .get(operation_id)
+        .expect("operation metadata")
+    {
+        OperationMetadata::Rest { pagination, .. } => pagination,
+        OperationMetadata::Mcp { .. } => panic!("expected REST metadata"),
+    }
+}
 
 #[test]
 fn extracts_openapi_document_metadata() {
@@ -280,7 +296,8 @@ components:
     assert_eq!(fallback.group.as_deref(), Some("misc"));
     assert_eq!(fallback.operation.as_deref(), Some("get_fallback"));
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let quotes_projection = catalog
         .projections
         .iter()
@@ -344,7 +361,8 @@ components:
     assert_eq!(operation.output.cardinality, OutputCardinality::Singleton);
     assert!(operation.output.row_path.is_empty());
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -418,7 +436,8 @@ components:
     assert_eq!(operation.output.cardinality, OutputCardinality::Singleton);
     assert!(operation.output.row_path.is_empty());
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog.projections.first().expect("projection");
     let columns = projection
         .columns
@@ -497,7 +516,8 @@ paths:
     assert_eq!(operation.output.cardinality, OutputCardinality::Singleton);
     assert!(operation.output.row_path.is_empty());
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog.projections.first().expect("projection");
     let columns = projection
         .columns
@@ -632,7 +652,8 @@ components:
     assert_eq!(fields.len(), 11);
     assert!(fields.iter().any(|field| field.name == "fields"));
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog.projections.first().expect("projection");
     let column_types = projection
         .columns
@@ -900,7 +921,8 @@ components:
         operation.diagnostics
     );
 
-    let catalog = generate_projection_catalog(v4, &ir).expect("catalog");
+    let catalog =
+        generate_projection_catalog(v4, &ir.validated_plan().expect("plan")).expect("catalog");
     let projection = catalog
         .projections
         .iter()
@@ -1405,13 +1427,7 @@ paths:
         .as_bytes(),
     )
     .expect("pagination import");
-    let operations = ir
-        .operations
-        .iter()
-        .map(|operation| (operation.id.as_str(), operation))
-        .collect::<BTreeMap<_, _>>();
-
-    let page = &rest_execution(operations.get("paged_list").expect("paged")).pagination;
+    let page = imported_rest_pagination(&ir, "paged_list");
     assert_eq!(page.mode, PaginationMode::Page);
     assert_eq!(page.page_param.as_deref(), Some("pageNumber"));
     assert_eq!(page.page_start, 2);
@@ -1420,7 +1436,7 @@ paths:
     assert_eq!(page_size.max, 100);
     assert_eq!(page_size.query_param.as_deref(), Some("pageSize"));
 
-    let offset = &rest_execution(operations.get("offset_list").expect("offset")).pagination;
+    let offset = imported_rest_pagination(&ir, "offset_list");
     assert_eq!(offset.mode, PaginationMode::Offset);
     assert_eq!(offset.offset_param.as_deref(), Some("offset"));
     assert_eq!(offset.offset_start, 5);
@@ -1436,8 +1452,7 @@ paths:
         ("dotted_offset_list", "page.offset", "page.limit", 15),
         ("offset_count_list", "offsetIndex", "count", 20),
     ] {
-        let pagination =
-            &rest_execution(operations.get(operation_id).expect("pagination operation")).pagination;
+        let pagination = imported_rest_pagination(&ir, operation_id);
         assert_eq!(pagination.mode, PaginationMode::Offset);
         assert_eq!(pagination.offset_param.as_deref(), Some(offset_param));
         assert_eq!(pagination.offset_start, start);
@@ -1453,8 +1468,7 @@ paths:
         ("current_page_list", "current_page", "items_per_page", 2),
         ("page_index_list", "pageIndex", "size", 3),
     ] {
-        let pagination =
-            &rest_execution(operations.get(operation_id).expect("pagination operation")).pagination;
+        let pagination = imported_rest_pagination(&ir, operation_id);
         assert_eq!(pagination.mode, PaginationMode::Page);
         assert_eq!(pagination.page_param.as_deref(), Some(page_param));
         assert_eq!(pagination.page_start, start);
@@ -1466,6 +1480,86 @@ paths:
             Some(size_param)
         );
     }
+}
+
+#[test]
+fn importer_skips_pagination_params_with_non_numeric_types() {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: string_pagination
+dsl_version: 4
+surface:
+    type: openapi
+    file: /tmp/openapi.yaml
+    base_url: https://api.example.com
+",
+    )
+    .expect("manifest");
+    let v4 = manifest.as_v4().expect("v4");
+    let surface = &v4.surface;
+    let ir = import_openapi_surface(
+        v4,
+        surface,
+        r"
+openapi: 3.0.3
+paths:
+  /string-page:
+    get:
+      operationId: string-page/list
+      parameters:
+        - {name: page, in: query, schema: {type: string, default: '1'}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200': {content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /string-offset:
+    get:
+      operationId: string-offset/list
+      parameters:
+        - {name: offset, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 50}}
+      responses:
+        '200': {content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /string-limit:
+    get:
+      operationId: string-limit/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+        - {name: limit, in: query, schema: {type: string}}
+      responses:
+        '200': {content: {application/json: {schema: {type: array, items: {type: object}}}}}
+  /string-page-link:
+    get:
+      operationId: string-page-link/list
+      parameters:
+        - {name: page, in: query, schema: {type: string, default: '1'}}
+      responses:
+        '200':
+          headers:
+            Link:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {type: array, items: {type: object}}
+"
+        .as_bytes(),
+    )
+    .expect("string pagination import");
+    for operation_id in [
+        "string_page_list",
+        "string_offset_list",
+        "string_limit_list",
+    ] {
+        assert_eq!(
+            imported_rest_pagination(&ir, operation_id).mode,
+            PaginationMode::None,
+            "operation {operation_id} must not infer pagination from non-numeric inputs"
+        );
+    }
+    let link = imported_rest_pagination(&ir, "string_page_link_list");
+    assert_eq!(link.mode, PaginationMode::LinkHeader);
+    assert_eq!(link.page_param, None);
+    ir.validated_plan()
+        .expect("inferred pagination must satisfy operation metadata validation");
 }
 
 #[test]
@@ -1736,13 +1830,13 @@ paths:
             "{operation_id}"
         );
         assert_eq!(
-            rest_execution(operation).pagination.mode,
+            imported_rest_pagination(&ir, operation_id).mode,
             PaginationMode::None,
             "{operation_id}"
         );
     }
 
-    let link = &rest_execution(operations.get("link_list").expect("link")).pagination;
+    let link = imported_rest_pagination(&ir, "link_list");
     assert_eq!(link.mode, PaginationMode::LinkHeader);
     assert_eq!(link.page_param.as_deref(), Some("page"));
     assert_eq!(link.page_start, 1);
@@ -1753,12 +1847,7 @@ paths:
         Some("per_page")
     );
 
-    let next_url = &rest_execution(
-        operations
-            .get("next_url_header_list")
-            .expect("next URL header"),
-    )
-    .pagination;
+    let next_url = imported_rest_pagination(&ir, "next_url_header_list");
     assert_eq!(next_url.mode, PaginationMode::LinkHeader);
     assert_eq!(next_url.next_url_header.as_deref(), Some("X-Next-Page-Url"));
     assert_eq!(
@@ -1815,8 +1904,7 @@ paths:
     )
     .expect("import");
 
-    let operation = ir.operations.first().expect("operation");
-    let pagination = &rest_execution(operation).pagination;
+    let pagination = imported_rest_pagination(&ir, "items_list");
     assert_eq!(pagination.mode, PaginationMode::LinkHeader);
     assert_eq!(pagination.page_param, None);
     assert_eq!(
@@ -1877,13 +1965,6 @@ paths:
     assert_eq!(required.get("id"), Some(&true));
     assert_eq!(required.get("tenant"), Some(&true));
     assert_eq!(required.get("include_archived"), Some(&false));
-}
-
-fn rest_execution(operation: &IrOperation) -> &RestExecutionAttachment {
-    let IrExecutionAttachment::Rest(rest) = &operation.execution else {
-        panic!("operation should be REST");
-    };
-    rest
 }
 
 #[test]
