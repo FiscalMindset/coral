@@ -106,7 +106,11 @@ impl CompiledBackendSource for HttpCompiledSource {
         _ctx: &SessionContext,
         registration: &BackendRegistrationContext,
     ) -> Result<BackendRegistration> {
-        let http = client::default_http_client(registration, &self.manifest.common.name)?;
+        let http = client::default_http_client(
+            registration,
+            &self.manifest.common.name,
+            self.request_identity_http_authenticator.is_some(),
+        )?;
         let runtime = HttpSourceClientRuntime::new(
             self.source_input_resolution.clone(),
             self.source_input_resolver.clone(),
