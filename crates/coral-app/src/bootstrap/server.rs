@@ -41,7 +41,7 @@ use tower::{Layer, Service};
 use super::env::AppEnvironment;
 use super::error::AppError;
 use super::health::AggregateHealthService;
-use super::server_config::ServerSettings;
+use super::server_config::{McpHttpServeConfig, ServerSettings};
 use crate::EngineExtensionsProvider;
 use crate::catalog::discovery::CatalogDiscovery;
 use crate::catalog::service::CatalogService;
@@ -146,6 +146,10 @@ impl ServerConfig {
 
     fn resolved_mode(&self, layout: &AppStateLayout) -> Result<ServerMode, AppError> {
         match &self.mode {
+            ServerModeSelection::Explicit(mode @ ServerMode::StandaloneGrpc { .. }) => {
+                ServerSettings::reject_removed_auth(layout)?;
+                Ok(mode.clone())
+            }
             ServerModeSelection::Explicit(mode) => Ok(mode.clone()),
             ServerModeSelection::ConfiguredStandaloneGrpc => Ok(ServerMode::StandaloneGrpc {
                 bind: ServerSettings::load(layout)?.bind_addr,
@@ -265,6 +269,21 @@ impl ServerBuilder {
     pub fn with_config_dir(mut self, config_dir: impl Into<PathBuf>) -> Self {
         self.config = self.config.with_config_dir(config_dir);
         self
+    }
+
+    /// Resolves the configured MCP HTTP listener without starting a server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError`] if the config directory cannot be determined or
+    /// the MCP HTTP configuration cannot use the selected gRPC mode.
+    pub fn resolve_mcp_http_serve_config(&self) -> Result<Option<McpHttpServeConfig>, AppError> {
+        let layout = AppEnvironment::discover().app_state_layout(self.config.config_dir.clone())?;
+        let config = McpHttpServeConfig::load(&layout)?;
+        if config.is_some() {
+            validate_mcp_http_grpc_mode(&self.config.resolved_mode(&layout)?)?;
+        }
+        Ok(config)
     }
 
     #[must_use]
@@ -432,6 +451,23 @@ impl ServerBuilder {
     }
 }
 
+fn validate_mcp_http_grpc_mode(mode: &ServerMode) -> Result<(), AppError> {
+    match mode {
+        ServerMode::EphemeralGrpc => Ok(()),
+        ServerMode::StandaloneGrpc { bind }
+            if bind.ip().is_loopback() || bind.ip().is_unspecified() =>
+        {
+            Ok(())
+        }
+        ServerMode::StandaloneGrpc { .. } => Err(AppError::FailedPrecondition(
+            "server.mcp_http requires a loopback or wildcard gRPC bind".to_string(),
+        )),
+        ServerMode::EmbeddedUi { .. } => Err(AppError::FailedPrecondition(
+            "server.mcp_http requires a native gRPC server".to_string(),
+        )),
+    }
+}
+
 fn trace_components_for_store(
     active_trace_store: Option<crate::telemetry::InstalledLocalTraceStore>,
 ) -> TraceServerComponents {
@@ -477,6 +513,7 @@ fn resolve_database_config(layout: &AppStateLayout) -> Result<ResolvedDatabaseCo
 /// does not wait for the task to finish.
 pub struct RunningServer {
     endpoint_uri: String,
+    local_addr: SocketAddr,
     local_trace_store_dir: Option<PathBuf>,
     search: SearchManager,
     search_observations: Mutex<Option<SearchObservationHandle>>,
@@ -494,6 +531,12 @@ impl RunningServer {
     /// over server configuration.
     pub fn endpoint_uri(&self) -> &str {
         &self.endpoint_uri
+    }
+
+    /// Returns the address bound by this server.
+    #[must_use]
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 
     #[must_use]
@@ -673,7 +716,8 @@ async fn start_server(
     ));
 
     let listener = TcpListener::bind(mode.bind_addr()).await?;
-    let endpoint_uri = format!("http://{}", listener.local_addr()?);
+    let local_addr = listener.local_addr()?;
+    let endpoint_uri = format!("http://{local_addr}");
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (task_finished_tx, task_finished) = watch::channel(false);
 
@@ -688,6 +732,7 @@ async fn start_server(
 
     Ok(RunningServer {
         endpoint_uri,
+        local_addr,
         local_trace_store_dir,
         search,
         search_observations: Mutex::new(search_observations),
@@ -1103,6 +1148,7 @@ enabled = false
         });
         let server = RunningServer {
             endpoint_uri: "http://127.0.0.1:0".to_string(),
+            local_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
             local_trace_store_dir: None,
             search,
             search_observations: Mutex::new(Some(search_observations)),
@@ -1190,6 +1236,103 @@ enabled = false
         assert_eq!(bind, SocketAddr::from(([127, 0, 0, 2], 14555)));
     }
 
+    #[test]
+    fn explicit_standalone_grpc_rejects_removed_static_auth_config() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        std::fs::create_dir_all(&config_dir).expect("config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[server.auth]\ntoken_env = 'CORAL_SERVER_AUTH_TOKEN'\n",
+        )
+        .expect("config file");
+        let layout = AppStateLayout::discover(Some(config_dir)).expect("layout");
+        let builder =
+            ServerBuilder::standalone_grpc(SocketAddr::from((Ipv4Addr::LOCALHOST, 14555)));
+
+        assert!(
+            builder.config.resolved_mode(&layout).is_err(),
+            "removed standalone auth config must fail closed"
+        );
+    }
+
+    #[test]
+    fn explicit_standalone_grpc_does_not_parse_the_configured_bind() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        std::fs::create_dir_all(&config_dir).expect("config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[server]\nbind_addr = 'not-an-address'\n",
+        )
+        .expect("config file");
+        let layout = AppStateLayout::discover(Some(config_dir)).expect("layout");
+        let explicit_bind = SocketAddr::from((Ipv4Addr::LOCALHOST, 14555));
+        let builder = ServerBuilder::standalone_grpc(explicit_bind);
+
+        let ServerMode::StandaloneGrpc { bind } = builder
+            .config
+            .resolved_mode(&layout)
+            .expect("explicit bind overrides configured bind")
+        else {
+            panic!("explicit standalone mode must remain selected");
+        };
+        assert_eq!(bind, explicit_bind);
+    }
+
+    #[test]
+    fn resolves_mcp_http_config_without_starting_grpc() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        std::fs::create_dir_all(&config_dir).expect("config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[server.mcp_http]\nenabled = true\nbind = '127.0.0.1:14556'\n",
+        )
+        .expect("config file");
+
+        let config = ServerBuilder::configured_standalone_grpc()
+            .with_config_dir(config_dir)
+            .resolve_mcp_http_serve_config()
+            .expect("resolve MCP HTTP config")
+            .expect("enabled MCP HTTP config");
+
+        assert_eq!(
+            config.bind_addr(),
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 14556))
+        );
+    }
+
+    #[test]
+    fn mcp_http_resolution_accepts_wildcard_and_rejects_public_grpc_binds() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_dir = temp.path().join("coral-config");
+        std::fs::create_dir_all(&config_dir).expect("config dir");
+        std::fs::write(
+            config_dir.join("config.toml"),
+            "[server.mcp_http]\nenabled = true\n",
+        )
+        .expect("config file");
+
+        ServerBuilder::standalone_grpc(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 14555)))
+            .with_config_dir(config_dir.clone())
+            .resolve_mcp_http_serve_config()
+            .expect("wildcard gRPC bind has a safe loopback route");
+
+        let error = ServerBuilder::standalone_grpc(SocketAddr::from(([192, 0, 2, 1], 14555)))
+            .with_config_dir(config_dir.clone())
+            .resolve_mcp_http_serve_config()
+            .expect_err("public gRPC address has no safe local route");
+
+        assert!(error.to_string().contains("loopback or wildcard gRPC bind"));
+
+        let mapped_loopback = SocketAddr::new(Ipv4Addr::LOCALHOST.to_ipv6_mapped().into(), 14555);
+        ServerBuilder::standalone_grpc(mapped_loopback)
+            .with_config_dir(config_dir)
+            .resolve_mcp_http_serve_config()
+            .expect_err("IPv4-mapped IPv6 must fail closed");
+    }
+
     #[tokio::test]
     async fn configured_standalone_grpc_starts_with_configured_bind() {
         let temp = TempDir::new().expect("temp dir");
@@ -1213,6 +1356,7 @@ enabled = false
             .expect("endpoint scheme")
             .parse::<SocketAddr>()
             .expect("socket address endpoint");
+        assert_eq!(server.local_addr(), endpoint);
         assert!(endpoint.ip().is_loopback());
         assert_ne!(endpoint.port(), 0);
         server.shutdown().await.expect("shutdown server");

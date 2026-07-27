@@ -21,6 +21,7 @@ pub(crate) use error::{app_status, core_status, status_with_bounded_detail};
 
 pub use error::AppError;
 pub use server::{RunningServer, ServerBuilder, ServerMode, StaticAsset, StaticAssetsProvider};
+pub use server_config::McpHttpServeConfig;
 
 pub(crate) fn discover_app_state_layout(
     config_dir_override: Option<PathBuf>,
