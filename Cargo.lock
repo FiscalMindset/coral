@@ -727,6 +727,8 @@ dependencies = [
  "http 1.4.2",
  "http-body 1.1.0",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -735,6 +737,7 @@ dependencies = [
  "pin-project-lite",
  "serde_core",
  "sync_wrapper",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",
@@ -1410,6 +1413,7 @@ dependencies = [
 name = "coral-mcp"
 version = "0.7.1"
 dependencies = [
+ "axum",
  "coral-api",
  "coral-app",
  "coral-client",
@@ -1427,6 +1431,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tonic-types",
+ "tower",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
