@@ -4,6 +4,7 @@ use serde_json::json;
 
 use super::test_support::github_openapi;
 use super::*;
+use crate::backends::mcp::McpPaginationSpec;
 use crate::{
     ManifestDataType, PaginationMode, SourceTableFunctionKind, parse_source_manifest_yaml,
 };
@@ -1579,8 +1580,182 @@ paths:
     (manifest, imported)
 }
 
+fn imported_mcp_items_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = mcp_manifest().as_v4().expect("v4").clone();
+    let catalog = McpToolCatalog {
+        tools: vec![McpToolDescriptor {
+            name: "list_items".to_string(),
+            title: None,
+            description: None,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cursor": {"type": "string"},
+                    "query": {"type": "string"}
+                }
+            }),
+            output_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}}
+                        }
+                    },
+                    "meta": {
+                        "type": "object",
+                        "properties": {"nextCursor": {"type": ["string", "null"]}}
+                    }
+                }
+            })),
+            read_only_hint: Some(true),
+        }],
+    };
+    let mut imported =
+        import_mcp_surface(&manifest, &manifest.surface, &catalog).expect("MCP import");
+    let OperationMetadata::Mcp { pagination } = imported
+        .operation_metadata
+        .operations
+        .get_mut("list_items")
+        .expect("list_items metadata")
+    else {
+        panic!("expected MCP metadata");
+    };
+    pagination.cursor = Some(McpPaginationSpec {
+        cursor_arg: "cursor".to_string(),
+        response_cursor_path: vec!["meta".to_string(), "nextCursor".to_string()],
+        max_pages: None,
+    });
+    (manifest, imported)
+}
+
+fn imported_required_account_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: account, in: query, required: true, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {type: array, items: {type: object}}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+fn imported_shadowed_header_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: state, in: header, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {type: array, items: {type: object}}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+fn projection_input_mut<'a>(
+    catalog: &'a mut ProjectionCatalog,
+    wire_name: &str,
+) -> &'a mut ProjectionInput {
+    catalog
+        .projections
+        .first_mut()
+        .expect("projection")
+        .inputs
+        .iter_mut()
+        .find(|input| input.wire_name == wire_name)
+        .expect("projection input")
+}
+
+fn projection_input_at_mut<'a>(
+    catalog: &'a mut ProjectionCatalog,
+    wire_name: &str,
+    location: IrInputLocation,
+) -> &'a mut ProjectionInput {
+    catalog
+        .projections
+        .first_mut()
+        .expect("projection")
+        .inputs
+        .iter_mut()
+        .find(|input| input.wire_name == wire_name && input.source_location == location)
+        .expect("projection input")
+}
+
 #[test]
-fn projection_sync_rejects_input_missing_from_operation() {
+fn projection_compatibility_rejects_missing_operation() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    let projection = catalog.projections.first_mut().expect("projection");
+    projection.operation_id = "items/missing".to_string();
+    let projection_name = projection.name.clone();
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("missing operation must fail");
+
+    assert_eq!(
+        error.to_string(),
+        format!("projection '{projection_name}' references missing operation 'items/missing'")
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_input_missing_from_operation() {
     let (manifest, imported) = imported_items_surface();
     let plan = imported.validated_plan().expect("plan");
     let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
@@ -1590,12 +1765,8 @@ fn projection_sync_rejects_input_missing_from_operation() {
     stale.wire_name = "renamed_upstream".to_string();
     projection.inputs.push(stale);
 
-    let error = sync_projection_inputs(
-        &plan,
-        &mut catalog,
-        ProjectionInputSyncMode::PreserveExistingExposure,
-    )
-    .expect_err("stale override input must fail");
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("stale projection input must fail");
 
     assert!(
         error
@@ -1606,43 +1777,261 @@ fn projection_sync_rejects_input_missing_from_operation() {
 }
 
 #[test]
-fn projection_override_identity_survives_policy_reconciliation() {
+fn projection_compatibility_rejects_public_rest_pagination_input() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    projection_input_mut(&mut catalog, "page").sql_exposure = SqlInputExposure::Filter;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("public pagination input must fail");
+
+    assert!(
+        error.to_string().contains(
+            "input 'page' on operation 'items_list' is owned by pagination but has sql_exposure 'filter'"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_public_mcp_pagination_input() {
+    let (manifest, imported) = imported_mcp_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    projection_input_mut(&mut catalog, "cursor").sql_exposure = SqlInputExposure::FunctionArg;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("public MCP pagination input must fail");
+
+    assert!(
+        error.to_string().contains(
+            "input 'cursor' on operation 'list_items' is owned by pagination but has sql_exposure 'function_arg'"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_accepts_internal_pagination_input() {
+    let (manifest, imported) = imported_mcp_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+
+    assert_eq!(
+        catalog
+            .projections
+            .first()
+            .expect("projection")
+            .inputs
+            .iter()
+            .find(|input| input.wire_name == "cursor")
+            .expect("cursor")
+            .sql_exposure,
+        SqlInputExposure::Internal
+    );
+    validate_projection_compatibility(&plan, &catalog)
+        .expect("internal pagination input must remain compatible");
+}
+
+#[test]
+fn projection_compatibility_rejects_unauthorised_lookup_key() {
+    let (manifest, mut imported) = imported_items_surface();
+    let OperationMetadata::Rest { lookup_keys, .. } = imported
+        .operation_metadata
+        .operations
+        .get_mut("items_list")
+        .expect("items_list metadata")
+    else {
+        panic!("expected REST metadata");
+    };
+    lookup_keys.clear();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    projection_input_mut(&mut catalog, "state").lookup_key = true;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("unauthorised lookup key must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("wire input 'state' is not authorised"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_non_filter_lookup_key() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    let input = projection_input_mut(&mut catalog, "state");
+    input.sql_exposure = SqlInputExposure::FunctionArg;
+    assert!(input.lookup_key, "state should be an inferred lookup key");
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("non-filter lookup key must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("lookup_key=true with sql_exposure 'function_arg'"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_non_rest_lookup_key() {
+    let (manifest, imported) = imported_mcp_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    projection_input_mut(&mut catalog, "query").lookup_key = true;
+
+    let error =
+        validate_projection_compatibility(&plan, &catalog).expect_err("MCP lookup key must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("lookup keys are only valid for REST inputs"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_accepts_conservative_choices_without_mutation() {
     let (manifest, imported) = imported_items_surface();
     let plan = imported.validated_plan().expect("plan");
     let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
     let projection = catalog.projections.first_mut().expect("projection");
     projection.name = "authored_items".to_string();
     projection.guide = "Keep this guide".to_string();
-    projection.inputs.iter_mut().for_each(|input| {
-        input.sql_exposure = SqlInputExposure::FunctionArg;
-    });
+    let input = projection
+        .inputs
+        .iter_mut()
+        .find(|input| input.wire_name == "state")
+        .expect("state");
+    input.sql_exposure = SqlInputExposure::Internal;
+    input.lookup_key = false;
+    let before = serde_yaml::to_string(&catalog).expect("serialize before validation");
 
-    sync_projection_inputs(
-        &plan,
-        &mut catalog,
-        ProjectionInputSyncMode::PreserveExistingExposure,
-    )
-    .expect("sync");
+    validate_projection_compatibility(&plan, &catalog).expect("conservative policy is compatible");
 
-    let projection = catalog.projections.first().expect("projection");
-    assert_eq!(projection.name, "authored_items");
-    assert_eq!(projection.guide, "Keep this guide");
+    let after = serde_yaml::to_string(&catalog).expect("serialize after validation");
+    assert_eq!(after, before);
+}
+
+#[test]
+fn projection_compatibility_rejects_published_required_internal_input() {
+    let (manifest, imported) = imported_required_account_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
     assert_eq!(
-        projection
-            .inputs
-            .iter()
-            .find(|input| input.wire_name == "page")
-            .expect("page")
-            .sql_exposure,
-        SqlInputExposure::Internal
+        catalog.projections.first().expect("projection").visibility,
+        ProjectionVisibility::Published,
+        "generator should publish a projection whose required input is exposable"
     );
-    assert_eq!(
-        projection
-            .inputs
-            .iter()
-            .find(|input| input.wire_name == "state")
-            .expect("state")
-            .sql_exposure,
-        SqlInputExposure::FunctionArg
+    projection_input_mut(&mut catalog, "account").sql_exposure = SqlInputExposure::Internal;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("published projection must not internalize a required input");
+
+    assert!(
+        error.to_string().contains(
+            "input 'account' on operation 'items_list' is required by the operation but has sql_exposure 'internal'"
+        ),
+        "unexpected error: {error}"
     );
+
+    // Hiding the projection is the generator's own escape hatch for a required
+    // input that SQL cannot bind, so it stays compatible.
+    catalog
+        .projections
+        .first_mut()
+        .expect("projection")
+        .visibility = ProjectionVisibility::Hidden;
+    validate_projection_compatibility(&plan, &catalog)
+        .expect("hidden projections may internalize required inputs");
+}
+
+#[test]
+fn projection_compatibility_rejects_exposure_mismatched_with_projection_kind() {
+    let (manifest, imported) = imported_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    assert!(matches!(
+        catalog.projections.first().expect("projection").kind,
+        ProjectionKind::Table
+    ));
+    let state = projection_input_mut(&mut catalog, "state");
+    state.sql_exposure = SqlInputExposure::FunctionArg;
+    state.lookup_key = false;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("function argument on a table must fail");
+
+    assert!(
+        error.to_string().contains(
+            "input 'state' on operation 'items_list' has sql_exposure 'function_arg'; table projections expose non-internal inputs as filters"
+        ),
+        "unexpected error: {error}"
+    );
+
+    let (tool_manifest, tool_imported) = imported_mcp_items_surface();
+    let tool_plan = tool_imported.validated_plan().expect("plan");
+    let mut tool_catalog =
+        generate_projection_catalog(&tool_manifest, &tool_plan).expect("projections");
+    assert!(matches!(
+        tool_catalog.projections.first().expect("projection").kind,
+        ProjectionKind::TableFunction { .. }
+    ));
+    projection_input_mut(&mut tool_catalog, "query").sql_exposure = SqlInputExposure::Filter;
+
+    let error = validate_projection_compatibility(&tool_plan, &tool_catalog)
+        .expect_err("filter on a table function must fail");
+
+    assert!(
+        error.to_string().contains(
+            "input 'query' on operation 'list_items' has sql_exposure 'filter'; table function projections expose non-internal inputs as function arguments"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_non_query_lookup_key() {
+    let (manifest, imported) = imported_shadowed_header_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let mut catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    assert!(
+        plan.input_is_lookup_key("items_list", "state"),
+        "the query input named 'state' should be allowlisted"
+    );
+    let header = projection_input_at_mut(&mut catalog, "state", IrInputLocation::Header);
+    header.sql_exposure = SqlInputExposure::Filter;
+    header.lookup_key = true;
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("header lookup key sharing an allowlisted query name must fail");
+
+    assert!(
+        error.to_string().contains(
+            "has lookup_key=true with source location Header; lookup keys are only valid for query inputs"
+        ),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn projection_compatibility_accepts_empty_operation_and_projection_catalogs() {
+    let (manifest, mut imported) = imported_items_surface();
+    imported.semantic_ir.operations.clear();
+    imported.operation_metadata.operations.clear();
+    let plan = imported.validated_plan().expect("empty plan");
+    let catalog = generate_projection_catalog(&manifest, &plan).expect("empty projections");
+
+    assert!(catalog.projections.is_empty());
+    validate_projection_compatibility(&plan, &catalog)
+        .expect("empty operation and projection catalogs are compatible");
 }
