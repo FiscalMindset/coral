@@ -75,6 +75,10 @@
   Rust builds may compile without `apps/ui/dist`, because UI development normally
   serves assets from Vite while the CLI provides the loopback API server.
 - Keep adapters thin. If CLI or MCP behavior gets complex, move it inward.
+- Keep server topology orchestration private to `coral-cli` while CLI commands
+  are its only consumers. Do not extract the orchestration into a shared
+  orchestration crate unless it gains a non-CLI consumer; the combined topology
+  is provisional and may be removed rather than promoted.
 - Keep transport contract concerns in `coral-api`, source-spec concerns in
   `coral-spec`, app/state concerns in `coral-app`, and query/runtime
   concerns in `coral-engine`.
