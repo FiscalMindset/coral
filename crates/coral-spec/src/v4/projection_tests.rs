@@ -1355,7 +1355,7 @@ fn generated_mcp_projection_exposes_current_row_result_columns() {
 }
 
 #[test]
-fn generated_mcp_projection_exposes_cursor_without_pagination_metadata() {
+fn generated_mcp_projection_keeps_an_inferred_cursor_internal() {
     let manifest = mcp_manifest();
     let v4 = manifest.as_v4().expect("v4");
     let mcp_surface = &v4.surface;
@@ -1410,16 +1410,17 @@ fn generated_mcp_projection_exposes_cursor_without_pagination_metadata() {
         .find(|input| input.wire_name == "cursor")
         .expect("cursor input");
 
-    assert_eq!(cursor.sql_exposure, SqlInputExposure::FunctionArg);
+    // Pagination owns the cursor of a wrapped-list tool, so SQL never binds it.
+    assert_eq!(cursor.sql_exposure, SqlInputExposure::Internal);
     assert!(
         mcp_projection_arg_specs(projection)
             .iter()
-            .any(|arg| arg.bind.arg == "cursor")
+            .all(|arg| arg.bind.arg != "cursor")
     );
 }
 
 #[test]
-fn generated_mcp_projection_with_only_cursor_is_table_function_without_pagination_metadata() {
+fn generated_mcp_projection_with_only_an_inferred_cursor_is_a_table() {
     let manifest = mcp_manifest();
     let v4 = manifest.as_v4().expect("v4");
     let mcp_surface = &v4.surface;
@@ -1467,17 +1468,16 @@ fn generated_mcp_projection_with_only_cursor_is_table_function_without_paginatio
         .find(|projection| projection.operation_id == "list_items")
         .expect("mcp projection");
 
-    assert!(matches!(
-        projection.kind,
-        ProjectionKind::TableFunction { .. }
-    ));
+    // The cursor is the tool's only argument and pagination owns it, so the
+    // projection has nothing left to take as a function argument.
+    assert!(matches!(projection.kind, ProjectionKind::Table));
     assert_eq!(
         projection
             .inputs
             .iter()
-            .filter(|input| input.sql_exposure == SqlInputExposure::FunctionArg)
+            .filter(|input| input.sql_exposure != SqlInputExposure::Internal)
             .count(),
-        1
+        0
     );
 }
 
@@ -1615,7 +1615,7 @@ fn imported_mcp_items_surface() -> (V4SourceManifest, ImportedSurface) {
     };
     let mut imported =
         import_mcp_surface(&manifest, &manifest.surface, &catalog).expect("MCP import");
-    let OperationMetadata::Mcp { pagination } = imported
+    let OperationMetadata::Mcp { pagination, .. } = imported
         .operation_metadata
         .operations
         .get_mut("list_items")
@@ -1629,6 +1629,203 @@ fn imported_mcp_items_surface() -> (V4SourceManifest, ImportedSurface) {
         max_pages: None,
     });
     (manifest, imported)
+}
+
+fn imported_wrapped_items_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count: {type: integer}
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        title: {type: string}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+/// An envelope offering row paths of three different shapes: `items` yields
+/// objects, `tags` yields scalars, and `blobs` yields rows whose item type the
+/// importer could not resolve.
+fn imported_mixed_row_shapes_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count: {type: integer}
+                  tags:
+                    type: array
+                    items: {type: string}
+                  blobs:
+                    type: array
+                    items: {$ref: '#/components/schemas/Missing'}
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        title: {type: string}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+/// Rows whose fields cover every `IrTypeShape` a nested source path can be
+/// walked through: an object, a list, a map, an opaque payload, and a scalar.
+fn imported_nested_row_surface() -> (V4SourceManifest, ImportedSurface) {
+    let manifest = parse_source_manifest_yaml(
+        r"
+name: demo
+dsl_version: 4
+surface:
+  type: openapi
+  file: /tmp/openapi.yaml
+  base_url: https://api.example.com
+",
+    )
+    .expect("manifest")
+    .as_v4()
+    .expect("v4")
+    .clone();
+    let imported = import_openapi_surface(
+        &manifest,
+        &manifest.surface,
+        br"
+openapi: 3.0.3
+paths:
+  /items:
+    get:
+      operationId: items/list
+      parameters:
+        - {name: page, in: query, schema: {type: integer, default: 1}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count: {type: integer}
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string}
+                        owner:
+                          type: object
+                          properties:
+                            login: {type: string}
+                            '0': {type: string}
+                        tags:
+                          type: array
+                          items: {type: string}
+                        extra: {}
+                        labels:
+                          type: object
+                          additionalProperties: {type: string}
+",
+    )
+    .expect("import");
+    (manifest, imported)
+}
+
+/// Replaces the catalog's columns with a single column reading `source_path`,
+/// standing in for a hand-authored projection override.
+fn compatibility_of_source_path(
+    catalog: &ProjectionCatalog,
+    source_path: &[&str],
+) -> ProjectionCatalog {
+    let mut catalog = catalog.clone();
+    let projection = catalog.projections.first_mut().expect("projection");
+    projection.columns = vec![ProjectionColumn {
+        name: "probe".to_string(),
+        data_type: ManifestDataType::Json,
+        source_path: source_path
+            .iter()
+            .map(|segment| (*segment).to_string())
+            .collect(),
+        nullable: true,
+        description: String::new(),
+        do_not_index: false,
+    }];
+    catalog
+}
+
+fn override_row_path(imported: &mut ImportedSurface, operation_id: &str, path: &[&str]) {
+    let OperationMetadata::Rest { row_path, .. } = imported
+        .operation_metadata
+        .operations
+        .get_mut(operation_id)
+        .expect("operation metadata")
+    else {
+        panic!("expected REST metadata");
+    };
+    *row_path = path.iter().map(|segment| (*segment).to_string()).collect();
 }
 
 fn imported_required_account_surface() -> (V4SourceManifest, ImportedSurface) {
@@ -1734,6 +1931,186 @@ fn projection_input_at_mut<'a>(
         .iter_mut()
         .find(|input| input.wire_name == wire_name && input.source_location == location)
         .expect("projection input")
+}
+
+#[test]
+fn generated_projection_columns_come_from_the_wrapped_list_row_type() {
+    let (manifest, imported) = imported_wrapped_items_surface();
+    let plan = imported.validated_plan().expect("plan");
+    assert_eq!(plan.output_row_path("items_list"), ["items"]);
+
+    let catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+    let projection = catalog.projections.first().expect("projection");
+    assert_eq!(
+        projection
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        ["id", "title"]
+    );
+}
+
+#[test]
+fn projection_compatibility_rejects_columns_the_effective_row_path_cannot_yield() {
+    let (manifest, mut imported) = imported_wrapped_items_surface();
+    let catalog = generate_projection_catalog(&manifest, &imported.validated_plan().expect("plan"))
+        .expect("projections");
+
+    // Overriding the row path back to the envelope root leaves the snapshot's
+    // columns describing rows the operation no longer yields.
+    let OperationMetadata::Rest { row_path, .. } = imported
+        .operation_metadata
+        .operations
+        .get_mut("items_list")
+        .expect("items_list metadata")
+    else {
+        panic!("expected REST metadata");
+    };
+    row_path.clear();
+    let plan = imported.validated_plan().expect("plan");
+
+    let error =
+        validate_projection_compatibility(&plan, &catalog).expect_err("stale columns must fail");
+
+    assert!(
+        error.to_string().contains("column 'id' reads field 'id'"),
+        "unexpected error: {error}"
+    );
+}
+
+/// A row path may legitimately select an array of scalars, so the plan accepts
+/// the override. The snapshot's field columns cannot survive it: a source path
+/// against a string row resolves to null on every row rather than failing.
+#[test]
+fn projection_compatibility_rejects_field_columns_when_the_rows_are_scalars() {
+    let (manifest, mut imported) = imported_mixed_row_shapes_surface();
+    let catalog = generate_projection_catalog(&manifest, &imported.validated_plan().expect("plan"))
+        .expect("projections");
+    override_row_path(&mut imported, "items_list", &["tags"]);
+    let plan = imported.validated_plan().expect("plan");
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("field columns must not survive a scalar row path");
+
+    assert!(
+        error
+            .to_string()
+            .contains("is not an object and names no fields"),
+        "unexpected error: {error}"
+    );
+}
+
+/// The same hole one step earlier: a row type the semantic IR carries no entry
+/// for names no fields either, and an unresolved item type reaches exactly that
+/// state through the `json` sentinel.
+#[test]
+fn projection_compatibility_rejects_field_columns_when_the_row_type_is_absent() {
+    let (manifest, mut imported) = imported_mixed_row_shapes_surface();
+    let catalog = generate_projection_catalog(&manifest, &imported.validated_plan().expect("plan"))
+        .expect("projections");
+    override_row_path(&mut imported, "items_list", &["blobs"]);
+    let plan = imported.validated_plan().expect("plan");
+    assert_eq!(plan.rest_output_type_ref("items_list"), "json");
+
+    let error = validate_projection_compatibility(&plan, &catalog)
+        .expect_err("field columns must not survive an opaque row path");
+
+    assert!(
+        error
+            .to_string()
+            .contains("is not an object and names no fields"),
+        "unexpected error: {error}"
+    );
+}
+
+/// The rule is about source paths, not row shapes: a catalog generated for
+/// non-object rows projects them whole, and stays compatible.
+#[test]
+fn projection_compatibility_accepts_whole_row_columns_for_non_object_rows() {
+    for row_path in [["tags"], ["blobs"]] {
+        let (manifest, mut imported) = imported_mixed_row_shapes_surface();
+        override_row_path(&mut imported, "items_list", &row_path);
+        let plan = imported.validated_plan().expect("plan");
+        let catalog = generate_projection_catalog(&manifest, &plan).expect("projections");
+        assert!(
+            catalog
+                .projections
+                .iter()
+                .flat_map(|projection| &projection.columns)
+                .all(|column| column.source_path.is_empty()),
+            "non-object rows are projected whole"
+        );
+
+        validate_projection_compatibility(&plan, &catalog)
+            .expect("a catalog generated for these rows is compatible with them");
+    }
+}
+
+/// The generator never nests a source path, but an authored override may, and
+/// runtime follows every segment. Each case is the shape reached *before* the
+/// final segment deciding whether that segment is selectable.
+#[test]
+fn projection_compatibility_walks_every_segment_of_a_nested_source_path() {
+    let (manifest, imported) = imported_nested_row_surface();
+    let plan = imported.validated_plan().expect("plan");
+    let generated = generate_projection_catalog(&manifest, &plan).expect("projections");
+
+    for (source_path, expected) in [
+        // An object names its fields, so a real one resolves and a bogus one
+        // cannot.
+        (&["owner", "login"][..], Ok(())),
+        (
+            &["owner", "nope"][..],
+            Err("type 'items_list_row_items_item_owner' has no field 'nope'"),
+        ),
+        // A scalar has nothing below it at all.
+        (
+            &["id", "nope"][..],
+            Err("names no fields, so segment 'nope' cannot be selected"),
+        ),
+        // `get_path_value` indexes arrays numerically, and only numerically.
+        (&["tags", "0"][..], Ok(())),
+        (
+            &["tags", "name"][..],
+            Err("is a list, so segment 'name' must be a numeric index"),
+        ),
+        // A map admits any key, and an opaque payload admits anything at all.
+        (&["labels", "any_key"][..], Ok(())),
+        (&["extra", "anything", "deep"][..], Ok(())),
+        // ...but not a numeric one: runtime reads that as an array index, so it
+        // selects nothing however the payload is shaped. `owner` really does
+        // declare a field named `0`, so this is the numeric rule rejecting it
+        // rather than the missing-field rule.
+        (
+            &["owner", "0"][..],
+            Err("is read as an array index and so selects nothing"),
+        ),
+        (
+            &["labels", "0"][..],
+            Err("is read as an array index and so selects nothing"),
+        ),
+        // The first segment is still checked as before.
+        (&["nope", "deeper"][..], Err("which has no such field")),
+    ] {
+        let catalog = compatibility_of_source_path(&generated, source_path);
+        let outcome = validate_projection_compatibility(&plan, &catalog);
+        match expected {
+            Ok(()) => {
+                outcome.unwrap_or_else(|error| {
+                    panic!("source path {source_path:?} should be compatible: {error}")
+                });
+            }
+            Err(fragment) => {
+                let error =
+                    outcome.expect_err(&format!("source path {source_path:?} should be rejected"));
+                assert!(
+                    error.to_string().contains(fragment),
+                    "source path {source_path:?}: unexpected error: {error}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
