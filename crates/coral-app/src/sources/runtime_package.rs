@@ -252,6 +252,7 @@ fn http_manifest_for_surface(
                         name: projection.name.clone(),
                         description: projection.description.clone(),
                         guide: projection.guide.clone(),
+                        require_guide_read: projection.require_guide_read,
                         filters: projection_filter_specs(projection),
                         fetch_limit_default: None,
                         search_limits: projection.search_limits.clone(),
@@ -270,6 +271,7 @@ fn http_manifest_for_surface(
                     kind: *function_kind,
                     description: projection.description.clone(),
                     guide: projection.guide.clone(),
+                    require_guide_read: projection.require_guide_read,
                     fetch_limit_default: None,
                     search_limits: projection.search_limits.clone(),
                     detail_hints: projection.detail_hints.clone(),
@@ -402,6 +404,7 @@ fn mcp_table_spec(
             name: projection.name.clone(),
             description: projection.description.clone(),
             guide: projection.guide.clone(),
+            require_guide_read: projection.require_guide_read,
             filters: projection_filter_specs(projection),
             fetch_limit_default: None,
             search_limits: projection.search_limits.clone(),
@@ -435,6 +438,7 @@ fn mcp_table_function_spec(
             kind: function_kind,
             description: projection.description.clone(),
             guide: projection.guide.clone(),
+            require_guide_read: projection.require_guide_read,
             fetch_limit_default: None,
             search_limits: projection.search_limits.clone(),
             detail_hints: projection.detail_hints.clone(),
@@ -985,6 +989,7 @@ mod tests {
             kind: ProjectionKind::Table,
             description: String::new(),
             guide: String::new(),
+            require_guide_read: false,
             operation_id: operation_id.to_string(),
             visibility: ProjectionVisibility::Published,
             inputs: Vec::new(),
@@ -1003,6 +1008,7 @@ mod tests {
             },
             description: "Search issues".to_string(),
             guide: "Prefer this function for issue lookup.".to_string(),
+            require_guide_read: true,
             operation_id: operation_id.to_string(),
             visibility: ProjectionVisibility::Published,
             inputs: Vec::new(),
@@ -1307,6 +1313,12 @@ mod tests {
             http.functions.first().expect("http function").guide,
             "Prefer this function for issue lookup."
         );
+        assert!(
+            http.functions
+                .first()
+                .expect("http function")
+                .require_guide_read
+        );
     }
 
     #[test]
@@ -1572,6 +1584,13 @@ mod tests {
         assert_eq!(
             mcp.functions.first().expect("mcp function").common.guide,
             "Prefer this function for issue lookup."
+        );
+        assert!(
+            mcp.functions
+                .first()
+                .expect("mcp function")
+                .common
+                .require_guide_read
         );
     }
 

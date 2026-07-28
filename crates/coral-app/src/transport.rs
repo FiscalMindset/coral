@@ -909,6 +909,7 @@ mod tests {
             table_name: "users".to_string(),
             description: "User records".to_string(),
             guide: "Filter by org_id.".to_string(),
+            require_guide_read: true,
             columns: vec![ColumnInfo {
                 name: "id".to_string(),
                 data_type: "Int64".to_string(),
@@ -947,6 +948,7 @@ mod tests {
             table_name: "users".to_string(),
             description: "User records".to_string(),
             guide: "Filter by org_id.".to_string(),
+            require_guide_read: true,
             columns: vec![ColumnInfo {
                 name: "id".to_string(),
                 data_type: "Int64".to_string(),
@@ -977,6 +979,7 @@ mod tests {
             function_name: "search".to_string(),
             description: "Search demo records".to_string(),
             guide: "Prefer search for record lookup.".to_string(),
+            require_guide_read: true,
             arguments: vec![coral_engine::TableFunctionArgumentInfo {
                 name: "payload".to_string(),
                 required: true,

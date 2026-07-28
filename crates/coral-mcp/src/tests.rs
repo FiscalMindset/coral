@@ -52,6 +52,8 @@ backend: file
 tables:
   - name: events
     description: Fixture events
+    guide: Use messages for ordinary text lookup.
+    require_guide_read: true
     format: jsonl
     source:
       location: file://{}/
@@ -111,9 +113,18 @@ base_url: https://example.com
 tables:
   - name: placeholder
     description: Placeholder table
+    guide: Supply an id filter before using this table.
+    require_guide_read: true
+    filters:
+      - name: lookup_id
+        required: true
     request:
       method: GET
       path: /placeholder
+      query:
+        - name: lookup_id
+          from: filter
+          key: lookup_id
     columns:
       - name: id
         type: Utf8
@@ -121,6 +132,7 @@ functions:
   - name: lookup_issue
     description: Lookup issue
     guide: Use this function for exact issue lookup.
+    require_guide_read: true
     args:
       - name: number
         required: true
@@ -1687,8 +1699,159 @@ async fn list_catalog_surfaces_table_functions() {
 }
 
 #[tokio::test]
-async fn factory_shares_client_and_configured_tools_across_sessions() {
+async fn mcp_sql_execution_finds_required_table_and_function_guides() {
     let temp = TempDir::new().expect("temp dir");
+    let manifest_path = write_function_fixture_manifest(temp.path());
+    let manifest_yaml = fs::read_to_string(&manifest_path).expect("read manifest");
+    let mut session = start_session(&temp).await;
+    add_demo_source(&mut session.source_client, manifest_yaml).await;
+    let client = &session.client;
+    let task_id = start_test_task(client).await;
+    let tools = client.list_all_tools().await.expect("tools");
+    let sql_tool = tool_by_name(&tools, "sql");
+    let queries = json!({
+        "queries": [
+            "WITH issue AS (SELECT * FROM \"searchy\".\"lookup_issue\"(number => '1') LIMIT 0) SELECT placeholder.id FROM searchy.placeholder CROSS JOIN issue LIMIT 0"
+        ]
+    });
+
+    let blocked = client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(&task_id, &queries)),
+        )
+        .await
+        .expect("gated table and table function");
+    assert_eq!(blocked.is_error, Some(false));
+    let blocked = blocked.structured_content.expect("structured guide block");
+    assert_matches_output_schema(sql_tool, &blocked);
+    assert_eq!(blocked.as_object().expect("guide block").len(), 2);
+    assert!(
+        blocked["message"]
+            .as_str()
+            .is_some_and(|message| message.starts_with("Coral blocked this SQL call"))
+    );
+    let guides = blocked["guides"].as_array().expect("required guides");
+    assert_eq!(guides.len(), 2);
+    assert_eq!(guides[0]["schema"], "searchy");
+    assert_eq!(guides[0]["resource"], "placeholder");
+    assert_eq!(
+        guides[0]["guide"],
+        "Supply an id filter before using this table."
+    );
+    assert_eq!(guides[0].as_object().expect("table guide").len(), 3);
+    assert_eq!(guides[1]["schema"], "searchy");
+    assert_eq!(guides[1]["resource"], "lookup_issue");
+    assert_eq!(
+        guides[1]["guide"],
+        "Use this function for exact issue lookup."
+    );
+    assert_eq!(guides[1].as_object().expect("function guide").len(), 3);
+
+    let retry = client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(
+                &task_id,
+                &json!({
+                    "queries": [
+                        "WITH issue AS (SELECT * FROM searchy.lookup_issue(number => '2') LIMIT 0) SELECT placeholder.id FROM searchy.placeholder CROSS JOIN issue WHERE placeholder.id = '2' LIMIT 0"
+                    ]
+                }),
+            )),
+        )
+        .await
+        .expect("revised same-task SQL retry")
+        .structured_content
+        .expect("structured SQL retry");
+    assert!(
+        retry.get("guides").is_none(),
+        "a revised query must not repeat already surfaced guides: {retry}"
+    );
+    assert_eq!(retry["total_count"], 1, "{retry}");
+    assert_eq!(retry["success_count"], 1, "{retry}");
+    assert_eq!(retry["error_count"], 0, "{retry}");
+
+    let next_task_id = start_test_task(client).await;
+    let next_task = client
+        .call_tool(
+            CallToolRequestParams::new("sql")
+                .with_arguments(task_arguments(&next_task_id, &queries)),
+        )
+        .await
+        .expect("next task gated SQL call")
+        .structured_content
+        .expect("next task guide block");
+    assert!(next_task["guides"].is_array());
+
+    session.shutdown().await;
+}
+
+#[tokio::test]
+async fn mcp_sql_batch_executes_ungated_queries_while_returning_required_guides() {
+    let temp = TempDir::new().expect("temp dir");
+    let manifest_path = write_fixture_manifest(temp.path());
+    let manifest_yaml = fs::read_to_string(&manifest_path).expect("read manifest");
+    let mut session = start_session(&temp).await;
+    add_demo_source(&mut session.source_client, manifest_yaml).await;
+    let client = &session.client;
+    let task_id = start_test_task(client).await;
+    let tools = client.list_all_tools().await.expect("tools");
+    let sql_tool = tool_by_name(&tools, "sql");
+
+    let first = client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(
+                &task_id,
+                &json!({
+                    "queries": [
+                        "SELECT text FROM local_messages.events WHERE text = 'hello'",
+                        "SELECT text FROM local_messages.messages WHERE text = 'world'"
+                    ]
+                }),
+            )),
+        )
+        .await
+        .expect("mixed gated SQL batch")
+        .structured_content
+        .expect("mixed SQL result");
+
+    assert_matches_output_schema(sql_tool, &first);
+    assert_eq!(first["total_count"], 2, "{first}");
+    assert_eq!(first["success_count"], 1, "{first}");
+    assert_eq!(first["error_count"], 0, "{first}");
+    assert_eq!(first["results"][0]["status"], "guide_required", "{first}");
+    assert_eq!(
+        first["results"][0]["guides"][0]["guide"],
+        "Use messages for ordinary text lookup."
+    );
+    assert_eq!(first["results"][1]["status"], "success", "{first}");
+    assert_eq!(first["results"][1]["rows"][0]["text"], "world", "{first}");
+
+    let retry = client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(
+                &task_id,
+                &json!({
+                    "queries": [
+                        "SELECT text FROM local_messages.events WHERE text = 'hello'"
+                    ]
+                }),
+            )),
+        )
+        .await
+        .expect("same-task retry")
+        .structured_content
+        .expect("retry result");
+    assert_eq!(retry["success_count"], 1, "{retry}");
+    assert_eq!(retry["results"][0]["rows"][0]["text"], "hello", "{retry}");
+
+    session.shutdown().await;
+}
+
+#[tokio::test]
+async fn factory_shares_configuration_and_task_guide_state_across_sessions() {
+    let temp = TempDir::new().expect("temp dir");
+    let manifest_path = write_fixture_manifest(temp.path());
+    let manifest_yaml = fs::read_to_string(&manifest_path).expect("read manifest");
     let app_server = ServerBuilder::new()
         .with_config_dir(temp.path().join("coral-config"))
         .with_noop_feedback_uploads()
@@ -1698,6 +1861,8 @@ async fn factory_shares_client_and_configured_tools_across_sessions() {
     let app = AppClient::connect(app_server.endpoint_uri())
         .await
         .expect("connect client");
+    let mut source_client = app.source_client();
+    add_demo_source(&mut source_client, manifest_yaml).await;
     let factory = CoralMcpServerFactory::new(
         app,
         McpOptions {
@@ -1736,6 +1901,31 @@ async fn factory_shares_client_and_configured_tools_across_sessions() {
             vec!["coral://guide", "coral://tables"]
         );
     }
+
+    let task_id = start_test_task(&first_client).await;
+    let query = json!({
+        "queries": ["SELECT text FROM local_messages.events WHERE text = 'hello'"]
+    });
+    let first_call = first_client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(&task_id, &query)),
+        )
+        .await
+        .expect("first-session gated SQL")
+        .structured_content
+        .expect("first-session guide block");
+    assert!(first_call["guides"].is_array());
+
+    let second_call = second_client
+        .call_tool(
+            CallToolRequestParams::new("sql").with_arguments(task_arguments(&task_id, &query)),
+        )
+        .await
+        .expect("second-session SQL retry")
+        .structured_content
+        .expect("second-session SQL result");
+    assert_eq!(second_call["success_count"], 1);
+    assert_eq!(second_call["results"][0]["rows"][0]["text"], "hello");
 
     shutdown_mcp_session(first_client, first_task).await;
     shutdown_mcp_session(second_client, second_task).await;

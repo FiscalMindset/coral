@@ -28,6 +28,7 @@ pub(crate) struct CatalogTableFunction {
     pub(crate) function_name: String,
     pub(crate) description: String,
     pub(crate) guide: String,
+    pub(crate) require_guide_read: bool,
     pub(crate) arguments: Vec<CatalogTableFunctionArgument>,
     pub(crate) result_columns: Vec<CatalogTableFunctionResultColumn>,
     pub(crate) kind: SourceTableFunctionKind,
@@ -509,6 +510,7 @@ fn system_table_infos() -> Vec<TableInfo> {
             table_name: table.table_name.to_string(),
             description: table.description.to_string(),
             guide: table.guide.to_string(),
+            require_guide_read: false,
             columns: table
                 .columns
                 .iter()
@@ -538,6 +540,7 @@ pub(crate) fn collect_tables(active_sources: &[RegisteredSource]) -> Vec<TableIn
             table_name: table.table_name.clone(),
             description: table.description.clone(),
             guide: table.guide.clone(),
+            require_guide_read: table.require_guide_read,
             columns: table
                 .columns
                 .iter()
@@ -574,6 +577,7 @@ pub(crate) fn collect_table_functions(
             function_name: function.function_name,
             description: function.description,
             guide: function.guide,
+            require_guide_read: function.require_guide_read,
             arguments: function
                 .arguments
                 .into_iter()
@@ -614,6 +618,7 @@ fn catalog_table_functions(
                     function_name: function.function_name.clone(),
                     description: function.description.clone(),
                     guide: function.guide.clone(),
+                    require_guide_read: function.require_guide_read,
                     arguments: function
                         .arguments
                         .iter()
@@ -1054,6 +1059,7 @@ mod tests {
                     kind: coral_spec::SourceTableFunctionKind::Search,
                     description: String::new(),
                     guide: "Prefer this function for lookup.".to_string(),
+                    require_guide_read: true,
                     arguments: Vec::new(),
                     result_columns: Vec::new(),
                     search_limits: None,

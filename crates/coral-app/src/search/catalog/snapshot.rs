@@ -578,6 +578,7 @@ mod tests {
                 table_name: table_name.to_string(),
                 description: format!("Fixture {table_name}"),
                 guide: String::new(),
+                require_guide_read: false,
                 columns: vec![coral_engine::ColumnInfo {
                     name: "title".to_string(),
                     data_type: "Utf8".to_string(),

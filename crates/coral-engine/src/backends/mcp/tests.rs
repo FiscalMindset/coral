@@ -241,6 +241,8 @@ fn mcp_manifest() -> coral_spec::ValidatedSourceManifest {
         },
         "functions": [{
             "name": "search",
+            "guide": "Use search for exact issue lookup.",
+            "require_guide_read": true,
             "tool": "search_tool",
             "args": [{
                 "name": "query",
@@ -594,6 +596,8 @@ fn mcp_table_manifest() -> coral_spec::ValidatedSourceManifest {
         "tables": [{
             "name": "issues",
             "description": "Open issues",
+            "guide": "Use search for issue lookup.",
+            "require_guide_read": true,
             "tool": "list_issues",
             "tool_args": {
                 "owner": { "from": "literal", "value": "acme" }
