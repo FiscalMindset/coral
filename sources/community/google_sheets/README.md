@@ -179,10 +179,11 @@ Metadata for each sheet tab in the spreadsheet.
 
 ## Provider docs
 
-- Google Sheets API: https://developers.google.com/sheets/api/reference/rest
-- API keys: https://console.cloud.google.com/apis/credentials
-- Enable Sheets API: https://console.cloud.google.com/apis/library/sheets.googleapis.com
-- A1 notation: https://developers.google.com/workspace/sheets/api/guides/concepts#a1_notation
+- **[Google Sheets API reference](https://developers.google.com/sheets/api/reference/rest)** — REST methods, request/response schemas, and data types. The converter fetches sheet metadata and row content through the `spreadsheets.get` and `spreadsheets.values.get` endpoints.
+- **[API credentials console](https://console.cloud.google.com/apis/credentials)** — Create and manage the API key required to authenticate Sheets API requests. Restrict the key to the Sheets API for security.
+- **[Enable the Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)** — Activate the Google Sheets API for your Google Cloud project so API keys can access spreadsheet data.
+- **[A1 notation syntax](https://developers.google.com/workspace/sheets/api/guides/concepts#a1_notation)** — How spreadsheet ranges are specified (e.g., `Sheet1!A1:Z`). The source uses A1 notation from the `sheets.jsonl` fixture to identify which sheet tabs to read.
+- **[API key security best practices](https://cloud.google.com/docs/authentication/api-keys-best-practices)** — Google's guidance on securing API keys, including preferring the `x-goog-api-key` HTTP header over query-parameter transmission.
 
 ## Validation output
 
