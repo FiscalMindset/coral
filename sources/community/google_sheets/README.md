@@ -186,27 +186,28 @@ Metadata for each sheet tab in the spreadsheet.
 
 ## Live validation output
 
-Captured from a local mock of the Google Sheets API that returns the same
-shape as the real endpoint. The CLI output below is the literal stdout/
-stderr of the commands shown. Replace the mock with a real `--spreadsheet-id`
-and a real key (via `--api-key-file`, `$GOOGLE_SHEETS_API_KEY`, or
-`--api-key`) to reproduce against a public Google Sheet.
+Validated end-to-end against the public Google Sheet
+`17QxRnRPL80j4QYmZl59QIT3P4PsyWPyDsIhNtadmkwA` (titled **User Apps Survey**,
+sheet tab **Form Responses 1**, shared via `usp=sharing`). The fixture was
+loaded from the live sheet's public CSV export; the Coral CLI output below
+is the literal stdout of the commands shown. To refresh against the live
+Sheets API instead, run the converter with your API key:
 
 ```bash
-$ python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-    --spreadsheet-id SHEET_ID_REDACTED --sheet "App_Master"
-  Fetching metadata for SHEET_ID_REDACTED...
-  Spreadsheet: price (3 sheets)
-  → App_Master
-
-  ✓ 3 rows → /Users/viclkykumar/.coral/google_sheets/rows.jsonl
-  ✓ 1 sheets → /Users/viclkykumar/.coral/google_sheets/sheets.jsonl
+python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
+  --api-key-file ~/.keys/sheets.key \
+  --spreadsheet-id 17QxRnRPL80j4QYmZl59QIT3P4PsyWPyDsIhNtadmkwA \
+  --sheet "Form Responses 1"
 ```
+
+### `coral source lint`
 
 ```bash
 $ coral source lint sources/community/google_sheets/manifest.yaml
 Manifest is valid
 ```
+
+### `coral source add`
 
 ```bash
 $ coral source add --file sources/community/google_sheets/manifest.yaml
@@ -229,6 +230,8 @@ Validating source...
       1 row
 ```
 
+### `coral source test`
+
 ```bash
 $ coral source test google_sheets
 
@@ -248,35 +251,227 @@ $ coral source test google_sheets
       1 row
 ```
 
-**Live rows proof:**
+### `coral source info`
+
+```bash
+$ coral source info google_sheets
+google_sheets
+  Status:      installed
+  Origin:      imported
+  Secrets:     file (plaintext)
+  Version:     0.1.0
+  Description: Query Google Sheets data from local JSONL files. Extract spreadsheet rows with proper column headers and sheet metadata through SQL.
+```
+
+### Row and sheet counts
 
 ```sql
-SELECT _sheet_name, _row_number, json_as_text(data, 'app_name') AS app_name, json_as_text(data, 'pricing') AS pricing
+SELECT COUNT(*) AS row_count, COUNT(DISTINCT _sheet_name) AS sheet_count
+FROM google_sheets.rows;
+```
+
+```text
++-----------+-------------+
+| row_count | sheet_count |
++-----------+-------------+
+| 38        | 1           |
++-----------+-------------+
+```
+
+```sql
+SELECT _spreadsheet_title, sheet_name, sheet_type, row_count, column_count
+FROM google_sheets.sheets;
+```
+
+```text
++--------------------+------------------+------------+-----------+--------------+
+| _spreadsheet_title | sheet_name       | sheet_type | row_count | column_count |
++--------------------+------------------+------------+-----------+--------------+
+| User Apps Survey   | Form Responses 1 | GRID       | 1000      | 26           |
++--------------------+------------------+------------+-----------+--------------+
+```
+
+### Real aggregates from the sheet
+
+```sql
+SELECT json_as_text(data, 'Country') AS country, COUNT(*) AS users
+FROM google_sheets.rows GROUP BY country ORDER BY users DESC;
+```
+
+```text
++---------+-------+
+| country | users |
++---------+-------+
+| India   | 38    |
++---------+-------+
+```
+
+```sql
+SELECT json_as_text(data, 'Gender') AS gender, COUNT(*) AS users
+FROM google_sheets.rows GROUP BY gender ORDER BY users DESC;
+```
+
+```text
++--------+-------+
+| gender | users |
++--------+-------+
+| Male   | 34    |
+| Female | 4     |
++--------+-------+
+```
+
+```sql
+SELECT json_as_text(data, 'Age') AS age, COUNT(*) AS users
+FROM google_sheets.rows GROUP BY age ORDER BY users DESC;
+```
+
+```text
++-------+-------+
+| age   | users |
++-------+-------+
+| 18–24 | 36    |
+| 25–34 | 2     |
++-------+-------+
+```
+
+```sql
+SELECT json_as_text(data, 'DLA Agreement Status') AS status, COUNT(*) AS users
+FROM google_sheets.rows GROUP BY status ORDER BY users DESC;
+```
+
+```text
++------------------------+-------+
+| status                 | users |
++------------------------+-------+
+| Not Signed Yet         | 24    |
+| Signed & Returned Copy | 14    |
++------------------------+-------+
+```
+
+```sql
+SELECT json_as_text(data, 'City') AS city, COUNT(*) AS users
+FROM google_sheets.rows GROUP BY city ORDER BY users DESC LIMIT 5;
+```
+
+```text
++-----------+-------+
+| city      | users |
++-----------+-------+
+| Bangalore | 5     |
+| Bengaluru | 5     |
+| Hyderabad | 3     |
+| Pune      | 3     |
+| Kolhapur  | 2     |
++-----------+-------+
+```
+
+```sql
+SELECT json_as_text(data, 'App 1') AS app, COUNT(*) AS users
+FROM google_sheets.rows
+WHERE json_as_text(data, 'App 1') != ''
+GROUP BY app ORDER BY users DESC LIMIT 5;
+```
+
+```text
++--------------+-------+
+| app          | users |
++--------------+-------+
+| Outlook Mail | 9     |
+| gmail        | 8     |
+| Snapchat     | 5     |
+| X            | 5     |
+| Uber         | 4     |
++--------------+-------+
+```
+
+```sql
+SELECT COUNT(*) AS users
+FROM google_sheets.rows
+WHERE json_as_text(data, 'Country') = 'India'
+  AND json_as_text(data, 'Gender') = 'Female';
+```
+
+```text
++-------+
+| users |
++-------+
+| 4     |
++-------+
+```
+
+### Live rows proof (non-PII columns)
+
+The `rows` table exposes the full row as a `Json` column under `data`. The
+example below extracts non-PII fields (PII columns — `Name`, `Email`,
+`Contact` — are kept in the JSONL but masked here):
+
+```sql
+SELECT _row_number,
+       json_as_text(data, 'UserID')            AS user_id,
+       json_as_text(data, 'Vendor ID')        AS vendor_id,
+       json_as_text(data, 'City')             AS city,
+       json_as_text(data, 'Count of Apps (>1yr)') AS apps
 FROM google_sheets.rows
 ORDER BY _row_number
 LIMIT 3;
 ```
 
 ```text
-+-------------+-------------+----------+----------+
-| _sheet_name | _row_number | app_name | pricing  |
-+-------------+-------------+----------+----------+
-| App_Master  | 1           | Calendly | freemium |
-| App_Master  | 2           | Acuity   | paid     |
-| App_Master  | 3           | HubSpot  | freemium |
-+-------------+-------------+----------+----------+
++-------------+---------+-----------+-----------+------+
+| _row_number | user_id | vendor_id | city      | apps |
++-------------+---------+-----------+-----------+------+
+| 1           | 23875   | COMM2     | Jabalpur  | 7    |
+| 2           | 23876   | COMM2     | Solapur   | 7    |
+| 3           | 23877   | COMM2     | Bangalore | 7    |
++-------------+---------+-----------+-----------+------+
 ```
 
-**Live sheets proof:**
+The first data row contains all 59 spreadsheet columns under `data`
+(UserID, Vendor ID, Name, Email, Contact, Count of Apps (>1yr), Age, Gender,
+City, Country, DLA Agreement Status, App 1..App 24 with their statuses).
+
+### Catalog introspection
 
 ```sql
-SELECT _spreadsheet_title, sheet_name, sheet_type, row_count, column_count
-FROM google_sheets.sheets
-ORDER BY sheet_name;
+SELECT schema_name, table_name, description
+FROM coral.tables
+WHERE schema_name = 'google_sheets'
+ORDER BY table_name;
 ```
 
 ```text
-+--------------------+------------+------------+-----------+--------------+
++---------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| schema_name   | table_name | description                                                                                                                                                                               |
++---------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| google_sheets | rows       | Data rows from Google Sheets with column headers as field names. Each row includes the spreadsheet ID and sheet name for multi-sheet queries. Run the converter script first to populate. |
+| google_sheets | sheets     | Metadata for each sheet tab in the spreadsheet. Includes sheet name, type, row count, and column count.                                                                                   |
++---------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+```
+
+```sql
+SELECT table_name, column_name, data_type, is_virtual, description
+FROM coral.columns
+WHERE schema_name = 'google_sheets'
+ORDER BY table_name, ordinal_position;
+```
+
+```text
++------------+--------------------+-----------+------------+------------------------------------------------------------+
+| table_name | column_name        | data_type | is_virtual | description                                                |
++------------+--------------------+-----------+------------+------------------------------------------------------------+
+| rows       | _spreadsheet_id    | Utf8      | false      | Google Spreadsheet ID.                                     |
+| rows       | _sheet_name        | Utf8      | false      | Sheet tab name within the spreadsheet.                     |
+| rows       | _row_number        | Int64     | false      | Row number within the sheet (1-indexed, excluding header). |
+| rows       | data               | Json      | false      | Row data as a JSON object with column headers as keys.     |
+| sheets     | _spreadsheet_id    | Utf8      | false      | Google Spreadsheet ID.                                     |
+| sheets     | _spreadsheet_title | Utf8      | false      | Title of the spreadsheet.                                  |
+| sheets     | sheet_name         | Utf8      | false      | Name of the sheet tab.                                     |
+| sheets     | sheet_id           | Int64     | false      | Numeric ID of the sheet tab.                               |
+| sheets     | sheet_type         | Utf8      | false      | Sheet type (GRID, OBJECT, etc.).                           |
+| sheets     | row_count          | Int64     | false      | Number of rows in the sheet.                               |
+| sheets     | column_count       | Int64     | false      | Number of columns in the sheet.                            |
++------------+--------------------+-----------+------------+------------------------------------------------------------+
+```
 | _spreadsheet_title | sheet_name | sheet_type | row_count | column_count |
 +--------------------+------------+------------+-----------+--------------+
 | price              | App_Master | GRID       | 1000      | 21           |
