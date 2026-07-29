@@ -186,20 +186,21 @@ Metadata for each sheet tab in the spreadsheet.
 
 ## Live validation output
 
-Validated by fetching a public Google Sheet with the converter script. Spreadsheet
-ID, sheet names, and table contents are redacted or paraphrased; column
-shapes match the current `manifest.yaml` and the corrected converter head.
+Captured from a local mock of the Google Sheets API that returns the same
+shape as the real endpoint. The CLI output below is the literal stdout/
+stderr of the commands shown. Replace the mock with a real `--spreadsheet-id`
+and a real key (via `--api-key-file`, `$GOOGLE_SHEETS_API_KEY`, or
+`--api-key`) to reproduce against a public Google Sheet.
 
 ```bash
 $ python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
     --spreadsheet-id SHEET_ID_REDACTED --sheet "App_Master"
   Fetching metadata for SHEET_ID_REDACTED...
-  Spreadsheet: price (2 sheets)
+  Spreadsheet: price (3 sheets)
   → App_Master
-    (header row had 5 columns; widened to 7 with 2 generated name(s))
 
-  ✓ 565 rows → ~/.coral/google_sheets/rows.jsonl
-  ✓ 1 sheets → ~/.coral/google_sheets/sheets.jsonl
+  ✓ 3 rows → /Users/viclkykumar/.coral/google_sheets/rows.jsonl
+  ✓ 1 sheets → /Users/viclkykumar/.coral/google_sheets/sheets.jsonl
 ```
 
 ```bash
@@ -209,9 +210,30 @@ Manifest is valid
 
 ```bash
 $ coral source add --file sources/community/google_sheets/manifest.yaml
-Added source google_sheets
+Added source google_sheets (secrets: none)
+Validating source...
 
   ✓ google_sheets connected successfully
+  Secrets: none
+
+    google_sheets (2 tables)
+    ├─ rows
+    └─ sheets
+    Query tests
+    2 declared · 2 passed · 0 failed
+
+    ✓ SELECT _spreadsheet_id, _sheet_name, _row_number, data FROM google_sheets.rows LIMIT 3
+      3 rows
+
+    ✓ SELECT _spreadsheet_title, sheet_name, row_count FROM google_sheets.sheets LIMIT 3
+      1 row
+```
+
+```bash
+$ coral source test google_sheets
+
+  ✓ google_sheets connected successfully
+  Secrets: none
 
     google_sheets (2 tables)
     ├─ rows
@@ -229,37 +251,34 @@ Added source google_sheets
 **Live rows proof:**
 
 ```sql
-SELECT _sheet_name, _row_number, data
-FROM google_sheets.rows LIMIT 3;
+SELECT _sheet_name, _row_number, json_as_text(data, 'app_name') AS app_name, json_as_text(data, 'pricing') AS pricing
+FROM google_sheets.rows
+ORDER BY _row_number
+LIMIT 3;
 ```
 
 ```text
-+-------------+-------------+--------------------------------------------+
-| _sheet_name | _row_number | data                                       |
-+-------------+-------------+--------------------------------------------+
-| App_Master  | 1           | {"subcategory_id":"appointment_scheduling",|
-|             |             | "app":"example_a", "col_5":"v1",            |
-|             |             | "col_6":"v2"}                              |
-| App_Master  | 2           | {"subcategory_id":"appointment_scheduling",|
-|             |             | "app":"example_b", "col_5":"v1",            |
-|             |             | "col_6":"v2"}                              |
-| App_Master  | 3           | {"subcategory_id":"appointment_scheduling",|
-|             |             | "app":"example_c", "col_5":"v1",            |
-|             |             | "col_6":"v2"}                              |
-+-------------+-------------+--------------------------------------------+
++-------------+-------------+----------+----------+
+| _sheet_name | _row_number | app_name | pricing  |
++-------------+-------------+----------+----------+
+| App_Master  | 1           | Calendly | freemium |
+| App_Master  | 2           | Acuity   | paid     |
+| App_Master  | 3           | HubSpot  | freemium |
++-------------+-------------+----------+----------+
 ```
 
 **Live sheets proof:**
 
 ```sql
-SELECT _spreadsheet_title, sheet_name, row_count, column_count
-FROM google_sheets.sheets;
+SELECT _spreadsheet_title, sheet_name, sheet_type, row_count, column_count
+FROM google_sheets.sheets
+ORDER BY sheet_name;
 ```
 
 ```text
-+--------------------+------------+-----------+--------------+
-| _spreadsheet_title | sheet_name | row_count | column_count |
-+--------------------+------------+-----------+--------------+
-| price              | App_Master | 1000      | 21           |
-+--------------------+------------+-----------+--------------+
++--------------------+------------+------------+-----------+--------------+
+| _spreadsheet_title | sheet_name | sheet_type | row_count | column_count |
++--------------------+------------+------------+-----------+--------------+
+| price              | App_Master | GRID       | 1000      | 21           |
++--------------------+------------+------------+-----------+--------------+
 ```
