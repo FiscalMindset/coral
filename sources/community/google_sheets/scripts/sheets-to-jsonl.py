@@ -4,9 +4,21 @@
 Uses only Python stdlib (urllib). No external dependencies.
 
 Usage:
+    python3 sheets-to-jsonl.py --spreadsheet-id SHEET_ID
     python3 sheets-to-jsonl.py --api-key YOUR_KEY --spreadsheet-id SHEET_ID
-    python3 sheets-to-jsonl.py --api-key YOUR_KEY --spreadsheet-id SHEET_ID --sheet "App_Master"
-    python3 sheets-to-jsonl.py --api-key YOUR_KEY --spreadsheet-id SHEET_ID --output ~/.coral/google_sheets
+    python3 sheets-to-jsonl.py --api-key-file ~/.keys/sheets.key --spreadsheet-id SHEET_ID
+    GOOGLE_SHEETS_API_KEY=... python3 sheets-to-jsonl.py --spreadsheet-id SHEET_ID
+
+Credential precedence (first non-empty wins):
+    --api-key-file <path>   read key from a file (recommended for CI)
+    $GOOGLE_SHEETS_API_KEY  environment variable (recommended for local use)
+    --api-key <key>         inline flag (least preferred; visible in shell history)
+
+The key is sent as the `X-Goog-Api-Key` request header, never as a URL
+query parameter, per
+https://docs.cloud.google.com/docs/authentication/api-keys-best-practices#avoid_using_query_parameters_to_provide_your_api_key_to_google_apis
+Restrict the key to the Google Sheets API only in the Cloud Console
+(APIs & Services > Credentials > Application restrictions > API restrictions).
 
 Output:
     rows.jsonl   — one row per data row with column headers as keys
@@ -28,9 +40,9 @@ DEFAULT_OUTPUT = os.path.expanduser("~/.coral/google_sheets")
 API_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
 
 
-def fetch_json(url):
+def fetch_json(url, headers=None):
     try:
-        req = Request(url)
+        req = Request(url, headers=headers or {})
         resp = urlopen(req, timeout=30)
         return json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
@@ -47,22 +59,68 @@ def fetch_json(url):
         return None
 
 
+def a1_sheet_ref(sheet_name):
+    """Wrap a sheet title in single quotes per Google A1 notation rules.
+
+    A1 notation requires sheet names containing spaces, special characters,
+    or starting with a digit to be wrapped in single quotes. Internal single
+    quotes are escaped by doubling. The resulting reference is returned
+    unencoded so callers can URL-encode the whole segment as one path part.
+
+    https://developers.google.com/workspace/sheets/api/guides/concepts#a1_notation
+    """
+    escaped = sheet_name.replace("'", "''")
+    return f"'{escaped}'"
+
+
+def build_headers(api_key):
+    return {"X-Goog-Api-Key": api_key}
+
+
 def fetch_metadata(spreadsheet_id, api_key):
     url = (
         f"{API_BASE}/{quote(spreadsheet_id)}"
-        f"?key={api_key}"
-        f"&fields=spreadsheetId,properties.title,sheets.properties"
+        f"?fields=spreadsheetId,properties.title,sheets.properties"
     )
-    return fetch_json(url)
+    return fetch_json(url, headers=build_headers(api_key))
 
 
 def fetch_values(spreadsheet_id, sheet_name, api_key):
+    ref = a1_sheet_ref(sheet_name)
     url = (
         f"{API_BASE}/{quote(spreadsheet_id)}"
-        f"/values/{quote(sheet_name)}"
-        f"?key={api_key}"
+        f"/values/{quote(ref, safe='')}"
     )
-    return fetch_json(url)
+    return fetch_json(url, headers=build_headers(api_key))
+
+
+def normalize_headers(values):
+    """Build a collision-safe header list sized to the widest returned row.
+
+    Google omits trailing empty cells from returned rows, so a header row
+    shorter than the data rows silently loses those cells. We size the header
+    list to the widest returned row, generate stable placeholder names
+    (`col_N`) for any position the header row did not cover, and disambiguate
+    any duplicates (literal or generated) with a numeric suffix.
+    """
+    max_width = max((len(r) for r in values), default=0)
+    used = set()
+    normalized = []
+    for i in range(max_width):
+        if i < len(values[0]):
+            raw = values[0][i]
+            base = raw.strip() if isinstance(raw, str) else ""
+            key = base if base else f"col_{i}"
+        else:
+            key = f"col_{i}"
+        if key in used:
+            suffix = 1
+            while f"{key}_{suffix}" in used:
+                suffix += 1
+            key = f"{key}_{suffix}"
+        used.add(key)
+        normalized.append(key)
+    return normalized
 
 
 def main():
@@ -70,16 +128,20 @@ def main():
         description="Fetch Google Sheets data to JSONL for Coral"
     )
     parser.add_argument(
-        "--api-key", required=True,
-        help="Google Sheets API key",
+        "--api-key", default=None,
+        help="Google Sheets API key (least preferred; visible in shell history).",
+    )
+    parser.add_argument(
+        "--api-key-file", default=None,
+        help="Path to a file containing the API key (recommended for CI).",
     )
     parser.add_argument(
         "--spreadsheet-id", required=True,
-        help="Google Spreadsheet ID from the URL",
+        help="Google Spreadsheet ID from the URL.",
     )
     parser.add_argument(
         "--sheet", default=None,
-        help="Specific sheet tab name (default: all sheets)",
+        help="Specific sheet tab name (default: all sheets).",
     )
     parser.add_argument(
         "--output", "-o", default=DEFAULT_OUTPUT,
@@ -87,8 +149,30 @@ def main():
     )
     args = parser.parse_args()
 
+    api_key = None
+    if args.api_key_file:
+        key_path = Path(args.api_key_file)
+        if not key_path.is_file():
+            print(
+                f"  ✗ --api-key-file not found: {args.api_key_file}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        api_key = key_path.read_text().strip()
+    if not api_key:
+        api_key = os.environ.get("GOOGLE_SHEETS_API_KEY", "").strip()
+    if not api_key:
+        api_key = (args.api_key or "").strip()
+    if not api_key:
+        print(
+            "  ✗ No API key provided. Use --api-key-file, $GOOGLE_SHEETS_API_KEY,"
+            " or --api-key.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print(f"  Fetching metadata for {args.spreadsheet_id}...")
-    meta = fetch_metadata(args.spreadsheet_id, args.api_key)
+    meta = fetch_metadata(args.spreadsheet_id, api_key)
     if meta is None:
         sys.exit(1)
 
@@ -149,7 +233,7 @@ def main():
                 continue
 
             print(f"  → {sheet_name}")
-            data = fetch_values(args.spreadsheet_id, sheet_name, args.api_key)
+            data = fetch_values(args.spreadsheet_id, sheet_name, api_key)
             if data is None:
                 fail_count += 1
                 continue
@@ -159,28 +243,26 @@ def main():
                 print(f"    (empty or header-only, skipping)")
                 continue
 
-            headers = values[0]
-            used_keys = set()
-            normalized_headers = []
-            for i, header in enumerate(headers):
-                key = header.strip() if header else f"col_{i}"
-                if key in used_keys:
-                    suffix = 1
-                    while f"{key}_{suffix}" in used_keys:
-                        suffix += 1
-                    key = f"{key}_{suffix}"
-                used_keys.add(key)
-                normalized_headers.append(key)
+            normalized_headers = normalize_headers(values)
+            if len(normalized_headers) != len(values[0]):
+                generated = len(normalized_headers) - len(values[0])
+                print(
+                    f"    (header row had {len(values[0])} columns;"
+                    f" widened to {len(normalized_headers)} with {generated}"
+                    f" generated name(s))"
+                )
 
             for row_idx, row_values in enumerate(values[1:], start=1):
-                data = {}
+                row_data = {}
                 for i, key in enumerate(normalized_headers):
-                    data[key] = row_values[i] if i < len(row_values) else None
+                    row_data[key] = (
+                        row_values[i] if i < len(row_values) else None
+                    )
                 row = {
                     "_spreadsheet_id": args.spreadsheet_id,
                     "_sheet_name": sheet_name,
                     "_row_number": row_idx,
-                    "data": data,
+                    "data": row_data,
                 }
                 tmp_rows.write(json.dumps(row) + "\n")
                 total_rows += 1

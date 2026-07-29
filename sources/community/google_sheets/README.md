@@ -12,7 +12,6 @@ Query Google Sheets data from local JSONL files. Extract spreadsheet rows with p
 
 ```bash
 python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-  --api-key YOUR_GOOGLE_API_KEY \
   --spreadsheet-id YOUR_SPREADSHEET_ID
 ```
 
@@ -28,12 +27,51 @@ coral source add --file sources/community/google_sheets/manifest.yaml
 - Google Sheets API key from [Google Cloud Console](https://console.cloud.google.com)
 - Spreadsheet must be shared as **"Anyone with the link"** (public read access)
 
-**Getting an API key:**
+**Getting and restricting an API key:**
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create or select a project
 3. Enable the **Google Sheets API**
 4. Go to **Credentials** > **Create Credentials** > **API Key**
-5. Copy the key
+5. Copy the key, then **restrict it to the Google Sheets API only**:
+   - Open the key's edit page
+   - Under **API restrictions**, choose **Restrict key**
+   - Select only **Google Sheets API**
+   - Save
+
+Restricting the key limits blast radius if the key ever leaks.
+
+## Providing the API key
+
+Prefer the most secure option that fits your environment. The script checks
+options in this order and uses the first one that is set:
+
+| Priority | Option | Recommended for |
+| --- | --- | --- |
+| 1 | `--api-key-file <path>` | CI, shared runners, scheduled jobs |
+| 2 | `$GOOGLE_SHEETS_API_KEY` env var | Local shells, scripts |
+| 3 | `--api-key YOUR_KEY` flag | One-off invocations (visible in shell history) |
+
+The key is always sent as the `X-Goog-Api-Key` request header, never as a
+URL query parameter, per [Google's API key best practices](https://docs.cloud.google.com/docs/authentication/api-keys-best-practices#avoid_using_query_parameters_to_provide_your_api_key_to_google_apis).
+
+Examples:
+
+```bash
+# CI / scheduled job
+python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
+  --api-key-file ~/.keys/sheets.key \
+  --spreadsheet-id YOUR_SPREADSHEET_ID
+
+# Local shell
+export GOOGLE_SHEETS_API_KEY=YOUR_KEY
+python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
+  --spreadsheet-id YOUR_SPREADSHEET_ID
+
+# One-off
+python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
+  --api-key YOUR_KEY --spreadsheet-id YOUR_SPREADSHEET_ID
+```
 
 ## Quick Start
 
@@ -67,15 +105,15 @@ FROM google_sheets.sheets;
 ```bash
 # Fetch all sheets from a spreadsheet
 python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-  --api-key YOUR_KEY --spreadsheet-id SHEET_ID
+  --spreadsheet-id SHEET_ID
 
 # Fetch a specific sheet tab only
 python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-  --api-key YOUR_KEY --spreadsheet-id SHEET_ID --sheet "App_Master"
+  --spreadsheet-id SHEET_ID --sheet "App_Master"
 
 # Custom output directory
 python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-  --api-key YOUR_KEY --spreadsheet-id SHEET_ID --output /path/to/output
+  --spreadsheet-id SHEET_ID --output /path/to/output
 ```
 
 Default output directory: `~/.coral/google_sheets/`
@@ -126,7 +164,7 @@ Metadata for each sheet tab in the spreadsheet.
 - No API key stored in Coral — the converter script uses the key at run time only.
 - The converter uses Python stdlib only (`urllib`). No external dependencies.
 - Data is static — re-run the converter script to refresh.
-- The first row of each sheet is used as column headers for the `data` JSON object.
+- The first row of each sheet is used as column headers for the `data` JSON object. If a data row is wider than the header row, missing headers are generated as `col_N` to avoid silently dropping cells (Google Sheets API omits trailing empty cells, so this matters for any sheet where the header is shorter than the data).
 - Empty cells are represented as `null` in the JSON.
 - 2 declared test queries (`rows` + `sheets`) require no filters.
 
@@ -144,17 +182,21 @@ Metadata for each sheet tab in the spreadsheet.
 - Google Sheets API: https://developers.google.com/sheets/api/reference/rest
 - API keys: https://console.cloud.google.com/apis/credentials
 - Enable Sheets API: https://console.cloud.google.com/apis/library/sheets.googleapis.com
+- A1 notation: https://developers.google.com/workspace/sheets/api/guides/concepts#a1_notation
 
 ## Live validation output
 
-Validated by fetching a public Google Sheet with the converter script.
+Validated by fetching a public Google Sheet with the converter script. Spreadsheet
+ID, sheet names, and table contents are redacted or paraphrased; column
+shapes match the current `manifest.yaml` and the corrected converter head.
 
 ```bash
 $ python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-    --api-key YOUR_KEY --spreadsheet-id SHEET_ID --sheet "App_Master"
-  Fetching metadata for SHEET_ID...
+    --spreadsheet-id SHEET_ID_REDACTED --sheet "App_Master"
+  Fetching metadata for SHEET_ID_REDACTED...
   Spreadsheet: price (2 sheets)
   → App_Master
+    (header row had 5 columns; widened to 7 with 2 generated name(s))
 
   ✓ 565 rows → ~/.coral/google_sheets/rows.jsonl
   ✓ 1 sheets → ~/.coral/google_sheets/sheets.jsonl
@@ -180,7 +222,7 @@ Added source google_sheets
     ✓ SELECT _spreadsheet_id, _sheet_name, _row_number, data FROM google_sheets.rows LIMIT 3
       3 rows
 
-    ✓ SELECT spreadsheet_title, sheet_name, row_count FROM google_sheets.sheets LIMIT 3
+    ✓ SELECT _spreadsheet_title, sheet_name, row_count FROM google_sheets.sheets LIMIT 3
       1 row
 ```
 
@@ -192,13 +234,19 @@ FROM google_sheets.rows LIMIT 3;
 ```
 
 ```text
-+-------------+-------------+---------------------------------------------------+
-| _sheet_name | _row_number | data                                              |
-+-------------+-------------+---------------------------------------------------+
-| App_Master  | 1           | {"subcategory_id":"appointment_scheduling",...}    |
-| App_Master  | 2           | {"subcategory_id":"appointment_scheduling",...}    |
-| App_Master  | 3           | {"subcategory_id":"appointment_scheduling",...}    |
-+-------------+-------------+---------------------------------------------------+
++-------------+-------------+--------------------------------------------+
+| _sheet_name | _row_number | data                                       |
++-------------+-------------+--------------------------------------------+
+| App_Master  | 1           | {"subcategory_id":"appointment_scheduling",|
+|             |             | "app":"example_a", "col_5":"v1",            |
+|             |             | "col_6":"v2"}                              |
+| App_Master  | 2           | {"subcategory_id":"appointment_scheduling",|
+|             |             | "app":"example_b", "col_5":"v1",            |
+|             |             | "col_6":"v2"}                              |
+| App_Master  | 3           | {"subcategory_id":"appointment_scheduling",|
+|             |             | "app":"example_c", "col_5":"v1",            |
+|             |             | "col_6":"v2"}                              |
++-------------+-------------+--------------------------------------------+
 ```
 
 **Live sheets proof:**
@@ -209,9 +257,9 @@ FROM google_sheets.sheets;
 ```
 
 ```text
-+-------------------+------------+-----------+--------------+
-| spreadsheet_title | sheet_name | row_count | column_count |
-+-------------------+------------+-----------+--------------+
-| price             | App_Master | 1000      | 21           |
-+-------------------+------------+-----------+--------------+
++--------------------+------------+-----------+--------------+
+| _spreadsheet_title | sheet_name | row_count | column_count |
++--------------------+------------+-----------+--------------+
+| price              | App_Master | 1000      | 21           |
++--------------------+------------+-----------+--------------+
 ```
