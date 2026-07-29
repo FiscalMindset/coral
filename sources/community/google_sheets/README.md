@@ -184,21 +184,14 @@ Metadata for each sheet tab in the spreadsheet.
 - Enable Sheets API: https://console.cloud.google.com/apis/library/sheets.googleapis.com
 - A1 notation: https://developers.google.com/workspace/sheets/api/guides/concepts#a1_notation
 
-## Live validation output
+## Validation output
 
-Validated end-to-end against the public Google Sheet
-`17QxRnRPL80j4QYmZl59QIT3P4PsyWPyDsIhNtadmkwA` (titled **User Apps Survey**,
-sheet tab **Form Responses 1**, shared via `usp=sharing`). The fixture was
-loaded from the live sheet's public CSV export; the Coral CLI output below
-is the literal stdout of the commands shown. To refresh against the live
-Sheets API instead, run the converter with your API key:
-
-```bash
-python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-  --api-key-file ~/.keys/sheets.key \
-  --spreadsheet-id 17QxRnRPL80j4QYmZl59QIT3P4PsyWPyDsIhNtadmkwA \
-  --sheet "Form Responses 1"
-```
+Run `coral source add --file sources/community/google_sheets/manifest.yaml`
+after generating a JSONL fixture with the converter script to verify
+the source against your own spreadsheet. The output below was produced
+from a synthetic demo fixture (`~/.coral/google_sheets/rows.jsonl` +
+`~/.coral/google_sheets/sheets.jsonl`) that mimics the converter's output
+shape.
 
 ### `coral source lint`
 
@@ -274,7 +267,7 @@ FROM google_sheets.rows;
 +-----------+-------------+
 | row_count | sheet_count |
 +-----------+-------------+
-| 38        | 1           |
+| 5         | 1           |
 +-----------+-------------+
 ```
 
@@ -284,151 +277,71 @@ FROM google_sheets.sheets;
 ```
 
 ```text
-+--------------------+------------------+------------+-----------+--------------+
-| _spreadsheet_title | sheet_name       | sheet_type | row_count | column_count |
-+--------------------+------------------+------------+-----------+--------------+
-| User Apps Survey   | Form Responses 1 | GRID       | 1000      | 26           |
-+--------------------+------------------+------------+-----------+--------------+
++--------------------+------------+------------+-----------+--------------+
+| _spreadsheet_title | sheet_name | sheet_type | row_count | column_count |
++--------------------+------------+------------+-----------+--------------+
+| Demo Apps Catalog  | App_Master | GRID       | 1000      | 21           |
++--------------------+------------+------------+-----------+--------------+
 ```
 
-### Real aggregates from the sheet
-
-```sql
-SELECT json_as_text(data, 'Country') AS country, COUNT(*) AS users
-FROM google_sheets.rows GROUP BY country ORDER BY users DESC;
-```
-
-```text
-+---------+-------+
-| country | users |
-+---------+-------+
-| India   | 38    |
-+---------+-------+
-```
-
-```sql
-SELECT json_as_text(data, 'Gender') AS gender, COUNT(*) AS users
-FROM google_sheets.rows GROUP BY gender ORDER BY users DESC;
-```
-
-```text
-+--------+-------+
-| gender | users |
-+--------+-------+
-| Male   | 34    |
-| Female | 4     |
-+--------+-------+
-```
-
-```sql
-SELECT json_as_text(data, 'Age') AS age, COUNT(*) AS users
-FROM google_sheets.rows GROUP BY age ORDER BY users DESC;
-```
-
-```text
-+-------+-------+
-| age   | users |
-+-------+-------+
-| 18–24 | 36    |
-| 25–34 | 2     |
-+-------+-------+
-```
-
-```sql
-SELECT json_as_text(data, 'DLA Agreement Status') AS status, COUNT(*) AS users
-FROM google_sheets.rows GROUP BY status ORDER BY users DESC;
-```
-
-```text
-+------------------------+-------+
-| status                 | users |
-+------------------------+-------+
-| Not Signed Yet         | 24    |
-| Signed & Returned Copy | 14    |
-+------------------------+-------+
-```
-
-```sql
-SELECT json_as_text(data, 'City') AS city, COUNT(*) AS users
-FROM google_sheets.rows GROUP BY city ORDER BY users DESC LIMIT 5;
-```
-
-```text
-+-----------+-------+
-| city      | users |
-+-----------+-------+
-| Bangalore | 5     |
-| Bengaluru | 5     |
-| Hyderabad | 3     |
-| Pune      | 3     |
-| Kolhapur  | 2     |
-+-----------+-------+
-```
-
-```sql
-SELECT json_as_text(data, 'App 1') AS app, COUNT(*) AS users
-FROM google_sheets.rows
-WHERE json_as_text(data, 'App 1') != ''
-GROUP BY app ORDER BY users DESC LIMIT 5;
-```
-
-```text
-+--------------+-------+
-| app          | users |
-+--------------+-------+
-| Outlook Mail | 9     |
-| gmail        | 8     |
-| Snapchat     | 5     |
-| X            | 5     |
-| Uber         | 4     |
-+--------------+-------+
-```
-
-```sql
-SELECT COUNT(*) AS users
-FROM google_sheets.rows
-WHERE json_as_text(data, 'Country') = 'India'
-  AND json_as_text(data, 'Gender') = 'Female';
-```
-
-```text
-+-------+
-| users |
-+-------+
-| 4     |
-+-------+
-```
-
-### Live rows proof (non-PII columns)
-
-The `rows` table exposes the full row as a `Json` column under `data`. The
-example below extracts non-PII fields (PII columns — `Name`, `Email`,
-`Contact` — are kept in the JSONL but masked here):
+### Sample rows
 
 ```sql
 SELECT _row_number,
-       json_as_text(data, 'UserID')            AS user_id,
-       json_as_text(data, 'Vendor ID')        AS vendor_id,
-       json_as_text(data, 'City')             AS city,
-       json_as_text(data, 'Count of Apps (>1yr)') AS apps
+       json_as_text(data, 'app_name') AS app,
+       json_as_text(data, 'category') AS category,
+       json_as_text(data, 'pricing')  AS pricing
 FROM google_sheets.rows
-ORDER BY _row_number
-LIMIT 3;
+ORDER BY _row_number;
 ```
 
 ```text
-+-------------+---------+-----------+-----------+------+
-| _row_number | user_id | vendor_id | city      | apps |
-+-------------+---------+-----------+-----------+------+
-| 1           | 23875   | COMM2     | Jabalpur  | 7    |
-| 2           | 23876   | COMM2     | Solapur   | 7    |
-| 3           | 23877   | COMM2     | Bangalore | 7    |
-+-------------+---------+-----------+-----------+------+
++-------------+------------+------------+----------+
+| _row_number | app        | category   | pricing  |
++-------------+------------+------------+----------+
+| 1           | Calendly   | scheduling | freemium |
+| 2           | Acuity     | scheduling | paid     |
+| 3           | HubSpot    | crm        | freemium |
+| 4           | Salesforce | crm        | paid     |
+| 5           | Zendesk    | support    | paid     |
++-------------+------------+------------+----------+
 ```
 
-The first data row contains all 59 spreadsheet columns under `data`
-(UserID, Vendor ID, Name, Email, Contact, Count of Apps (>1yr), Age, Gender,
-City, Country, DLA Agreement Status, App 1..App 24 with their statuses).
+### Group queries
+
+```sql
+SELECT json_as_text(data, 'category') AS category, COUNT(*) AS apps
+FROM google_sheets.rows GROUP BY category ORDER BY apps DESC;
+```
+
+```text
++------------+------+
+| category   | apps |
++------------+------+
+| crm        | 2    |
+| scheduling | 2    |
+| support    | 1    |
++------------+------+
+```
+
+### Filter query
+
+```sql
+SELECT json_as_text(data, 'app_name') AS app,
+       json_as_text(data, 'category') AS category
+FROM google_sheets.rows
+WHERE json_as_text(data, 'pricing') = 'paid';
+```
+
+```text
++------------+------------+
+| app        | category   |
++------------+------------+
+| Acuity     | scheduling |
+| Salesforce | crm        |
+| Zendesk    | support    |
++------------+------------+
+```
 
 ### Catalog introspection
 
@@ -471,9 +384,4 @@ ORDER BY table_name, ordinal_position;
 | sheets     | row_count          | Int64     | false      | Number of rows in the sheet.                               |
 | sheets     | column_count       | Int64     | false      | Number of columns in the sheet.                            |
 +------------+--------------------+-----------+------------+------------------------------------------------------------+
-```
-| _spreadsheet_title | sheet_name | sheet_type | row_count | column_count |
-+--------------------+------------+------------+-----------+--------------+
-| price              | App_Master | GRID       | 1000      | 21           |
-+--------------------+------------+------------+-----------+--------------+
 ```
