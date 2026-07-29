@@ -280,7 +280,7 @@ FROM google_sheets.sheets;
 +--------------------+------------+------------+-----------+--------------+
 | _spreadsheet_title | sheet_name | sheet_type | row_count | column_count |
 +--------------------+------------+------------+-----------+--------------+
-| Demo Apps Catalog  | App_Master | GRID       | 1000      | 21           |
+| Demo Apps Catalog  | App_Master | GRID       | 5         | 21           |
 +--------------------+------------+------------+-----------+--------------+
 ```
 
