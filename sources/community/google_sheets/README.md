@@ -84,9 +84,9 @@ LIMIT 10;
 
 -- Extract specific fields from the data column
 SELECT
-  json_as_text(data, 'app') AS app,
-  json_as_text(data, 'subcategory_id') AS category,
-  json_as_text(data, 'availability') AS availability
+  json_as_text(data, 'app_name') AS app,
+  json_as_text(data, 'category') AS category,
+  json_as_text(data, 'pricing') AS pricing
 FROM google_sheets.rows
 LIMIT 10;
 
@@ -194,6 +194,25 @@ the source against your own spreadsheet. The output below was produced
 from a synthetic demo fixture (`~/.coral/google_sheets/rows.jsonl` +
 `~/.coral/google_sheets/sheets.jsonl`) that mimics the converter's output
 shape.
+
+### Regression tests
+
+The converter's A1 range escaping and header normalization are covered by
+fixture-based regression tests. From the Coral repo root:
+
+```bash
+python3 sources/community/google_sheets/tests/validate-fixtures.py ~/.coral/google_sheets
+```
+
+```text
+OK a1_sheet_ref: plain, spaces, slashes, apostrophes
+OK normalize_headers: numeric and boolean headers stringify
+OK normalize_headers: widest-row preservation
+OK normalize_headers: duplicate and literal/generated collisions
+OK normalize_headers: empty cells and whitespace
+OK fixtures: 5 rows, 1 sheet(s)
+All google_sheets converter checks passed
+```
 
 ### `coral source lint`
 
