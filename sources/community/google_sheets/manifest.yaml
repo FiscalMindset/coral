@@ -21,9 +21,10 @@ tables:
       Each row includes the spreadsheet ID and sheet name for
       multi-sheet queries. Run the converter script first to populate.
     guide: |
-      Run the converter script first:
+      Run the converter script first, setting the API key in the environment:
+        export GOOGLE_SHEETS_API_KEY=YOUR_KEY
         python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
-          --api-key YOUR_KEY --spreadsheet-id SHEET_ID
+          --spreadsheet-id SHEET_ID
       Then query:
         SELECT * FROM google_sheets.rows LIMIT 10
       Filter by sheet:
@@ -55,8 +56,8 @@ tables:
   # --------------------------------------------------------------------------
   - name: sheets
     description: >-
-      Metadata for each sheet tab in the spreadsheet. Includes sheet
-      name, type, row count, and column count.
+      Metadata for each sheet tab in the spreadsheet, including name,
+      type, and allocated grid dimensions.
     guide: |
       No required filters. Start with:
         SELECT _spreadsheet_title, sheet_name, row_count, column_count
@@ -88,8 +89,8 @@ tables:
       - name: row_count
         type: Int64
         nullable: true
-        description: Number of rows in the sheet.
+        description: Allocated grid rows (includes empty rows).
       - name: column_count
         type: Int64
         nullable: true
-        description: Number of columns in the sheet.
+        description: Allocated grid columns (includes empty columns).

@@ -94,6 +94,23 @@ def fetch_values(spreadsheet_id, sheet_name, api_key):
     return fetch_json(url, headers=build_headers(api_key))
 
 
+def scalar_to_key(value):
+    """Convert a cell value to a stable header key.
+
+    Google Sheets cell values are strings, numbers, or booleans; empty cells
+    arrive as None. Strings are stripped, numbers and booleans are stringified
+    (e.g. a `2024` year header becomes the `"2024"` JSON key) so the keys match
+    what users see in the sheet, and empty values fall back to a placeholder.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value.strip()
+    return str(value)
+
+
 def normalize_headers(values):
     """Build a collision-safe header list sized to the widest returned row.
 
@@ -108,8 +125,7 @@ def normalize_headers(values):
     normalized = []
     for i in range(max_width):
         if i < len(values[0]):
-            raw = values[0][i]
-            base = raw.strip() if isinstance(raw, str) else ""
+            base = scalar_to_key(values[0][i])
             key = base if base else f"col_{i}"
         else:
             key = f"col_{i}"

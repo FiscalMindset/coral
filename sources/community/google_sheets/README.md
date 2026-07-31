@@ -8,9 +8,10 @@ Query Google Sheets data from local JSONL files. Extract spreadsheet rows with p
 
 ## Installation
 
-1. Run the converter script to fetch spreadsheet data:
+1. Set your API key in the environment and run the converter script to fetch spreadsheet data:
 
 ```bash
+export GOOGLE_SHEETS_API_KEY=YOUR_KEY
 python3 sources/community/google_sheets/scripts/sheets-to-jsonl.py \
   --spreadsheet-id YOUR_SPREADSHEET_ID
 ```
@@ -155,8 +156,8 @@ Metadata for each sheet tab in the spreadsheet.
 | `sheet_name` | Utf8 | Name of the sheet tab |
 | `sheet_id` | Int64 | Numeric ID of the sheet tab |
 | `sheet_type` | Utf8 | Sheet type (GRID, OBJECT, etc.) |
-| `row_count` | Int64 | Number of rows in the sheet |
-| `column_count` | Int64 | Number of columns in the sheet |
+| `row_count` | Int64 | Allocated grid rows (includes empty rows) |
+| `column_count` | Int64 | Allocated grid columns (includes empty columns) |
 
 ## Source scope
 
@@ -175,7 +176,7 @@ Metadata for each sheet tab in the spreadsheet.
 - The converter fetches all rows from the API in a single request. Very large sheets (100K+ rows) may be slow or hit API limits.
 - Only GRID-type sheets are fetched. Charts, embedded objects, and other sheet types are skipped.
 - Formulas are evaluated — the converter receives computed values, not formula text.
-- The Google Sheets API has a quota of 60 read requests per minute per project.
+- The Google Sheets API has a read quota of 300 requests per minute per project and 60 requests per minute per user.
 
 ## Provider docs
 
@@ -358,7 +359,7 @@ ORDER BY table_name;
 | schema_name   | table_name | description                                                                                                                                                                               |
 +---------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 | google_sheets | rows       | Data rows from Google Sheets with column headers as field names. Each row includes the spreadsheet ID and sheet name for multi-sheet queries. Run the converter script first to populate. |
-| google_sheets | sheets     | Metadata for each sheet tab in the spreadsheet. Includes sheet name, type, row count, and column count.                                                                                   |
+| google_sheets | sheets     | Metadata for each sheet tab in the spreadsheet, including name, type, and allocated grid dimensions.                                                                                      |
 +---------------+------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
@@ -382,7 +383,7 @@ ORDER BY table_name, ordinal_position;
 | sheets     | sheet_name         | Utf8      | false      | Name of the sheet tab.                                     |
 | sheets     | sheet_id           | Int64     | false      | Numeric ID of the sheet tab.                               |
 | sheets     | sheet_type         | Utf8      | false      | Sheet type (GRID, OBJECT, etc.).                           |
-| sheets     | row_count          | Int64     | false      | Number of rows in the sheet.                               |
-| sheets     | column_count       | Int64     | false      | Number of columns in the sheet.                            |
+| sheets     | row_count          | Int64     | false      | Allocated grid rows (includes empty rows).                 |
+| sheets     | column_count       | Int64     | false      | Allocated grid columns (includes empty columns).           |
 +------------+--------------------+-----------+------------+------------------------------------------------------------+
 ```
