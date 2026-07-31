@@ -100,7 +100,7 @@ def test_normalize_headers_empty_cells(mod) -> None:
 
 
 def validate_fixture_files() -> None:
-    fixture_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("fixtures")
+    fixture_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parent / "fixtures"
     rows_path = fixture_dir / "rows.jsonl"
     sheets_path = fixture_dir / "sheets.jsonl"
     if not rows_path.exists() or not sheets_path.exists():

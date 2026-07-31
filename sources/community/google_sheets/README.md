@@ -198,10 +198,11 @@ shape.
 ### Regression tests
 
 The converter's A1 range escaping and header normalization are covered by
-fixture-based regression tests. From the Coral repo root:
+fixture-based regression tests (synthetic demo data under `fixtures/`).
+From the Coral repo root:
 
 ```bash
-python3 sources/community/google_sheets/tests/validate-fixtures.py ~/.coral/google_sheets
+python3 sources/community/google_sheets/tests/validate-fixtures.py sources/community/google_sheets/fixtures
 ```
 
 ```text
