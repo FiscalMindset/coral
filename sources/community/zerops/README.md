@@ -469,25 +469,6 @@ Output:
 +----------------+----------------+----------------------+
 ```
 
-## Implementation notes
-
-- Uses Coral source-spec DSL v3 with the HTTP backend.
-- Uses `HeaderAuth` with `Authorization: Bearer {{input.ZEROPS_API_KEY}}`.
-- `base_url` defaults to `https://api.app-prg1.zerops.io/api/rest/public` and is
-  overridable via the `ZEROPS_BASE_URL` variable input for non-default regions.
-- Maps `GET /region` response rows from the `items` array into `zerops.regions`.
-- Maps `GET /settings` response rows from the `serviceStackList` array into
-  `zerops.service_stack_types`, including the nested
-  `serviceStackTypeVersionList` as a JSON column for downstream expansion.
-- Maps coralCase JSON keys (`isRuntime`, `hasBackup`, `docsUrl`, `lastUpdate`,
-  ...) onto snake_case columns through explicit `expr: path` entries.
-- Maps ISO 8601 `created` and `lastUpdate` timestamps into Arrow `Timestamp`
-  columns through `format_timestamp: input: iso8601` wrappers.
-- Maps `GET /user-token/list` response rows from the `list` array into
-  `zerops.user_tokens`, and `GET /user-token/{id}` directly into
-  `zerops.user_token`.
-- Does not require runtime, CLI, MCP, or UI changes.
-
 ## Limitations
 
 - This source is read/query oriented and does not manage Zerops projects or
