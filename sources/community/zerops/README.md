@@ -134,7 +134,7 @@ Looks up one personal access token by ID via `GET /user-token/{id}`.
 
 ```sql
 SELECT id, name, created FROM zerops.user_token
-WHERE id = 'MayA8Q6URQSwAoWAqqARmA';
+WHERE id = 'your_token_id';
 ```
 
 ## Validation
@@ -152,8 +152,7 @@ coral source test zerops
 ```
 
 The declared test queries cover region discovery, runtime stack filtering,
-a single service stack type lookup, a user-token list, and a
-single-user-token lookup:
+a single service stack type lookup, and a user-token list:
 
 ```sql
 SELECT name, address, is_default FROM zerops.regions;
@@ -168,10 +167,6 @@ WHERE id = 'alpine'
 LIMIT 1;
 
 SELECT id, name, created FROM zerops.user_tokens LIMIT 10;
-
-SELECT id, name, created FROM zerops.user_token
-WHERE id = 'MayA8Q6URQSwAoWAqqARmA'
-LIMIT 1;
 ```
 
 ### Live validation output
@@ -216,7 +211,7 @@ Validating source...
     ├─ user_token
     └─ user_tokens
     Query tests
-    5 declared · 5 passed · 0 failed
+    4 declared · 4 passed · 0 failed
 
     ✓ SELECT name, address, is_default FROM zerops.regions
       1 row
@@ -228,9 +223,6 @@ Validating source...
       1 row
 
     ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
-      1 row
-
-    ✓ SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1
       1 row
 ```
 
@@ -254,7 +246,7 @@ Output:
     ├─ user_token
     └─ user_tokens
     Query tests
-    5 declared · 5 passed · 0 failed
+    4 declared · 4 passed · 0 failed
 
     ✓ SELECT name, address, is_default FROM zerops.regions
       1 row
@@ -266,9 +258,6 @@ Output:
       1 row
 
     ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
-      1 row
-
-    ✓ SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1
       1 row
 ```
 
@@ -455,11 +444,11 @@ coral sql "SELECT id, name, created FROM zerops.user_tokens"
 Output:
 
 ```text
-+------------------------+-------+----------------------+
-| id                     | name  | created              |
-+------------------------+-------+----------------------+
-| MayA8Q6URQSwAoWAqqARmA | login | 2026-08-09T00:46:53Z |
-+------------------------+-------+----------------------+
++----------------+----------------+----------------------+
+| id             | name           | created              |
++----------------+----------------+----------------------+
+| your_token_id  | your_token_name | your_token_created   |
++----------------+----------------+----------------------+
 ```
 
 #### Run a live single user token query
@@ -467,17 +456,17 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA'"
+coral sql "SELECT id, name, created FROM zerops.user_token WHERE id = 'your_token_id'"
 ```
 
 Output:
 
 ```text
-+------------------------+-------+----------------------+
-| id                     | name  | created              |
-+------------------------+-------+----------------------+
-| MayA8Q6URQSwAoWAqqARmA | login | 2026-08-09T00:46:53Z |
-+------------------------+-------+----------------------+
++----------------+----------------+----------------------+
+| id             | name           | created              |
++----------------+----------------+----------------------+
+| your_token_id  | your_token_name | your_token_created   |
++----------------+----------------+----------------------+
 ```
 
 ## Implementation notes

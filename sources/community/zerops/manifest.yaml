@@ -3,7 +3,7 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: Query Zerops regions, supported service stack types, and personal access tokens.
-base_url: https://api.app-prg1.zerops.io/api/rest/public
+base_url: "{{input.ZEROPS_BASE_URL}}"
 inputs:
   ZEROPS_API_KEY:
     kind: secret
@@ -36,7 +36,6 @@ test_queries:
   - "SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10"
   - "SELECT id, name FROM zerops.service_stack_types WHERE id = 'alpine' LIMIT 1"
   - SELECT id, name, created FROM zerops.user_tokens LIMIT 10
-  - "SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1"
 tables:
   - name: regions
     description: Zerops datacenters/regions exposed by the region API.
