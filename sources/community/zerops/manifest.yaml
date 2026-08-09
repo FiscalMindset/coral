@@ -104,7 +104,9 @@ tables:
       - name: category
         type: Utf8
         nullable: true
-        description: Service stack category (CORE, HTTP_L7_BALANCER, STANDARD, USER, SHARED_STORAGE, OBJECT_STORAGE, BUILD, INTERNAL, PREPARE_RUNTIME).
+        description: >
+          Service stack category (CORE, HTTP_L7_BALANCER, STANDARD, USER,
+          SHARED_STORAGE, OBJECT_STORAGE, BUILD, INTERNAL, PREPARE_RUNTIME).
       - name: subcategory
         type: Utf8
         nullable: false
