@@ -46,7 +46,8 @@ You can also copy `manifest.yaml` into another workspace and pass that path to
 
 Create a personal access token from the Zerops GUI:
 
-1. Log in to the Zerops dashboard.
+1. Log in to the Zerops dashboard at <https://app-prg1.zerops.io/> (the
+   default prg1 region; other regions use the same path on their own host).
 2. Open the user menu and go to **Access Token management**.
 3. Create a new personal access token and copy it.
 
@@ -88,8 +89,9 @@ Set `ZEROPS_BASE_URL` to point Coral at a different region when needed.
 
 ### `zerops.regions`
 
-Lists the regions Zerops exposes through `GET /region`. Use `address` as the
-base URL for a non-default region.
+Lists the regions Zerops exposes through `GET /region`. The `address` column
+is the API host for that region — pass it as `ZEROPS_BASE_URL` when targeting
+a non-default region.
 
 ```sql
 SELECT name, address, is_default FROM zerops.regions;
@@ -149,8 +151,9 @@ coral source add --file sources/community/zerops/manifest.yaml
 coral source test zerops
 ```
 
-The declared test queries cover region discovery, runtime stack filtering, a
-user-token list, and a single-user-token lookup:
+The declared test queries cover region discovery, runtime stack filtering,
+a single service stack type lookup, a user-token list, and a
+single-user-token lookup:
 
 ```sql
 SELECT name, address, is_default FROM zerops.regions;
@@ -159,6 +162,10 @@ SELECT id, name, category, is_runtime, is_managed
 FROM zerops.service_stack_types
 WHERE is_runtime = true
 LIMIT 10;
+
+SELECT id, name FROM zerops.service_stack_types
+WHERE id = 'alpine'
+LIMIT 1;
 
 SELECT id, name, created FROM zerops.user_tokens LIMIT 10;
 
@@ -209,13 +216,16 @@ Validating source...
     ├─ user_token
     └─ user_tokens
     Query tests
-    4 declared · 4 passed · 0 failed
+    5 declared · 5 passed · 0 failed
 
     ✓ SELECT name, address, is_default FROM zerops.regions
       1 row
 
     ✓ SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10
       10 rows
+
+    ✓ SELECT id, name FROM zerops.service_stack_types WHERE id = 'alpine' LIMIT 1
+      1 row
 
     ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
       1 row
@@ -244,13 +254,16 @@ Output:
     ├─ user_token
     └─ user_tokens
     Query tests
-    4 declared · 4 passed · 0 failed
+    5 declared · 5 passed · 0 failed
 
     ✓ SELECT name, address, is_default FROM zerops.regions
       1 row
 
     ✓ SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10
       10 rows
+
+    ✓ SELECT id, name FROM zerops.service_stack_types WHERE id = 'alpine' LIMIT 1
+      1 row
 
     ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
       1 row
@@ -285,42 +298,42 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT table_name, column_name, data_type FROM coral.columns WHERE schema_name = 'zerops' ORDER BY table_name, ordinal_position"
+coral sql "SELECT table_name, column_name, data_type, is_nullable FROM coral.columns WHERE schema_name = 'zerops' ORDER BY table_name, ordinal_position"
 ```
 
 Output:
 
 ```text
-+---------------------+---------------------------------+-----------+
-| table_name          | column_name                     | data_type |
-+---------------------+---------------------------------+-----------+
-| regions             | name                            | Utf8      |
-| regions             | address                         | Utf8      |
-| regions             | is_default                      | Boolean   |
-| service_stack_types | id                              | Utf8      |
-| service_stack_types | name                            | Utf8      |
-| service_stack_types | description                     | Utf8      |
-| service_stack_types | category                        | Utf8      |
-| service_stack_types | subcategory                     | Utf8      |
-| service_stack_types | docs_url                        | Utf8      |
-| service_stack_types | is_build                        | Boolean   |
-| service_stack_types | is_runtime                      | Boolean   |
-| service_stack_types | is_managed                      | Boolean   |
-| service_stack_types | has_backup                      | Boolean   |
-| service_stack_types | has_access_details              | Boolean   |
-| service_stack_types | has_configuration               | Boolean   |
-| service_stack_types | os_list                         | Json      |
-| service_stack_types | mode_list                       | Json      |
-| service_stack_types | service_stack_type_version_list | Json      |
-| service_stack_types | created                         | Timestamp |
-| service_stack_types | last_update                     | Timestamp |
-| user_token          | id                              | Utf8      |
-| user_token          | name                            | Utf8      |
-| user_token          | created                         | Timestamp |
-| user_tokens         | id                              | Utf8      |
-| user_tokens         | name                            | Utf8      |
-| user_tokens         | created                         | Timestamp |
-+---------------------+---------------------------------+-----------+
++---------------------+---------------------------------+-----------+-------------+
+| table_name          | column_name                     | data_type | is_nullable |
++---------------------+---------------------------------+-----------+-------------+
+| regions             | name                            | Utf8      | false       |
+| regions             | address                         | Utf8      | false       |
+| regions             | is_default                      | Boolean   | false       |
+| service_stack_types | id                              | Utf8      | false       |
+| service_stack_types | name                            | Utf8      | false       |
+| service_stack_types | description                     | Utf8      | true        |
+| service_stack_types | category                        | Utf8      | true        |
+| service_stack_types | subcategory                     | Utf8      | false       |
+| service_stack_types | docs_url                        | Utf8      | false       |
+| service_stack_types | is_build                        | Boolean   | false       |
+| service_stack_types | is_runtime                      | Boolean   | false       |
+| service_stack_types | is_managed                      | Boolean   | false       |
+| service_stack_types | has_backup                      | Boolean   | false       |
+| service_stack_types | has_access_details              | Boolean   | false       |
+| service_stack_types | has_configuration               | Boolean   | false       |
+| service_stack_types | os_list                         | Json      | false       |
+| service_stack_types | mode_list                       | Json      | false       |
+| service_stack_types | service_stack_type_version_list | Json      | false       |
+| service_stack_types | created                         | Timestamp | false       |
+| service_stack_types | last_update                     | Timestamp | false       |
+| user_token          | id                              | Utf8      | false       |
+| user_token          | name                            | Utf8      | true        |
+| user_token          | created                         | Timestamp | false       |
+| user_tokens         | id                              | Utf8      | false       |
+| user_tokens         | name                            | Utf8      | true        |
+| user_tokens         | created                         | Timestamp | false       |
++---------------------+---------------------------------+-----------+-------------+
 ```
 
 #### Confirm input discovery
@@ -365,21 +378,44 @@ Output:
 Command:
 
 ```bash
-coral sql "SELECT id, name, category, is_runtime, is_managed, has_backup FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 5"
+coral sql "SELECT id, name, category, is_runtime, is_managed, has_backup FROM zerops.service_stack_types WHERE is_runtime = true ORDER BY id LIMIT 10"
 ```
 
 Output:
 
 ```text
-+--------+--------+----------+------------+------------+------------+
-| id     | name   | category | is_runtime | is_managed | has_backup |
-+--------+--------+----------+------------+------------+------------+
-| alpine | Alpine | USER     | true       | false      | false      |
-| bun    | Bun    | USER     | false      | false      | false      |
-| deno   | Deno   | USER     | true       | false      | false      |
-| docker | Docker | USER     | true       | false      | false      |
-| dotnet | .NET   | USER     | true       | false      | false      |
-+--------+--------+----------+------------+------------+------------+
++--------+--------------+----------+------------+------------+------------+
+| id     | name         | category | is_runtime | is_managed | has_backup |
++--------+--------------+----------+------------+------------+------------+
+| alpine | Alpine       | USER     | true       | false      | false      |
+| bun    | Bun          | USER     | true       | false      | false      |
+| deno   | Deno         | USER     | true       | false      | false      |
+| docker | Docker       | USER     | true       | false      | false      |
+| dotnet | .NET         | USER     | true       | false      | false      |
+| elixir | Elixir       | USER     | true       | false      | false      |
+| gleam  | Gleam        | USER     | true       | false      | false      |
+| golang | Golang       | USER     | true       | false      | false      |
+| java   | Java         | USER     | true       | false      | false      |
+| nginx  | Nginx static | USER     | true       | false      | false      |
++--------+--------------+----------+------------+------------+------------+
+```
+
+#### Run a live single service stack type query
+
+Command:
+
+```bash
+coral sql "SELECT id, name, category, is_runtime FROM zerops.service_stack_types WHERE id = 'alpine' LIMIT 1"
+```
+
+Output:
+
+```text
++--------+--------+----------+------------+
+| id     | name   | category | is_runtime |
++--------+--------+----------+------------+
+| alpine | Alpine | USER     | true       |
++--------+--------+----------+------------+
 ```
 
 #### Run a live managed services query
@@ -473,6 +509,9 @@ Output:
 - The `service_stack_type_versions` are exposed as a nested JSON column on
   `service_stack_types`; a dedicated flattened versions table can be added in
   a follow-up version once the consumption pattern stabilizes.
+- The Zerops `service_stack_types.description` field is sometimes a literal
+  `"todo"` placeholder from the provider. This is a provider data quality
+  issue, not a source bug.
 - Available regions, service stack types, token metadata, and error responses
   depend on the Zerops account, the personal access token permissions, and the
   current provider API.

@@ -11,6 +11,10 @@ inputs:
       Zerops personal access token from the Zerops GUI
       Access Token management section.
 
+      For the default prg1 region the GUI lives at
+      https://app-prg1.zerops.io/ — open the user menu and choose
+      Access Token management to create a new personal access token.
+
       The token is sent as a Bearer token to the Zerops REST API.
 
       See https://docs.zerops.io/references/api for the API reference.
@@ -30,6 +34,7 @@ auth:
 test_queries:
   - SELECT name, address, is_default FROM zerops.regions
   - "SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10"
+  - "SELECT id, name FROM zerops.service_stack_types WHERE id = 'alpine' LIMIT 1"
   - SELECT id, name, created FROM zerops.user_tokens LIMIT 10
   - "SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1"
 tables:
@@ -99,14 +104,14 @@ tables:
       - name: category
         type: Utf8
         nullable: true
-        description: Service stack category (USER, STANDARD, OBJECT_STORAGE, SHARED_STORAGE, BUILD, PREPARE_RUNTIME).
+        description: Service stack category (CORE, HTTP_L7_BALANCER, STANDARD, USER, SHARED_STORAGE, OBJECT_STORAGE, BUILD, INTERNAL, PREPARE_RUNTIME).
       - name: subcategory
         type: Utf8
-        nullable: true
+        nullable: false
         description: Service stack subcategory.
       - name: docs_url
         type: Utf8
-        nullable: true
+        nullable: false
         description: Link to the upstream documentation page.
         expr:
           kind: path
@@ -114,7 +119,7 @@ tables:
             - docsUrl
       - name: is_build
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether this stack type is a build environment.
         expr:
           kind: path
@@ -122,7 +127,7 @@ tables:
             - isBuild
       - name: is_runtime
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether this stack type runs user code.
         expr:
           kind: path
@@ -130,7 +135,7 @@ tables:
             - isRuntime
       - name: is_managed
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether Zerops fully manages the service.
         expr:
           kind: path
@@ -138,7 +143,7 @@ tables:
             - isManaged
       - name: has_backup
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether the service supports backups.
         expr:
           kind: path
@@ -146,7 +151,7 @@ tables:
             - hasBackup
       - name: has_access_details
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether the service exposes access details.
         expr:
           kind: path
@@ -154,7 +159,7 @@ tables:
             - hasAccessDetails
       - name: has_configuration
         type: Boolean
-        nullable: true
+        nullable: false
         description: Whether the service has user-configurable settings.
         expr:
           kind: path
@@ -162,7 +167,7 @@ tables:
             - hasConfiguration
       - name: os_list
         type: Json
-        nullable: true
+        nullable: false
         description: Supported host OS identifiers (for example alpine, ubuntu).
         expr:
           kind: path
@@ -170,7 +175,7 @@ tables:
             - osList
       - name: mode_list
         type: Json
-        nullable: true
+        nullable: false
         description: Supported service modes (for example ha, single).
         expr:
           kind: path
@@ -178,7 +183,7 @@ tables:
             - modeList
       - name: service_stack_type_version_list
         type: Json
-        nullable: true
+        nullable: false
         description: Nested list of versions for this service stack type.
         expr:
           kind: path
@@ -186,7 +191,7 @@ tables:
             - serviceStackTypeVersionList
       - name: created
         type: Timestamp
-        nullable: true
+        nullable: false
         description: When the service stack type was registered (ISO 8601).
         expr:
           kind: format_timestamp
@@ -197,7 +202,7 @@ tables:
               - created
       - name: last_update
         type: Timestamp
-        nullable: true
+        nullable: false
         description: When the service stack type was last updated (ISO 8601).
         expr:
           kind: format_timestamp
@@ -233,7 +238,7 @@ tables:
         description: User-defined token name.
       - name: created
         type: Timestamp
-        nullable: true
+        nullable: false
         description: When the token was created (ISO 8601).
         expr:
           kind: format_timestamp
@@ -271,7 +276,7 @@ tables:
         description: User-defined token name.
       - name: created
         type: Timestamp
-        nullable: true
+        nullable: false
         description: When the token was created (ISO 8601).
         expr:
           kind: format_timestamp
