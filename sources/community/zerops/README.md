@@ -8,7 +8,7 @@ services Zerops supports, and audit their own access tokens through SQL.
 **Version:** 0.1.0
 **Backend:** HTTP
 **Tables:** 4
-**Base URL:** `https://api.app-prg1.zerops.io/api/rest/public`
+**Base URL (default):** `https://api.app-prg1.zerops.io/api/rest/public`
 
 ## Why this source
 
@@ -46,8 +46,10 @@ You can also copy `manifest.yaml` into another workspace and pass that path to
 
 Create a personal access token from the Zerops GUI:
 
-1. Log in to the Zerops dashboard at <https://app-prg1.zerops.io/> (the
-   default prg1 region; other regions use the same path on their own host).
+1. Log in to the Zerops dashboard. The default prg1 region is at
+   <https://app-prg1.zerops.io/>; the other supported regions are
+   <https://app-ny1.zerops.io/> (US East, ny1) and
+   <https://app-sea1.zerops.io/> (US West, sea1).
 2. Open the user menu and go to **Access Token management**.
 3. Create a new personal access token and copy it.
 
@@ -68,8 +70,16 @@ Interactive install also works:
 coral source add --interactive --file sources/community/zerops/manifest.yaml
 ```
 
-The default API base URL is `https://api.app-prg1.zerops.io/api/rest/public`.
-Set `ZEROPS_BASE_URL` to point Coral at a different region when needed.
+The default HTTP host is `api.app-prg1.zerops.io`. The full base URL is
+constructed by the manifest as `https://{ZEROPS_HOST}/api/rest/public`, so
+for a non-default region set `ZEROPS_HOST` to one of:
+
+- `api.app-prg1.zerops.io` (default)
+- `api.app-ny1.zerops.io`
+- `api.app-sea1.zerops.io`
+
+Do not include the scheme or the `/api/rest/public` path; the manifest
+prepends `https://` and appends the path automatically.
 
 ## Provider docs
 
@@ -90,7 +100,7 @@ Set `ZEROPS_BASE_URL` to point Coral at a different region when needed.
 ### `zerops.regions`
 
 Lists the regions Zerops exposes through `GET /region`. The `address` column
-is the API host for that region — pass it as `ZEROPS_BASE_URL` when targeting
+is the bare API host for that region — pass it as `ZEROPS_HOST` when targeting
 a non-default region.
 
 ```sql
@@ -303,25 +313,25 @@ Output:
 | service_stack_types | name                            | Utf8      | false       |
 | service_stack_types | description                     | Utf8      | true        |
 | service_stack_types | category                        | Utf8      | true        |
-| service_stack_types | subcategory                     | Utf8      | false       |
-| service_stack_types | docs_url                        | Utf8      | false       |
-| service_stack_types | is_build                        | Boolean   | false       |
-| service_stack_types | is_runtime                      | Boolean   | false       |
-| service_stack_types | is_managed                      | Boolean   | false       |
-| service_stack_types | has_backup                      | Boolean   | false       |
-| service_stack_types | has_access_details              | Boolean   | false       |
-| service_stack_types | has_configuration               | Boolean   | false       |
-| service_stack_types | os_list                         | Json      | false       |
-| service_stack_types | mode_list                       | Json      | false       |
-| service_stack_types | service_stack_type_version_list | Json      | false       |
-| service_stack_types | created                         | Timestamp | false       |
-| service_stack_types | last_update                     | Timestamp | false       |
+| service_stack_types | subcategory                     | Utf8      | true        |
+| service_stack_types | docs_url                        | Utf8      | true        |
+| service_stack_types | is_build                        | Boolean   | true        |
+| service_stack_types | is_runtime                      | Boolean   | true        |
+| service_stack_types | is_managed                      | Boolean   | true        |
+| service_stack_types | has_backup                      | Boolean   | true        |
+| service_stack_types | has_access_details              | Boolean   | true        |
+| service_stack_types | has_configuration               | Boolean   | true        |
+| service_stack_types | os_list                         | Json      | true        |
+| service_stack_types | mode_list                       | Json      | true        |
+| service_stack_types | service_stack_type_version_list | Json      | true        |
+| service_stack_types | created                         | Timestamp | true        |
+| service_stack_types | last_update                     | Timestamp | true        |
 | user_token          | id                              | Utf8      | false       |
 | user_token          | name                            | Utf8      | true        |
-| user_token          | created                         | Timestamp | false       |
+| user_token          | created                         | Timestamp | true        |
 | user_tokens         | id                              | Utf8      | false       |
 | user_tokens         | name                            | Utf8      | true        |
-| user_tokens         | created                         | Timestamp | false       |
+| user_tokens         | created                         | Timestamp | true        |
 +---------------------+---------------------------------+-----------+-------------+
 ```
 
@@ -336,12 +346,12 @@ coral sql "SELECT key, kind, required FROM coral.inputs WHERE schema_name = 'zer
 Output:
 
 ```text
-+-----------------+----------+----------+
-| key             | kind     | required |
-+-----------------+----------+----------+
-| ZEROPS_API_KEY  | secret   | true     |
-| ZEROPS_BASE_URL | variable | false    |
-+-----------------+----------+----------+
++----------------+----------+----------+
+| key            | kind     | required |
++----------------+----------+----------+
+| ZEROPS_API_KEY | secret   | true     |
+| ZEROPS_HOST    | variable | false    |
++----------------+----------+----------+
 ```
 
 #### Run a live regions query
