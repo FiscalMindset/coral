@@ -1,0 +1,483 @@
+# Zerops community source
+
+Query Zerops regions, supported service stack types, and personal access tokens through Coral SQL.
+This source adds the Zerops public REST API to the community catalog so users
+and agents can inspect available regions, browse the runtimes and managed
+services Zerops supports, and audit their own access tokens through SQL.
+
+**Version:** 0.1.0
+**Backend:** HTTP
+**Tables:** 4
+**Base URL:** `https://api.app-prg1.zerops.io/api/rest/public`
+
+## Why this source
+
+Zerops is a developer-first PaaS that runs on bare metal with fine-grained
+horizontal and vertical autoscaling and a configurable build and deploy
+pipeline. Coral did not have a Zerops source yet, so this community spec gives
+the reef a focused read/query surface for:
+
+- Discovering which Zerops regions a CLI, SDK, or agent can target.
+- Looking up the runtimes, databases, and storage types Zerops supports, and
+  whether each one is managed, backed up, or user-configurable.
+- Listing the personal access tokens associated with the current Zerops user
+  for audit and rotation workflows.
+- Looking up one personal access token by ID for detailed review.
+
+The v1 surface is intentionally narrow and read-oriented. It proves Coral can
+authenticate against Zerops with a personal access token, hit the
+authentication-free `/region` and `/settings` endpoints, and map the
+`/user-token` endpoints into verifiable tables. Project and service-level
+endpoints require a client ID and are out of scope for this first version.
+
+## Installation
+
+Community sources are not bundled with the Coral binary. Clone the Coral
+repository and add the manifest from this directory:
+
+```bash
+coral source add --file sources/community/zerops/manifest.yaml
+```
+
+You can also copy `manifest.yaml` into another workspace and pass that path to
+`coral source add --file`.
+
+## Authentication
+
+Create a personal access token from the Zerops GUI:
+
+1. Log in to the Zerops dashboard.
+2. Open the user menu and go to **Access Token management**.
+3. Create a new personal access token and copy it.
+
+See https://docs.zerops.io/references/api for the full REST API reference and
+the list of regions.
+
+Set the token as `ZEROPS_API_KEY` before adding or testing the source. Coral
+sends it as a Bearer token to the Zerops REST API.
+
+```bash
+export ZEROPS_API_KEY="your_zerops_personal_access_token"
+coral source add --file sources/community/zerops/manifest.yaml
+```
+
+Interactive install also works:
+
+```bash
+coral source add --interactive --file sources/community/zerops/manifest.yaml
+```
+
+The default API base URL is `https://api.app-prg1.zerops.io/api/rest/public`.
+Set `ZEROPS_BASE_URL` to point Coral at a different region when needed.
+
+## Provider docs
+
+- Zerops REST API reference: https://docs.zerops.io/references/api
+- Zerops introduction: https://docs.zerops.io
+- Zerops CLI (`zCLI`): https://docs.zerops.io/references/cli
+- Zerops YAML spec: https://docs.zerops.io/zerops-yaml/specification
+
+## Tables
+
+| Table | Description | Required filters |
+| --- | --- | --- |
+| `zerops.regions` | Zerops datacenters/regions exposed by the region API. | None |
+| `zerops.service_stack_types` | Supported Zerops service stack types (runtimes, databases, storage). | None |
+| `zerops.user_tokens` | Personal access tokens issued for the current Zerops user. | None |
+| `zerops.user_token` | A single Zerops personal access token by ID. | `id` |
+
+### `zerops.regions`
+
+Lists the regions Zerops exposes through `GET /region`. Use `address` as the
+base URL for a non-default region.
+
+```sql
+SELECT name, address, is_default FROM zerops.regions;
+```
+
+### `zerops.service_stack_types`
+
+Lists the supported service stack types from `GET /settings`. Each row includes
+runtime/managed/backup capability flags and a nested `service_stack_type_version_list`
+JSON column with the available versions for that stack type.
+
+```sql
+SELECT id, name, category, is_runtime, is_managed, has_backup
+FROM zerops.service_stack_types
+WHERE is_runtime = true
+LIMIT 10;
+```
+
+Filter by managed-service capability:
+
+```sql
+SELECT id, name, is_managed, has_backup
+FROM zerops.service_stack_types
+WHERE is_managed = true AND has_backup = true
+ORDER BY name;
+```
+
+### `zerops.user_tokens`
+
+Lists the personal access tokens for the current Zerops user via
+`GET /user-token/list`. Use the `id` to look up one token.
+
+```sql
+SELECT id, name, created FROM zerops.user_tokens;
+```
+
+### `zerops.user_token`
+
+Looks up one personal access token by ID via `GET /user-token/{id}`.
+
+```sql
+SELECT id, name, created FROM zerops.user_token
+WHERE id = 'MayA8Q6URQSwAoWAqqARmA';
+```
+
+## Validation
+
+Run the source-level checks with a valid `ZEROPS_API_KEY` before opening or
+updating a PR. The API key is required for `source add`, `source test`, and
+live SQL queries, but it should never be printed or committed.
+
+```bash
+coral source lint sources/community/zerops/manifest.yaml
+
+export ZEROPS_API_KEY="your_zerops_personal_access_token"
+coral source add --file sources/community/zerops/manifest.yaml
+coral source test zerops
+```
+
+The declared test queries cover region discovery, runtime stack filtering, a
+user-token list, and a single-user-token lookup:
+
+```sql
+SELECT name, address, is_default FROM zerops.regions;
+
+SELECT id, name, category, is_runtime, is_managed
+FROM zerops.service_stack_types
+WHERE is_runtime = true
+LIMIT 10;
+
+SELECT id, name, created FROM zerops.user_tokens LIMIT 10;
+
+SELECT id, name, created FROM zerops.user_token
+WHERE id = 'MayA8Q6URQSwAoWAqqARmA'
+LIMIT 1;
+```
+
+### Live validation output
+
+The following output was captured from a live validation run using a real
+Zerops personal access token.
+
+#### Manifest lint
+
+Command:
+
+```bash
+coral source lint sources/community/zerops/manifest.yaml
+```
+
+Output:
+
+```text
+Manifest is valid
+```
+
+#### Add source and run declared tests
+
+Command:
+
+```bash
+coral source add --file sources/community/zerops/manifest.yaml
+```
+
+Output:
+
+```text
+Added source zerops (secrets: keychain)
+Validating source...
+
+  ✓ zerops connected successfully
+  Secrets: keychain
+
+    zerops (4 tables)
+    ├─ regions
+    ├─ service_stack_types
+    ├─ user_token
+    └─ user_tokens
+    Query tests
+    4 declared · 4 passed · 0 failed
+
+    ✓ SELECT name, address, is_default FROM zerops.regions
+      1 row
+
+    ✓ SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10
+      10 rows
+
+    ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
+      1 row
+
+    ✓ SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1
+      1 row
+```
+
+#### Re-run source tests
+
+Command:
+
+```bash
+coral source test zerops
+```
+
+Output:
+
+```text
+  ✓ zerops connected successfully
+  Secrets: keychain
+
+    zerops (4 tables)
+    ├─ regions
+    ├─ service_stack_types
+    ├─ user_token
+    └─ user_tokens
+    Query tests
+    4 declared · 4 passed · 0 failed
+
+    ✓ SELECT name, address, is_default FROM zerops.regions
+      1 row
+
+    ✓ SELECT id, name, category, is_runtime, is_managed FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 10
+      10 rows
+
+    ✓ SELECT id, name, created FROM zerops.user_tokens LIMIT 10
+      1 row
+
+    ✓ SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA' LIMIT 1
+      1 row
+```
+
+#### Confirm table discovery
+
+Command:
+
+```bash
+coral sql "SELECT table_name FROM coral.tables WHERE schema_name = 'zerops' ORDER BY table_name"
+```
+
+Output:
+
+```text
++---------------------+
+| table_name          |
++---------------------+
+| regions             |
+| service_stack_types |
+| user_token          |
+| user_tokens         |
++---------------------+
+```
+
+#### Confirm column discovery
+
+Command:
+
+```bash
+coral sql "SELECT table_name, column_name, data_type FROM coral.columns WHERE schema_name = 'zerops' ORDER BY table_name, ordinal_position"
+```
+
+Output:
+
+```text
++---------------------+---------------------------------+-----------+
+| table_name          | column_name                     | data_type |
++---------------------+---------------------------------+-----------+
+| regions             | name                            | Utf8      |
+| regions             | address                         | Utf8      |
+| regions             | is_default                      | Boolean   |
+| service_stack_types | id                              | Utf8      |
+| service_stack_types | name                            | Utf8      |
+| service_stack_types | description                     | Utf8      |
+| service_stack_types | category                        | Utf8      |
+| service_stack_types | subcategory                     | Utf8      |
+| service_stack_types | docs_url                        | Utf8      |
+| service_stack_types | is_build                        | Boolean   |
+| service_stack_types | is_runtime                      | Boolean   |
+| service_stack_types | is_managed                      | Boolean   |
+| service_stack_types | has_backup                      | Boolean   |
+| service_stack_types | has_access_details              | Boolean   |
+| service_stack_types | has_configuration               | Boolean   |
+| service_stack_types | os_list                         | Json      |
+| service_stack_types | mode_list                       | Json      |
+| service_stack_types | service_stack_type_version_list | Json      |
+| service_stack_types | created                         | Timestamp |
+| service_stack_types | last_update                     | Timestamp |
+| user_token          | id                              | Utf8      |
+| user_token          | name                            | Utf8      |
+| user_token          | created                         | Timestamp |
+| user_tokens         | id                              | Utf8      |
+| user_tokens         | name                            | Utf8      |
+| user_tokens         | created                         | Timestamp |
++---------------------+---------------------------------+-----------+
+```
+
+#### Confirm input discovery
+
+Command:
+
+```bash
+coral sql "SELECT key, kind, required FROM coral.inputs WHERE schema_name = 'zerops' ORDER BY key"
+```
+
+Output:
+
+```text
++-----------------+----------+----------+
+| key             | kind     | required |
++-----------------+----------+----------+
+| ZEROPS_API_KEY  | secret   | true     |
+| ZEROPS_BASE_URL | variable | false    |
++-----------------+----------+----------+
+```
+
+#### Run a live regions query
+
+Command:
+
+```bash
+coral sql "SELECT name, address, is_default FROM zerops.regions"
+```
+
+Output:
+
+```text
++------+------------------------+------------+
+| name | address                | is_default |
++------+------------------------+------------+
+| prg1 | api.app-prg1.zerops.io | true       |
++------+------------------------+------------+
+```
+
+#### Run a live runtime stack types query
+
+Command:
+
+```bash
+coral sql "SELECT id, name, category, is_runtime, is_managed, has_backup FROM zerops.service_stack_types WHERE is_runtime = true LIMIT 5"
+```
+
+Output:
+
+```text
++--------+--------+----------+------------+------------+------------+
+| id     | name   | category | is_runtime | is_managed | has_backup |
++--------+--------+----------+------------+------------+------------+
+| alpine | Alpine | USER     | true       | false      | false      |
+| bun    | Bun    | USER     | false      | false      | false      |
+| deno   | Deno   | USER     | true       | false      | false      |
+| docker | Docker | USER     | true       | false      | false      |
+| dotnet | .NET   | USER     | true       | false      | false      |
++--------+--------+----------+------------+------------+------------+
+```
+
+#### Run a live managed services query
+
+Command:
+
+```bash
+coral sql "SELECT id, name, is_managed, has_backup FROM zerops.service_stack_types WHERE is_managed = true AND has_backup = true ORDER BY name"
+```
+
+Output:
+
+```text
++----------------+----------------+------------+------------+
+| id             | name           | is_managed | has_backup |
++----------------+----------------+------------+------------+
+| clickhouse     | ClickHouse     | true       | true       |
+| elasticsearch  | Elasticsearch  | true       | true       |
+| mariadb        | MariaDB        | true       | true       |
+| meilisearch    | Meilisearch    | true       | true       |
+| nats           | NATS           | true       | true       |
+| postgresql     | PostgreSQL     | true       | true       |
+| qdrant         | Qdrant         | true       | true       |
+| shared_storage | Shared Storage | true       | true       |
+| valkey         | Valkey         | true       | true       |
++----------------+----------------+------------+------------+
+```
+
+#### Run a live user tokens query
+
+Command:
+
+```bash
+coral sql "SELECT id, name, created FROM zerops.user_tokens"
+```
+
+Output:
+
+```text
++------------------------+-------+----------------------+
+| id                     | name  | created              |
++------------------------+-------+----------------------+
+| MayA8Q6URQSwAoWAqqARmA | login | 2026-08-09T00:46:53Z |
++------------------------+-------+----------------------+
+```
+
+#### Run a live single user token query
+
+Command:
+
+```bash
+coral sql "SELECT id, name, created FROM zerops.user_token WHERE id = 'MayA8Q6URQSwAoWAqqARmA'"
+```
+
+Output:
+
+```text
++------------------------+-------+----------------------+
+| id                     | name  | created              |
++------------------------+-------+----------------------+
+| MayA8Q6URQSwAoWAqqARmA | login | 2026-08-09T00:46:53Z |
++------------------------+-------+----------------------+
+```
+
+## Implementation notes
+
+- Uses Coral source-spec DSL v3 with the HTTP backend.
+- Uses `HeaderAuth` with `Authorization: Bearer {{input.ZEROPS_API_KEY}}`.
+- `base_url` defaults to `https://api.app-prg1.zerops.io/api/rest/public` and is
+  overridable via the `ZEROPS_BASE_URL` variable input for non-default regions.
+- Maps `GET /region` response rows from the `items` array into `zerops.regions`.
+- Maps `GET /settings` response rows from the `serviceStackList` array into
+  `zerops.service_stack_types`, including the nested
+  `serviceStackTypeVersionList` as a JSON column for downstream expansion.
+- Maps coralCase JSON keys (`isRuntime`, `hasBackup`, `docsUrl`, `lastUpdate`,
+  ...) onto snake_case columns through explicit `expr: path` entries.
+- Maps ISO 8601 `created` and `lastUpdate` timestamps into Arrow `Timestamp`
+  columns through `format_timestamp: input: iso8601` wrappers.
+- Maps `GET /user-token/list` response rows from the `list` array into
+  `zerops.user_tokens`, and `GET /user-token/{id}` directly into
+  `zerops.user_token`.
+- Does not require runtime, CLI, MCP, or UI changes.
+
+## Limitations
+
+- This source is read/query oriented and does not manage Zerops projects or
+  services.
+- Project and service-stack endpoints require a client ID, which is not
+  exposed by the current endpoints accessible to a personal access token.
+  Those endpoints are intentionally out of scope for this first version.
+- The `service_stack_type_versions` are exposed as a nested JSON column on
+  `service_stack_types`; a dedicated flattened versions table can be added in
+  a follow-up version once the consumption pattern stabilizes.
+- Available regions, service stack types, token metadata, and error responses
+  depend on the Zerops account, the personal access token permissions, and the
+  current provider API.
+
+## Contributing
+
+Follow [CONTRIBUTING.md](../../../CONTRIBUTING.md), keep the manifest focused,
+and include the validation commands plus proof output in the PR description.
