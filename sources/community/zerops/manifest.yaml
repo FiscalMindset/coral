@@ -22,18 +22,19 @@ inputs:
     kind: variable
     default: api.app-prg1.zerops.io
     hint: |
-      Zerops REST API host for your region. Defaults to the prg1 region
-      host. For other regions, set one of the supported hosts:
+      Zerops REST API host. The public region API currently reports a single
+      region (prg1), so the default host is the only host verified to work:
 
-      - prg1: api.app-prg1.zerops.io (default)
-      - ny1:  api.app-ny1.zerops.io
-      - sea1: api.app-sea1.zerops.io
+      - api.app-prg1.zerops.io (default)
+
+      Use the zerops.regions table to discover the hosts the region API
+      actually exposes instead of assuming additional hosts exist.
 
       Do not include the scheme or the /api/rest/public path — the
       manifest prepends `https://` and appends `/api/rest/public`
       automatically.
 
-      See https://docs.zerops.io/references/api for the list of regions.
+      See https://docs.zerops.io/references/api for the API reference.
 auth:
   type: HeaderAuth
   headers:

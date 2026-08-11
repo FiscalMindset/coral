@@ -46,15 +46,11 @@ You can also copy `manifest.yaml` into another workspace and pass that path to
 
 Create a personal access token from the Zerops GUI:
 
-1. Log in to the Zerops dashboard. The default prg1 region is at
-   <https://app-prg1.zerops.io/>; the other supported regions are
-   <https://app-ny1.zerops.io/> (US East, ny1) and
-   <https://app-sea1.zerops.io/> (US West, sea1).
+1. Log in to the Zerops dashboard at <https://app-prg1.zerops.io/>.
 2. Open the user menu and go to **Access Token management**.
 3. Create a new personal access token and copy it.
 
-See https://docs.zerops.io/references/api for the full REST API reference and
-the list of regions.
+See https://docs.zerops.io/references/api for the full REST API reference.
 
 Set the token as `ZEROPS_API_KEY` before adding or testing the source. Coral
 sends it as a Bearer token to the Zerops REST API.
@@ -71,12 +67,15 @@ coral source add --interactive --file sources/community/zerops/manifest.yaml
 ```
 
 The default HTTP host is `api.app-prg1.zerops.io`. The full base URL is
-constructed by the manifest as `https://{ZEROPS_HOST}/api/rest/public`, so
-for a non-default region set `ZEROPS_HOST` to one of:
+constructed by the manifest as `https://{ZEROPS_HOST}/api/rest/public`. The
+public region API currently reports a single region (prg1), so that host is
+the only one verified to work:
 
 - `api.app-prg1.zerops.io` (default)
-- `api.app-ny1.zerops.io`
-- `api.app-sea1.zerops.io`
+
+Do not assume other API hosts exist; the Zerops docs base URL references only
+`api.app-prg1.zerops.io`. Query `zerops.regions` to discover the hosts the
+region API actually exposes instead.
 
 Do not include the scheme or the `/api/rest/public` path; the manifest
 prepends `https://` and appends the path automatically.
@@ -492,6 +491,14 @@ Output:
 - The Zerops `service_stack_types.description` field is sometimes a literal
   `"todo"` placeholder from the provider. This is a provider data quality
   issue, not a source bug.
+- Several `service_stack_types` fields carry provider-side quirks that are
+  surfaced verbatim and cannot be normalized by this source: KeyDB, MongoDB,
+  and RabbitMQ report `is_managed = false` under the `STANDARD` category, six
+  stack types (KeyDB, MongoDB, RabbitMQ, and the three build/prepare runtimes)
+  report an empty `subcategory`, and `nodejs` reports an empty `mode_list`.
+- The public region API currently reports only the `prg1` region, so
+  `zerops.regions` returns a single row. Additional regions may exist upstream
+  but are not discoverable through the current API surface.
 - Available regions, service stack types, token metadata, and error responses
   depend on the Zerops account, the personal access token permissions, and the
   current provider API.
