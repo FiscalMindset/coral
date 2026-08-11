@@ -5,9 +5,8 @@ backend: http
 description: >-
   Query your Bright Data account through its public API: account balance and
   status, active zones, zone usage/cost details, the Web Unlocker for fetching
-  pages as HTML or markdown, and Google/Bing/Yandex search engine results
-  (SERP). SERP responses include organic results with titles, URLs, and
-  snippets.
+  pages as HTML or markdown, and Google and Bing search engine results (SERP).
+  SERP responses include organic results with titles, URLs, and snippets.
 base_url: https://api.brightdata.com
 inputs:
   BRIGHT_DATA_API_KEY:
@@ -15,8 +14,11 @@ inputs:
     hint: >-
       Bright Data API token from the Bright Data dashboard (Account →
       API access → Create API token). Looks like a UUID with hyphens, for
-      example `3afceabe-5ccb-4341-84ca-95b6fb044915`. The token controls
-      access to your account and zones.
+      example `3afceabe-5ccb-4341-84ca-95b6fb044915`. Use the Admin
+      permission level when creating the token: this source calls both
+      billing endpoints (balance, zone cost) and proxy endpoints (Web
+      Unlocker, SERP), and only Admin covers both with a single token
+      (Finance covers billing only; Ops and User cover proxy access only).
   BRIGHT_DATA_ZONE:
     kind: variable
     default: unlocker
@@ -423,15 +425,14 @@ functions:
   - name: serp_search
     kind: search
     description: >-
-      Search engine results for a Google, Bing, or Yandex search URL. Pass
-      the full search URL with brd_json=1; returns organic results with
-      links, titles, descriptions, and ranks.
+      Search engine results for a Google or Bing search URL. Pass the full
+      search URL with brd_json=1; returns organic results with links, titles,
+      descriptions, and ranks.
     guide: |
       Build the search URL and pass it as the url argument. Examples:
 
       - Google: `https://www.google.com/search?q=coral+sql&brd_json=1`
       - Bing: `https://www.bing.com/search?q=coral+sql&brd_json=1`
-      - Yandex: `https://yandex.com/search/?text=coral+sql&brd_json=1`
 
       Use `gl=XX`/`hl=XX` query params to control country and language, and
       `start=N` on Google to fetch the next results page. Query text must be

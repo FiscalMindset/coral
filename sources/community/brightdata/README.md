@@ -53,7 +53,10 @@ token. Create one from the dashboard:
 1. Log in to the Bright Data dashboard at <https://brightdata.com/>.
 2. Go to **Account** → **API access** (https://brightdata.com/api).
 3. Click **Create API token**, choose **Zone API token**, select the zone, and
-   copy the token.
+   copy the token. Use the **Admin** permission level: this source calls both
+   billing endpoints (balance, zone cost) and proxy endpoints (Web Unlocker,
+   SERP), and only Admin covers both with a single token (Finance covers
+   billing only; Ops and User cover proxy access only).
 
 Set the token as `BRIGHT_DATA_API_KEY` before adding or testing the source:
 
@@ -203,8 +206,8 @@ LIMIT 10;
 applies the declared `default_top_k` (10) limit, with a maximum of 50 top-k
 rows and one call per query. To page, add `start=N` to the URL. Use
 `gl=CC`/`hl=lang` parameters for country/language, and swap the host to
-`https://www.bing.com/search` or `https://search.yahoo.com/search` for other
-engines.
+`https://www.bing.com/search` for Bing results. Google and Bing are the
+validated engines; other engines are not covered by this source.
 
 ## Validation
 
