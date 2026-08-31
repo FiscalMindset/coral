@@ -142,7 +142,9 @@ coral source add --file sources/community/opencode/manifest.yaml
 coral source test opencode
 ```
 
-The declared tests are server-independent:
+The declared tests do not depend on the server's specific data
+contents (they pass even when no sessions or providers are present),
+but they still require `opencode serve` to be running:
 
 ```sql
 SELECT id, title FROM opencode.sessions LIMIT 3;
