@@ -1,0 +1,423 @@
+name: opencode
+version: 0.1.0
+dsl_version: 3
+backend: http
+description: >-
+  Query local OpenCode session metadata from a running `opencode serve`
+  HTTP server: session titles, projects, working directories, agents,
+  models, and token/cost totals. One row per session, plus a table
+  function for single-session detail.
+base_url: "{{input.OPENCODE_URL}}"
+inputs:
+  OPENCODE_URL:
+    kind: variable
+    default: http://127.0.0.1:14096
+    hint: >-
+      Base URL of a running `opencode serve` instance. Start one locally
+      with `opencode serve --port 14096 --hostname 127.0.0.1`; the
+      default hostname keeps the server reachable only from this host.
+  OPENCODE_SERVER_PASSWORD:
+    kind: secret
+    required: false
+    hint: >-
+      Password that matches the `OPENCODE_SERVER_PASSWORD` environment
+      variable on the opencode server. Leave unset if the server was
+      started without that env var; the opencode server uses HTTP Basic
+      auth with the fixed username `opencode` and this password whenever
+      the env var is set on the server side.
+auth:
+  type: BasicAuth
+  username: opencode
+  password: "{{input.OPENCODE_SERVER_PASSWORD}}"
+test_queries:
+  - SELECT id, title, agent, model_id FROM opencode.sessions LIMIT 3
+tables:
+  - name: sessions
+    description: >-
+      All OpenCode sessions known to the server, ordered by the server's
+      default cursor (most recent activity first).
+    guide: |
+      Reads `GET /api/session` and pages through the opaque `cursor.next`
+      value automatically. One row per session. Pair with the
+      `session(id)` table function to fetch full detail for a single
+      session.
+    request:
+      method: GET
+      path: /api/session
+    response:
+      rows_path:
+        - data
+    pagination:
+      mode: cursor_query
+      page_size:
+        default: 50
+        max: 500
+        query_param: limit
+      cursor_param: cursor
+      response_cursor_path:
+        - cursor
+        - next
+      max_pages: 50
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Session id (starts with `ses_`).
+        expr:
+          kind: path
+          path:
+            - id
+      - name: title
+        type: Utf8
+        nullable: true
+        description: Human-readable session title, often the first user prompt.
+        expr:
+          kind: path
+          path:
+            - title
+      - name: slug
+        type: Utf8
+        nullable: true
+        description: Short slug derived from the title.
+        expr:
+          kind: path
+          path:
+            - slug
+      - name: project_id
+        type: Utf8
+        nullable: true
+        description: OpenCode project id the session belongs to.
+        expr:
+          kind: path
+          path:
+            - projectID
+      - name: directory
+        type: Utf8
+        nullable: true
+        description: Working-directory path the session ran in.
+        expr:
+          kind: path
+          path:
+            - location
+            - directory
+      - name: subpath
+        type: Utf8
+        nullable: true
+        description: Subpath within the directory, when set.
+        expr:
+          kind: path
+          path:
+            - subpath
+      - name: parent_id
+        type: Utf8
+        nullable: true
+        description: Parent session id for forked or sub-agent sessions.
+        expr:
+          kind: path
+          path:
+            - parentID
+      - name: agent
+        type: Utf8
+        nullable: true
+        description: OpenCode agent name (e.g. `build`, `general`, `explore`).
+        expr:
+          kind: path
+          path:
+            - agent
+      - name: model_id
+        type: Utf8
+        nullable: true
+        description: Model id used by the session (provider-specific).
+        expr:
+          kind: path
+          path:
+            - model
+            - id
+      - name: model_provider
+        type: Utf8
+        nullable: true
+        description: Provider id (e.g. `anthropic`, `openai`, `opencode`).
+        expr:
+          kind: path
+          path:
+            - model
+            - providerID
+      - name: model_variant
+        type: Utf8
+        nullable: true
+        description: Model variant when the provider exposes one.
+        expr:
+          kind: path
+          path:
+            - model
+            - variant
+      - name: cost
+        type: Float64
+        nullable: true
+        description: Cumulative session cost in USD as reported by the server.
+        expr:
+          kind: path
+          path:
+            - cost
+      - name: tokens_input
+        type: Int64
+        nullable: true
+        description: Total input tokens (excludes cached re-reads).
+        expr:
+          kind: path
+          path:
+            - tokens
+            - input
+      - name: tokens_output
+        type: Int64
+        nullable: true
+        description: Total output tokens.
+        expr:
+          kind: path
+          path:
+            - tokens
+            - output
+      - name: tokens_reasoning
+        type: Int64
+        nullable: true
+        description: Reasoning tokens when the provider reports them.
+        expr:
+          kind: path
+          path:
+            - tokens
+            - reasoning
+      - name: tokens_cache_read
+        type: Int64
+        nullable: true
+        description: Prompt-cache tokens read during the session.
+        expr:
+          kind: path
+          path:
+            - tokens
+            - cache
+            - read
+      - name: tokens_cache_write
+        type: Int64
+        nullable: true
+        description: Prompt-cache tokens written during the session.
+        expr:
+          kind: path
+          path:
+            - tokens
+            - cache
+            - write
+      - name: version
+        type: Utf8
+        nullable: true
+        description: OpenCode schema/version string for the session payload.
+        expr:
+          kind: path
+          path:
+            - version
+      - name: created
+        type: Utf8
+        nullable: true
+        description: Session creation timestamp (ISO 8601, from epoch ms).
+        expr:
+          kind: format_timestamp
+          input: milliseconds
+          expr:
+            kind: path
+            path:
+              - time
+              - created
+      - name: updated
+        type: Utf8
+        nullable: true
+        description: Last activity timestamp (ISO 8601, from epoch ms).
+        expr:
+          kind: format_timestamp
+          input: milliseconds
+          expr:
+            kind: path
+            path:
+              - time
+              - updated
+functions:
+  - name: session
+    kind: table
+    description: >-
+      Full detail for one OpenCode session, fetched from
+      `GET /api/session/{sessionID}`.
+    guide: |
+      Pass the session id: `SELECT * FROM opencode.session(id => 'ses_...')`.
+      Returns the same column shape as the `sessions` table for a single
+      row.
+    args:
+      - name: id
+        required: true
+        bind:
+          arg: id
+    request:
+      method: GET
+      path: /api/session/{{arg.id}}
+    response:
+      rows_path:
+        - data
+    pagination:
+      mode: none
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        expr:
+          kind: path
+          path:
+            - id
+      - name: title
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - title
+      - name: slug
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - slug
+      - name: project_id
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - projectID
+      - name: directory
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - location
+            - directory
+      - name: subpath
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - subpath
+      - name: parent_id
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - parentID
+      - name: agent
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - agent
+      - name: model_id
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - model
+            - id
+      - name: model_provider
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - model
+            - providerID
+      - name: model_variant
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - model
+            - variant
+      - name: cost
+        type: Float64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - cost
+      - name: tokens_input
+        type: Int64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - tokens
+            - input
+      - name: tokens_output
+        type: Int64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - tokens
+            - output
+      - name: tokens_reasoning
+        type: Int64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - tokens
+            - reasoning
+      - name: tokens_cache_read
+        type: Int64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - tokens
+            - cache
+            - read
+      - name: tokens_cache_write
+        type: Int64
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - tokens
+            - cache
+            - write
+      - name: version
+        type: Utf8
+        nullable: true
+        expr:
+          kind: path
+          path:
+            - version
+      - name: created
+        type: Utf8
+        nullable: true
+        expr:
+          kind: format_timestamp
+          input: milliseconds
+          expr:
+            kind: path
+            path:
+              - time
+              - created
+      - name: updated
+        type: Utf8
+        nullable: true
+        expr:
+          kind: format_timestamp
+          input: milliseconds
+          expr:
+            kind: path
+            path:
+              - time
+              - updated
