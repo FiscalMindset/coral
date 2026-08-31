@@ -1,521 +1,553 @@
 name: opencode
 version: 0.1.0
 dsl_version: 3
-backend: http
+backend: file
 description: >-
-  Query a running `opencode serve` HTTP server through SQL: session
-  metadata (titles, projects, directories, agents, models, token and
-  cost totals), the AI providers the server has configured, and the
-  permission rules it has saved. Read-only.
-base_url: "{{input.OPENCODE_URL}}"
-inputs:
-  OPENCODE_URL:
-    kind: variable
-    default: http://127.0.0.1:14096
-    hint: >-
-      Base URL of a running `opencode serve` instance. Start one locally
-      with `opencode serve --port 14096 --hostname 127.0.0.1`; the
-      default hostname keeps the server reachable only from this host.
-      Password-protected servers (those started with the
-      `OPENCODE_SERVER_PASSWORD` environment variable) are not yet
-      supported; run `opencode serve` without that env var for v0.1.0.
+  Query local OpenCode session data — sessions, messages, message parts,
+  todos, user prompts, shared sessions, projects, project directories,
+  and workspaces — from JSONL files exported by the included converter
+  script. Reads from `~/.local/share/opencode/opencode.db` on demand.
+  No running server required.
 test_queries:
-  - SELECT id, title FROM opencode.sessions LIMIT 3
-  - SELECT id, name FROM opencode.providers LIMIT 5
+  - SELECT id, title, agent, model_provider, cost FROM opencode.sessions LIMIT 3
+  - SELECT id, session_id, time_created FROM opencode.messages LIMIT 3
+  - SELECT session_id, content, status, position FROM opencode.todos LIMIT 3
+  - SELECT id, worktree, name FROM opencode.projects LIMIT 3
+
 tables:
+
+  # --------------------------------------------------------------------------
+  # opencode.sessions — one row per OpenCode session
+  # --------------------------------------------------------------------------
   - name: sessions
     description: >-
-      All OpenCode sessions known to the server, ordered by the server's
-      default cursor (most recent activity first).
+      All sessions stored in the local OpenCode database, with flattened
+      model, token, cost, and timestamp columns. Each row includes the
+      raw `metadata`, `summary_diffs`, `revert`, and `permission` blobs
+      in a `metadata` JSON column so nothing is lost.
     guide: |
-      Reads `GET /api/session` and pages through the opaque `cursor.next`
-      value automatically. One row per session. Pair with the
-      `session(id)` table function to fetch full detail for a single
-      session.
-    request:
-      method: GET
-      path: /api/session
-    response:
-      rows_path:
-        - data
-    pagination:
-      mode: cursor_query
-      page_size:
-        default: 50
-        max: 500
-        query_param: limit
-      cursor_param: cursor
-      response_cursor_path:
-        - cursor
-        - next
-      max_pages: 50
+      Run the converter first to populate the JSONL files:
+        python3 sources/community/opencode/scripts/opencode-to-jsonl.py
+      Then query:
+        SELECT id, title, agent, model_provider, cost
+        FROM opencode.sessions
+        ORDER BY time_updated DESC
+        LIMIT 10
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/sessions.jsonl
     columns:
       - name: id
         type: Utf8
         nullable: false
         description: Session id (starts with `ses_`).
-        expr:
-          kind: path
-          path:
-            - id
-      - name: title
-        type: Utf8
-        nullable: true
-        description: Human-readable session title, often the first user prompt.
-        expr:
-          kind: path
-          path:
-            - title
-      - name: slug
-        type: Utf8
-        nullable: true
-        description: Short slug derived from the title.
-        expr:
-          kind: path
-          path:
-            - slug
       - name: project_id
         type: Utf8
         nullable: true
         description: OpenCode project id the session belongs to.
-        expr:
-          kind: path
-          path:
-            - projectID
-      - name: directory
-        type: Utf8
-        nullable: true
-        description: Working-directory path the session ran in.
-        expr:
-          kind: path
-          path:
-            - location
-            - directory
-      - name: subpath
-        type: Utf8
-        nullable: true
-        description: Subpath within the directory, when set.
-        expr:
-          kind: path
-          path:
-            - subpath
       - name: parent_id
         type: Utf8
         nullable: true
         description: Parent session id for forked or sub-agent sessions.
-        expr:
-          kind: path
-          path:
-            - parentID
+      - name: workspace_id
+        type: Utf8
+        nullable: true
+        description: Workspace id the session ran in, when set.
+      - name: slug
+        type: Utf8
+        nullable: true
+        description: Short slug derived from the title.
+      - name: title
+        type: Utf8
+        nullable: true
+        description: Human-readable session title (often the first user prompt).
+      - name: directory
+        type: Utf8
+        nullable: true
+        description: Working-directory path the session ran in.
+      - name: path
+        type: Utf8
+        nullable: true
+        description: Project path when set.
       - name: agent
         type: Utf8
         nullable: true
         description: OpenCode agent name (e.g. `build`, `general`, `explore`).
-        expr:
-          kind: path
-          path:
-            - agent
+      - name: model
+        type: Utf8
+        nullable: true
+        description: Full model identifier as a JSON string (`{"id","providerID","variant"}`).
       - name: model_id
         type: Utf8
         nullable: true
-        description: Model id used by the session (provider-specific).
-        expr:
-          kind: path
-          path:
-            - model
-            - id
+        description: Model id parsed from the `model` JSON.
       - name: model_provider
         type: Utf8
         nullable: true
-        description: Provider id (e.g. `anthropic`, `openai`, `opencode`).
-        expr:
-          kind: path
-          path:
-            - model
-            - providerID
-      - name: model_variant
-        type: Utf8
-        nullable: true
-        description: Model variant when the provider exposes one.
-        expr:
-          kind: path
-          path:
-            - model
-            - variant
-      - name: cost
-        type: Float64
-        nullable: true
-        description: Cumulative session cost in USD as reported by the server.
-        expr:
-          kind: path
-          path:
-            - cost
-      - name: tokens_input
-        type: Int64
-        nullable: true
-        description: Total input tokens (excludes cached re-reads).
-        expr:
-          kind: path
-          path:
-            - tokens
-            - input
-      - name: tokens_output
-        type: Int64
-        nullable: true
-        description: Total output tokens.
-        expr:
-          kind: path
-          path:
-            - tokens
-            - output
-      - name: tokens_reasoning
-        type: Int64
-        nullable: true
-        description: Reasoning tokens when the provider reports them.
-        expr:
-          kind: path
-          path:
-            - tokens
-            - reasoning
-      - name: tokens_cache_read
-        type: Int64
-        nullable: true
-        description: Prompt-cache tokens read during the session.
-        expr:
-          kind: path
-          path:
-            - tokens
-            - cache
-            - read
-      - name: tokens_cache_write
-        type: Int64
-        nullable: true
-        description: Prompt-cache tokens written during the session.
-        expr:
-          kind: path
-          path:
-            - tokens
-            - cache
-            - write
+        description: Provider id parsed from the `model` JSON.
       - name: version
         type: Utf8
         nullable: true
         description: OpenCode schema/version string for the session payload.
-        expr:
-          kind: path
-          path:
-            - version
-      - name: created
-        type: Int64
+      - name: share_url
+        type: Utf8
         nullable: true
+        description: Public share URL for the session, when shared.
+      - name: tokens_input
+        type: Int64
+        nullable: false
+        description: Total input tokens (excludes cached re-reads).
+      - name: tokens_output
+        type: Int64
+        nullable: false
+        description: Total output tokens.
+      - name: tokens_reasoning
+        type: Int64
+        nullable: false
+        description: Reasoning tokens when the provider reports them.
+      - name: tokens_cache_read
+        type: Int64
+        nullable: false
+        description: Prompt-cache tokens read during the session.
+      - name: tokens_cache_write
+        type: Int64
+        nullable: false
+        description: Prompt-cache tokens written during the session.
+      - name: cost
+        type: Float64
+        nullable: false
+        description: Cumulative session cost in USD.
+      - name: time_created
+        type: Int64
+        nullable: false
         description: Session creation timestamp in epoch milliseconds.
-        expr:
-          kind: path
-          path:
-            - time
-            - created
-      - name: updated
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Last activity timestamp in epoch milliseconds.
+      - name: time_compacting
         type: Int64
         nullable: true
-        description: Last activity timestamp in epoch milliseconds.
-        expr:
-          kind: path
-          path:
-            - time
-            - updated
-  - name: providers
+        description: Timestamp of the last context-compaction pass, when set.
+      - name: time_archived
+        type: Int64
+        nullable: true
+        description: Timestamp when the session was archived, when set.
+      - name: metadata
+        type: Json
+        nullable: true
+        description: Raw JSON blob of `metadata`, `summary_diffs`, `revert`, and `permission` from the database.
+
+  # --------------------------------------------------------------------------
+  # opencode.messages — one row per message (header row from `message` table)
+  # --------------------------------------------------------------------------
+  - name: messages
     description: >-
-      AI providers known to the running opencode server, from
-      `GET /api/provider`. One row per provider.
+      All messages stored in the local OpenCode database, in session
+      order. Each row exposes the message id, parent session, timestamps,
+      and the full message payload as a JSON column.
     guide: |
-      Lists providers configured for the opencode server's default
-      location. The `request` field, which may carry an `apiKey`, is
-      intentionally excluded.
-    request:
-      method: GET
-      path: /api/provider
-    response:
-      rows_path:
-        - data
-    pagination:
-      mode: none
+      Run the converter first to populate the JSONL files:
+        python3 sources/community/opencode/scripts/opencode-to-jsonl.py
+      Then query:
+        SELECT id, session_id, time_created, data
+        FROM opencode.messages
+        WHERE session_id = 'ses_...'
+        ORDER BY time_created ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/messages.jsonl
     columns:
       - name: id
         type: Utf8
         nullable: false
-        description: Provider id (e.g. `anthropic`, `openai`, `opencode`).
-        expr:
-          kind: path
-          path:
-            - id
+        description: Message id (starts with `msg_`).
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this message belongs to.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Message creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Message last-updated timestamp in epoch milliseconds.
+      - name: data
+        type: Json
+        nullable: false
+        description: Full message payload as JSON (role, agent, model, summary, etc.).
+
+  # --------------------------------------------------------------------------
+  # opencode.session_messages — sequenced per-session message stream
+  # --------------------------------------------------------------------------
+  - name: session_messages
+    description: >-
+      Per-session message stream with the `seq` order OpenCode assigns
+      internally, alongside the full payload as JSON. Use this when you
+      need exact session-relative ordering rather than `time_created`.
+    guide: |
+      SELECT id, session_id, type, seq, time_created
+      FROM opencode.session_messages
+      WHERE session_id = 'ses_...'
+      ORDER BY seq ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/session_messages.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Session-message id.
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this stream entry belongs to.
+      - name: type
+        type: Utf8
+        nullable: true
+        description: Session-message type (e.g. `user`, `assistant`).
+      - name: seq
+        type: Int64
+        nullable: false
+        description: Per-session sequence number.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Last-updated timestamp in epoch milliseconds.
+      - name: data
+        type: Json
+        nullable: false
+        description: Full session-message payload as JSON.
+
+  # --------------------------------------------------------------------------
+  # opencode.parts — one row per message part (the actual transcript content)
+  # --------------------------------------------------------------------------
+  - name: parts
+    description: >-
+      All message parts (text, tool calls, images, etc.) stored in the
+      local OpenCode database. Each row carries the parent message and
+      session ids, timestamps, and the full part payload — including the
+      actual `text`, `tool_call`, or synthetic-tool fields — as JSON.
+      This is the table to read when you want the transcript content.
+    guide: |
+      To get the full text of a session's conversation:
+        SELECT message_id, time_created, data
+        FROM opencode.parts
+        WHERE session_id = 'ses_...'
+        ORDER BY time_created ASC, message_id ASC
+      Extract the text body with the JSON helpers:
+        SELECT
+          json_as_text(data, 'type')    AS part_type,
+          json_as_text(data, 'text')    AS body
+        FROM opencode.parts
+        WHERE session_id = 'ses_...'
+          AND json_as_text(data, 'type') = 'text'
+        ORDER BY time_created ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/parts.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Part id (starts with `prt_`).
+      - name: message_id
+        type: Utf8
+        nullable: false
+        description: Parent message id.
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Parent session id.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Last-updated timestamp in epoch milliseconds.
+      - name: data
+        type: Json
+        nullable: false
+        description: Full part payload as JSON (type, text, tool_call, file changes, etc.).
+
+  # --------------------------------------------------------------------------
+  # opencode.todos — one row per session todo list entry
+  # --------------------------------------------------------------------------
+  - name: todos
+    description: >-
+      All session todo list entries stored in the local OpenCode
+      database. Each row carries the session id, content, status,
+      priority, and ordering position.
+    guide: |
+      List incomplete todos for one session:
+        SELECT content, priority, position
+        FROM opencode.todos
+        WHERE session_id = 'ses_...'
+          AND status <> 'completed'
+        ORDER BY position ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/todos.jsonl
+    columns:
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this todo belongs to.
+      - name: content
+        type: Utf8
+        nullable: false
+        description: Todo text.
+      - name: status
+        type: Utf8
+        nullable: true
+        description: Todo status (e.g. `pending`, `in_progress`, `completed`, `cancelled`).
+      - name: priority
+        type: Utf8
+        nullable: true
+        description: Todo priority (e.g. `high`, `medium`, `low`).
+      - name: position
+        type: Int64
+        nullable: false
+        description: Position in the session's todo list.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.session_inputs — one row per user prompt admitted to a session
+  # --------------------------------------------------------------------------
+  - name: session_inputs
+    description: >-
+      All user prompts that OpenCode has admitted to a session, in
+      per-session admission order. Useful for replaying what the user
+      asked for across a session.
+    guide: |
+      List prompts for one session in admission order:
+        SELECT admitted_seq, prompt, delivery
+        FROM opencode.session_inputs
+        WHERE session_id = 'ses_...'
+        ORDER BY admitted_seq ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/session_inputs.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Session-input id.
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this input belongs to.
+      - name: prompt
+        type: Utf8
+        nullable: false
+        description: Raw user prompt text.
+      - name: delivery
+        type: Utf8
+        nullable: true
+        description: OpenCode delivery mode (e.g. `pending`, `promoted`).
+      - name: admitted_seq
+        type: Int64
+        nullable: false
+        description: Per-session admission sequence number.
+      - name: promoted_seq
+        type: Int64
+        nullable: true
+        description: Per-session promotion sequence number, when promoted.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.session_shares — one row per shared session URL
+  # --------------------------------------------------------------------------
+  - name: session_shares
+    description: >-
+      All `opencode session share` records: public share URLs for sessions.
+      The `secret` column carries the share secret and should be treated
+      as sensitive.
+    guide: |
+      List shared sessions:
+        SELECT session_id, url, time_created
+        FROM opencode.session_shares
+        ORDER BY time_created DESC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/session_shares.jsonl
+    columns:
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this share belongs to.
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Share record id.
+      - name: secret
+        type: Utf8
+        nullable: true
+        description: Share secret. Treat as sensitive — restrict file permissions when exporting.
+      - name: url
+        type: Utf8
+        nullable: false
+        description: Public share URL for the session.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.projects — one row per OpenCode project
+  # --------------------------------------------------------------------------
+  - name: projects
+    description: >-
+      All projects stored in the local OpenCode database. Each row
+      carries the project id, worktree, display name, and timestamps.
+    guide: |
+      SELECT id, worktree, name, time_created
+      FROM opencode.projects
+      ORDER BY time_created DESC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/projects.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Project id (SHA-like hash).
+      - name: worktree
+        type: Utf8
+        nullable: false
+        description: Project worktree path.
       - name: name
         type: Utf8
         nullable: true
-        description: Human-readable provider name.
-        expr:
-          kind: path
-          path:
-            - name
-      - name: api_type
+        description: Display name for the project.
+      - name: vcs
         type: Utf8
         nullable: true
-        description: Provider API type (e.g. `aisdk`, `custom`).
-        expr:
-          kind: path
-          path:
-            - api
-            - type
-      - name: api_package
+        description: VCS kind (`git`, etc.) when known.
+      - name: icon_url
         type: Utf8
         nullable: true
-        description: AI SDK package used to talk to the provider.
-        expr:
-          kind: path
-          path:
-            - api
-            - package
-      - name: api_url
+        description: Project icon URL.
+      - name: icon_color
         type: Utf8
         nullable: true
-        description: Provider base URL.
-        expr:
-          kind: path
-          path:
-            - api
-            - url
-      - name: api_settings
-        type: Json
+        description: Project icon color hex code.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Project creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Project last-updated timestamp in epoch milliseconds.
+      - name: time_initialized
+        type: Int64
         nullable: true
-        description: Provider-specific settings object.
-        expr:
-          kind: path
-          path:
-            - api
-            - settings
+        description: Timestamp when the project was first initialized, when set.
 
-  - name: saved_permissions
+  # --------------------------------------------------------------------------
+  # opencode.project_directories — one row per directory attached to a project
+  # --------------------------------------------------------------------------
+  - name: project_directories
     description: >-
-      Saved permission rules from `GET /api/permission/saved`. One row
-      per rule.
+      Directory entries attached to OpenCode projects, with the entry's
+      type (worktree, sandboxed, etc.) and strategy when present.
     guide: |
-      Lists permission rules the opencode server has remembered for a
-      project. May be empty when no rules have been saved.
-    request:
-      method: GET
-      path: /api/permission/saved
-    response:
-      rows_path:
-        - data
-    pagination:
-      mode: none
+      SELECT project_id, directory, type, strategy
+      FROM opencode.project_directories
+      ORDER BY project_id ASC, directory ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/project_directories.jsonl
+    columns:
+      - name: project_id
+        type: Utf8
+        nullable: false
+        description: Project id this directory belongs to.
+      - name: directory
+        type: Utf8
+        nullable: false
+        description: Directory path attached to the project.
+      - name: type
+        type: Utf8
+        nullable: true
+        description: Directory type (e.g. `worktree`).
+      - name: strategy
+        type: Utf8
+        nullable: true
+        description: Strategy hint recorded by OpenCode.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Creation timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.workspaces — one row per workspace
+  # --------------------------------------------------------------------------
+  - name: workspaces
+    description: >-
+      All OpenCode workspaces. Each row carries the workspace id,
+      project, directory, type, name, branch, extra metadata, and the
+      recorded `time_used` counter.
+    guide: |
+      SELECT id, project_id, directory, type, name, branch, time_used
+      FROM opencode.workspaces
+      ORDER BY project_id ASC, directory ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/workspaces.jsonl
     columns:
       - name: id
         type: Utf8
         nullable: false
-        description: Saved permission rule id.
-        expr:
-          kind: path
-          path:
-            - id
+        description: Workspace id.
       - name: project_id
-        type: Utf8
-        nullable: true
-        description: Project id the rule applies to.
-        expr:
-          kind: path
-          path:
-            - projectID
-      - name: action
-        type: Utf8
-        nullable: true
-        description: Permission action (`allow`, `deny`, or `ask`).
-        expr:
-          kind: path
-          path:
-            - action
-      - name: resource
-        type: Utf8
-        nullable: true
-        description: Resource glob the rule matches.
-        expr:
-          kind: path
-          path:
-            - resource
-
-functions:
-  - name: session
-    kind: table
-    description: >-
-      Full detail for one OpenCode session, fetched from
-      `GET /api/session/{sessionID}`.
-    guide: |
-      Pass the session id: `SELECT * FROM opencode.session(id => 'ses_...')`.
-      Returns the same column shape as the `sessions` table for a single
-      row.
-    args:
-      - name: id
-        required: true
-        bind:
-          arg: id
-    request:
-      method: GET
-      path: /api/session/{{arg.id}}
-    response:
-      rows_path:
-        - data
-    pagination:
-      mode: none
-    columns:
-      - name: id
         type: Utf8
         nullable: false
-        expr:
-          kind: path
-          path:
-            - id
-      - name: title
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - title
-      - name: slug
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - slug
-      - name: project_id
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - projectID
+        description: Project id this workspace belongs to.
       - name: directory
         type: Utf8
         nullable: true
-        expr:
-          kind: path
-          path:
-            - location
-            - directory
-      - name: subpath
+        description: Workspace directory path.
+      - name: type
         type: Utf8
         nullable: true
-        expr:
-          kind: path
-          path:
-            - subpath
-      - name: parent_id
+        description: Workspace type.
+      - name: name
         type: Utf8
         nullable: true
-        expr:
-          kind: path
-          path:
-            - parentID
-      - name: agent
+        description: Workspace name.
+      - name: branch
         type: Utf8
         nullable: true
-        expr:
-          kind: path
-          path:
-            - agent
-      - name: model_id
+        description: VCS branch when set.
+      - name: extra
         type: Utf8
         nullable: true
-        expr:
-          kind: path
-          path:
-            - model
-            - id
-      - name: model_provider
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - model
-            - providerID
-      - name: model_variant
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - model
-            - variant
-      - name: cost
-        type: Float64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - cost
-      - name: tokens_input
+        description: Extra workspace metadata as serialized text.
+      - name: time_used
         type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - tokens
-            - input
-      - name: tokens_output
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - tokens
-            - output
-      - name: tokens_reasoning
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - tokens
-            - reasoning
-      - name: tokens_cache_read
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - tokens
-            - cache
-            - read
-      - name: tokens_cache_write
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - tokens
-            - cache
-            - write
-      - name: version
-        type: Utf8
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - version
-      - name: created
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - time
-            - created
-      - name: updated
-        type: Int64
-        nullable: true
-        expr:
-          kind: path
-          path:
-            - time
-            - updated
+        nullable: false
+        description: Counter for time the workspace has been used.
