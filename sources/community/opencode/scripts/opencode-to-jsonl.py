@@ -414,6 +414,16 @@ def main():
         default=None,
         help="Export only one table (default: export all).",
     )
+    parser.add_argument(
+        "--overwrite-placeholder",
+        action="store_true",
+        help=(
+            "When --only is set, also overwrite any existing placeholder "
+            "JSONL files for skipped tables with an empty file. Default "
+            "(without this flag) is to leave existing JSONL files alone, "
+            "which preserves data already exposed by other manifest tables."
+        ),
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db_path)
@@ -422,9 +432,11 @@ def main():
     selected = [args.only] if args.only else list(TABLES)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    failures = []
     conn = open_readonly(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        # ---- 1. Export every selected table (each in its own try/except). ----
         for table_name in selected:
             output_path = output_dir / f"{table_name}.jsonl"
             try:
@@ -436,31 +448,64 @@ def main():
                     f"  ✗ {table_name:<18} failed: {type(exc).__name__}: {exc}",
                     file=sys.stderr,
                 )
-                continue
-
-        # When `--only` is set, the other tables' JSONL files referenced by
-        # the manifest's `source.location` would otherwise be absent and
-        # break the file backend. Write an empty file for every skipped
-        # table so the manifest always resolves, with a clear note in the
-        # output.
-        skipped = [t for t in TABLES if t not in selected]
-        if skipped:
-            print(
-                f"\n  --only={args.only!r}: writing empty placeholders for "
-                f"{len(skipped)} other table(s) to keep the manifest resolvable."
-            )
-            for table_name in skipped:
-                output_path = output_dir / f"{table_name}.jsonl"
+                failures.append((table_name, str(exc)))
+                # Always materialize a (possibly empty) file at the expected
+                # path so coral's file backend never has to handle a
+                # missing/stale target.
                 try:
                     write_jsonl_atomic(output_path, [])
-                    print(f"  · (empty) {table_name:<18} → {output_path}")
+                except OSError as write_exc:
+                    print(
+                        f"  ✗ {table_name:<18} placeholder write failed: {write_exc}",
+                        file=sys.stderr,
+                    )
+
+        # ---- 2. For skipped tables, materialize placeholders only when the
+        # target file is absent (or --overwrite-placeholder is set). This
+        # preserves any pre-existing JSONL data when the user re-runs
+        # `opencode-to-jsonl.py --only <table>` against an existing export. ----
+        skipped = [t for t in TABLES if t not in selected]
+        if skipped:
+            placed = []
+            kept = []
+            for table_name in skipped:
+                output_path = output_dir / f"{table_name}.jsonl"
+                if output_path.exists() and not args.overwrite_placeholder:
+                    kept.append(table_name)
+                    continue
+                try:
+                    write_jsonl_atomic(output_path, [])
+                    placed.append(table_name)
                 except OSError as exc:
                     print(
                         f"  ✗ {table_name:<18} placeholder write failed: {exc}",
                         file=sys.stderr,
                     )
+                    failures.append((table_name, f"placeholder write: {exc}"))
+            if placed:
+                print(
+                    f"\n  --only={args.only!r}: created empty placeholder(s) "
+                    f"for {len(placed)} other table(s): "
+                    f"{', '.join(placed)}"
+                )
+            if kept:
+                print(
+                    f"  --only={args.only!r}: left existing JSONL untouched for "
+                    f"{len(kept)} other table(s): {', '.join(kept)} "
+                    f"(pass --overwrite-placeholder to clobber)"
+                )
     finally:
         conn.close()
+
+    if failures:
+        print(
+            f"\n  ✗ {len(failures)} table(s) failed; see stderr for details.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"\n  OpenCode data exported from {db_path}")
+    print(f"  Next: coral source add --file sources/community/opencode/manifest.yaml")
 
     print(f"\n  OpenCode data exported from {db_path}")
     print(f"  Next: coral source add --file sources/community/opencode/manifest.yaml")

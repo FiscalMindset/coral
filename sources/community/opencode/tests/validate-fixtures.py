@@ -9,6 +9,7 @@ contribution testing expectations in CONTRIBUTING.md.
 import importlib.util
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -142,19 +143,16 @@ def foreign_keys_consistent(
     parent_primary_key: str,
     fk_column: str,
     child_files,
-    require_present: bool = True,
 ) -> None:
-    """Assert that every value of `fk_column` in `child_files` is present in
-    `parent_file`'s `parent_primary_key` column (or, when `require_present`
-    is False, only check child rows that DO reference the parent)."""
+    """Assert that every non-null value of `fk_column` in `child_files` is
+    present in `parent_file`'s `parent_primary_key` column. Null / empty /
+    missing `fk_column` values are skipped (those rows simply do not
+    reference a parent)."""
     parents = {row[parent_primary_key] for row in load_jsonl(fixture_dir / parent_file)}
     for child_file in child_files:
         bad = [
-            row.get(fk_column) for row in load_jsonl(fixture_dir / child_file)
-            if fk_column in row
-            and row[fk_column]
-            and (require_present or row[fk_column] in parents)
-            and row[fk_column] not in parents
+            row[fk_column] for row in load_jsonl(fixture_dir / child_file)
+            if fk_column in row and row[fk_column] and row[fk_column] not in parents
         ]
         require(
             not bad,
@@ -177,7 +175,6 @@ def test_session_ids_consistent(fixture_dir: Path) -> None:
             "messages.jsonl", "session_messages.jsonl", "parts.jsonl",
             "todos.jsonl", "session_inputs.jsonl", "session_shares.jsonl",
         ),
-        require_present=True,
     )
 
 
@@ -189,7 +186,6 @@ def test_project_ids_consistent(fixture_dir: Path) -> None:
         parent_primary_key="id",
         fk_column="project_id",
         child_files=("project_directories.jsonl", "workspaces.jsonl", "sessions.jsonl"),
-        require_present=False,
     )
 
 
@@ -201,7 +197,6 @@ def test_workspace_ids_consistent(fixture_dir: Path) -> None:
         parent_primary_key="id",
         fk_column="workspace_id",
         child_files=("sessions.jsonl",),
-        require_present=False,
     )
 
 
@@ -213,8 +208,42 @@ def test_message_part_consistent(fixture_dir: Path) -> None:
         parent_primary_key="id",
         fk_column="message_id",
         child_files=("parts.jsonl",),
-        require_present=True,
     )
+
+
+def test_fk_check_catches_orphans(tmp_path: Path) -> None:
+    """Prove the FK check actually fails on broken references.
+
+    Builds a tiny in-memory pair of files where the child references
+    an id missing from the parent, then asserts that
+    `foreign_keys_consistent` raises. If this passes silently, the
+    FK helper has regressed to a no-op.
+    """
+    parent = tmp_path / "parent.jsonl"
+    child = tmp_path / "child.jsonl"
+    parent.write_text(
+        '{"id":"ok_01"}\n'
+    )
+    child.write_text(
+        '{"session_id":"ok_01","k":"v1"}\n'
+        '{"session_id":"BAD_UNKNOWN","k":"v2"}\n'
+    )
+    try:
+        foreign_keys_consistent(
+            tmp_path,
+            parent_file="parent.jsonl",
+            parent_primary_key="id",
+            fk_column="session_id",
+            child_files=("child.jsonl",),
+        )
+    except AssertionError as exc:
+        require(
+            "BAD_UNKNOWN" in str(exc),
+            f"FK check should mention the bad id, got {exc!r}",
+        )
+        print("OK FK check: catches orphan references (not a no-op)")
+        return
+    raise AssertionError("FK check did not catch the orphan reference")
 
 
 def main() -> None:
@@ -228,6 +257,7 @@ def main() -> None:
     test_project_ids_consistent(fixture_dir)
     test_workspace_ids_consistent(fixture_dir)
     test_message_part_consistent(fixture_dir)
+    test_fk_check_catches_orphans(Path(tempfile.mkdtemp(prefix="opencode-fk-")))
     print("All opencode converter checks passed")
 
 
