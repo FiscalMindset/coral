@@ -1,5 +1,5 @@
 name: opencode
-version: 0.1.0
+version: 0.2.0
 dsl_version: 3
 backend: file
 description: >-
@@ -378,9 +378,9 @@ tables:
   # --------------------------------------------------------------------------
   - name: session_shares
     description: >-
-      All `opencode session share` records: public share URLs for sessions.
-      The `secret` column carries the share secret and should be treated
-      as sensitive.
+      All `opencode session share` records: public share URLs for
+      sessions. The underlying share `secret` is a credential and is
+      intentionally **not** exposed by this source.
     guide: |
       List shared sessions:
         SELECT session_id, url, time_created
@@ -398,10 +398,6 @@ tables:
         type: Utf8
         nullable: false
         description: Share record id.
-      - name: secret
-        type: Utf8
-        nullable: true
-        description: Share secret. Treat as sensitive — restrict file permissions when exporting.
       - name: url
         type: Utf8
         nullable: false

@@ -48,14 +48,19 @@ DEFAULT_OUTPUT = os.path.expanduser("~/.coral/opencode")
 
 
 def open_readonly(db_path: Path) -> sqlite3.Connection:
-    """Open the SQLite database in read-only mode."""
+    """Open the SQLite database in read-only mode.
+
+    Uses `Path.resolve().as_uri()` so paths containing URI-significant
+    characters (`?`, `#`, `%`, spaces, non-ASCII) are percent-encoded
+    correctly instead of breaking the SQLite URI parser.
+    """
     if not db_path.is_file():
         raise FileNotFoundError(
             f"OpenCode database not found: {db_path}\n"
             f"  - Is OpenCode installed and has run at least once?\n"
             f"  - Or pass --db-path to point at a non-default location."
         )
-    uri = f"file:{db_path}?mode=ro"
+    uri = db_path.resolve().as_uri() + "?mode=ro"
     return sqlite3.connect(uri, uri=True)
 
 
@@ -310,8 +315,10 @@ def fetch_session_messages(conn: sqlite3.Connection):
 
 
 def fetch_session_shares(conn: sqlite3.Connection):
+    """Public share rows. The `secret` column is a credential and is
+    intentionally **not** exported."""
     sql = """
-        SELECT session_id, id, secret, url, time_created, time_updated
+        SELECT session_id, id, url, time_created, time_updated
         FROM session_share
         ORDER BY time_created DESC, session_id ASC
     """
@@ -321,7 +328,6 @@ def fetch_session_shares(conn: sqlite3.Connection):
             {
                 "session_id": r["session_id"],
                 "id": r["id"],
-                "secret": r["secret"],
                 "url": r["url"],
                 "time_created": int(r["time_created"] or 0),
                 "time_updated": int(r["time_updated"] or 0),
@@ -371,6 +377,23 @@ def write_jsonl_atomic(path: Path, rows):
         raise
 
 
+# Registry of every table the manifest declares. The single source of
+# truth for which JSONL files the converter writes. Each entry maps the
+# table name to its fetch function.
+TABLES = {
+    "sessions":          fetch_sessions,
+    "messages":          fetch_messages,
+    "session_messages":  fetch_session_messages,
+    "parts":             fetch_parts,
+    "todos":             fetch_todos,
+    "session_inputs":    fetch_session_inputs,
+    "session_shares":    fetch_session_shares,
+    "projects":          fetch_projects,
+    "project_directories": fetch_project_directories,
+    "workspaces":        fetch_workspaces,
+}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Export OpenCode session data to JSONL for Coral"
@@ -387,11 +410,7 @@ def main():
     )
     parser.add_argument(
         "--only",
-        choices=(
-            "sessions", "messages", "session_messages", "parts", "todos",
-            "session_inputs", "session_shares", "projects",
-            "project_directories", "workspaces",
-        ),
+        choices=tuple(TABLES),
         default=None,
         help="Export only one table (default: export all).",
     )
@@ -400,49 +419,46 @@ def main():
     db_path = Path(args.db_path)
     output_dir = Path(args.output)
 
+    selected = [args.only] if args.only else list(TABLES)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     conn = open_readonly(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        if args.only in (None, "sessions"):
-            sessions = fetch_sessions(conn)
-            write_jsonl_atomic(output_dir / "sessions.jsonl", sessions)
-            print(f"  ✓ {len(sessions):>6} sessions    → {output_dir / 'sessions.jsonl'}")
-        if args.only in (None, "messages"):
-            messages = fetch_messages(conn)
-            write_jsonl_atomic(output_dir / "messages.jsonl", messages)
-            print(f"  ✓ {len(messages):>6} messages    → {output_dir / 'messages.jsonl'}")
-        if args.only in (None, "session_messages"):
-            sm = fetch_session_messages(conn)
-            write_jsonl_atomic(output_dir / "session_messages.jsonl", sm)
-            print(f"  ✓ {len(sm):>6} session_messages → {output_dir / 'session_messages.jsonl'}")
-        if args.only in (None, "parts"):
-            parts = fetch_parts(conn)
-            write_jsonl_atomic(output_dir / "parts.jsonl", parts)
-            print(f"  ✓ {len(parts):>6} parts       → {output_dir / 'parts.jsonl'}")
-        if args.only in (None, "todos"):
-            todos = fetch_todos(conn)
-            write_jsonl_atomic(output_dir / "todos.jsonl", todos)
-            print(f"  ✓ {len(todos):>6} todos       → {output_dir / 'todos.jsonl'}")
-        if args.only in (None, "session_inputs"):
-            si = fetch_session_inputs(conn)
-            write_jsonl_atomic(output_dir / "session_inputs.jsonl", si)
-            print(f"  ✓ {len(si):>6} session_inputs → {output_dir / 'session_inputs.jsonl'}")
-        if args.only in (None, "session_shares"):
-            ss = fetch_session_shares(conn)
-            write_jsonl_atomic(output_dir / "session_shares.jsonl", ss)
-            print(f"  ✓ {len(ss):>6} session_shares → {output_dir / 'session_shares.jsonl'}")
-        if args.only in (None, "projects"):
-            projects = fetch_projects(conn)
-            write_jsonl_atomic(output_dir / "projects.jsonl", projects)
-            print(f"  ✓ {len(projects):>6} projects    → {output_dir / 'projects.jsonl'}")
-        if args.only in (None, "project_directories"):
-            pd = fetch_project_directories(conn)
-            write_jsonl_atomic(output_dir / "project_directories.jsonl", pd)
-            print(f"  ✓ {len(pd):>6} project_directories → {output_dir / 'project_directories.jsonl'}")
-        if args.only in (None, "workspaces"):
-            ws = fetch_workspaces(conn)
-            write_jsonl_atomic(output_dir / "workspaces.jsonl", ws)
-            print(f"  ✓ {len(ws):>6} workspaces  → {output_dir / 'workspaces.jsonl'}")
+        for table_name in selected:
+            output_path = output_dir / f"{table_name}.jsonl"
+            try:
+                rows = TABLES[table_name](conn)
+                write_jsonl_atomic(output_path, rows)
+                print(f"  ✓ {len(rows):>6} {table_name:<18} → {output_path}")
+            except Exception as exc:
+                print(
+                    f"  ✗ {table_name:<18} failed: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+
+        # When `--only` is set, the other tables' JSONL files referenced by
+        # the manifest's `source.location` would otherwise be absent and
+        # break the file backend. Write an empty file for every skipped
+        # table so the manifest always resolves, with a clear note in the
+        # output.
+        skipped = [t for t in TABLES if t not in selected]
+        if skipped:
+            print(
+                f"\n  --only={args.only!r}: writing empty placeholders for "
+                f"{len(skipped)} other table(s) to keep the manifest resolvable."
+            )
+            for table_name in skipped:
+                output_path = output_dir / f"{table_name}.jsonl"
+                try:
+                    write_jsonl_atomic(output_path, [])
+                    print(f"  · (empty) {table_name:<18} → {output_path}")
+                except OSError as exc:
+                    print(
+                        f"  ✗ {table_name:<18} placeholder write failed: {exc}",
+                        file=sys.stderr,
+                    )
     finally:
         conn.close()
 

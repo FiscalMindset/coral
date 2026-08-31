@@ -116,13 +116,12 @@ REQUIRED_FIXTURE_COLUMNS = {
 }
 
 
-def validate_fixture_files() -> None:
-    fixture_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parent / "fixtures"
+def validate_fixture_files(fixture_dir: Path) -> None:
     for filename, required_keys in REQUIRED_FIXTURE_COLUMNS.items():
         path = fixture_dir / filename
         if not path.exists():
             raise FileNotFoundError(f"fixture file missing: {path}")
-        rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        rows = load_jsonl(path)
         require(len(rows) > 0, f"{filename} has no rows")
         for row in rows:
             for key in required_keys:
@@ -130,57 +129,105 @@ def validate_fixture_files() -> None:
         print(f"OK fixture {filename}: {len(rows)} row(s), all required keys present")
 
 
-def test_session_ids_consistent() -> None:
-    """Spot-check that fixture session ids referenced by child tables exist in sessions.jsonl."""
-    fixture_dir = HERE.parent / "fixtures"
-    sessions = {json.loads(line)["id"] for line in
-                (fixture_dir / "sessions.jsonl").read_text().splitlines() if line.strip()}
-    for child in ("messages.jsonl", "session_messages.jsonl", "parts.jsonl",
-                  "todos.jsonl", "session_inputs.jsonl", "session_shares.jsonl"):
-        rows = [json.loads(line) for line in
-                (fixture_dir / child).read_text().splitlines() if line.strip()]
-        bad = [r.get("session_id") for r in rows
-               if "session_id" in r and r["session_id"] not in sessions]
+def load_jsonl(path: Path):
+    """Parse a JSONL file into a list of dicts. Empty / missing lines are skipped."""
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def foreign_keys_consistent(
+    fixture_dir: Path,
+    parent_file: str,
+    parent_primary_key: str,
+    fk_column: str,
+    child_files,
+    require_present: bool = True,
+) -> None:
+    """Assert that every value of `fk_column` in `child_files` is present in
+    `parent_file`'s `parent_primary_key` column (or, when `require_present`
+    is False, only check child rows that DO reference the parent)."""
+    parents = {row[parent_primary_key] for row in load_jsonl(fixture_dir / parent_file)}
+    for child_file in child_files:
+        bad = [
+            row.get(fk_column) for row in load_jsonl(fixture_dir / child_file)
+            if fk_column in row
+            and row[fk_column]
+            and (require_present or row[fk_column] in parents)
+            and row[fk_column] not in parents
+        ]
         require(
             not bad,
-            f"{child} references unknown session_ids: {bad}",
+            f"{child_file} references unknown {fk_column} values: {bad}",
         )
-    print("OK foreign keys: every session_id in child tables exists in sessions.jsonl")
+    print(
+        f"OK foreign keys: every {fk_column} in {', '.join(child_files)} "
+        f"exists in {parent_file}"
+    )
 
 
-def test_project_ids_consistent() -> None:
-    fixture_dir = HERE.parent / "fixtures"
-    projects = {json.loads(line)["id"] for line in
-                (fixture_dir / "projects.jsonl").read_text().splitlines() if line.strip()}
-    for child in ("project_directories.jsonl", "workspaces.jsonl", "sessions.jsonl"):
-        rows = [json.loads(line) for line in
-                (fixture_dir / child).read_text().splitlines() if line.strip()]
-        bad = [r.get("project_id") for r in rows
-               if "project_id" in r and r["project_id"] and r["project_id"] not in projects]
-        require(not bad, f"{child} references unknown project_ids: {bad}")
-    print("OK foreign keys: every project_id in child tables exists in projects.jsonl")
+def test_session_ids_consistent(fixture_dir: Path) -> None:
+    """Every session_id in child tables must exist in sessions.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="sessions.jsonl",
+        parent_primary_key="id",
+        fk_column="session_id",
+        child_files=(
+            "messages.jsonl", "session_messages.jsonl", "parts.jsonl",
+            "todos.jsonl", "session_inputs.jsonl", "session_shares.jsonl",
+        ),
+        require_present=True,
+    )
 
 
-def test_message_part_consistent() -> None:
-    fixture_dir = HERE.parent / "fixtures"
-    messages = {json.loads(line)["id"] for line in
-                (fixture_dir / "messages.jsonl").read_text().splitlines() if line.strip()}
-    rows = [json.loads(line) for line in
-            (fixture_dir / "parts.jsonl").read_text().splitlines() if line.strip()]
-    bad = [r["message_id"] for r in rows if r["message_id"] not in messages]
-    require(not bad, f"parts references unknown message_ids: {bad}")
-    print("OK foreign keys: every message_id in parts exists in messages.jsonl")
+def test_project_ids_consistent(fixture_dir: Path) -> None:
+    """Every non-null project_id in child tables must exist in projects.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="projects.jsonl",
+        parent_primary_key="id",
+        fk_column="project_id",
+        child_files=("project_directories.jsonl", "workspaces.jsonl", "sessions.jsonl"),
+        require_present=False,
+    )
+
+
+def test_workspace_ids_consistent(fixture_dir: Path) -> None:
+    """Every non-null workspace_id in sessions.jsonl must exist in workspaces.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="workspaces.jsonl",
+        parent_primary_key="id",
+        fk_column="workspace_id",
+        child_files=("sessions.jsonl",),
+        require_present=False,
+    )
+
+
+def test_message_part_consistent(fixture_dir: Path) -> None:
+    """Every message_id in parts.jsonl must exist in messages.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="messages.jsonl",
+        parent_primary_key="id",
+        fk_column="message_id",
+        child_files=("parts.jsonl",),
+        require_present=True,
+    )
 
 
 def main() -> None:
+    fixture_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parent / "fixtures"
     mod = load_script()
     test_parse_model_json(mod)
     test_open_readonly_missing_file(mod)
     test_open_readonly_rejects_writable_uri(mod)
-    validate_fixture_files()
-    test_session_ids_consistent()
-    test_project_ids_consistent()
-    test_message_part_consistent()
+    validate_fixture_files(fixture_dir)
+    test_session_ids_consistent(fixture_dir)
+    test_project_ids_consistent(fixture_dir)
+    test_workspace_ids_consistent(fixture_dir)
+    test_message_part_consistent(fixture_dir)
     print("All opencode converter checks passed")
 
 
