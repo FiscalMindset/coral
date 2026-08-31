@@ -3,10 +3,10 @@ version: 0.1.0
 dsl_version: 3
 backend: http
 description: >-
-  Query local OpenCode session metadata from a running `opencode serve`
-  HTTP server: session titles, projects, working directories, agents,
-  models, and token/cost totals. One row per session, plus a table
-  function for single-session detail.
+  Query a running `opencode serve` HTTP server through SQL: session
+  metadata (titles, projects, directories, agents, models, token and
+  cost totals), the AI providers the server has configured, and the
+  permission rules it has saved. Read-only.
 base_url: "{{input.OPENCODE_URL}}"
 inputs:
   OPENCODE_URL:
@@ -16,21 +16,12 @@ inputs:
       Base URL of a running `opencode serve` instance. Start one locally
       with `opencode serve --port 14096 --hostname 127.0.0.1`; the
       default hostname keeps the server reachable only from this host.
-  OPENCODE_SERVER_PASSWORD:
-    kind: secret
-    required: false
-    hint: >-
-      Password that matches the `OPENCODE_SERVER_PASSWORD` environment
-      variable on the opencode server. Leave unset if the server was
-      started without that env var; the opencode server uses HTTP Basic
-      auth with the fixed username `opencode` and this password whenever
-      the env var is set on the server side.
-auth:
-  type: BasicAuth
-  username: opencode
-  password: "{{input.OPENCODE_SERVER_PASSWORD}}"
+      Password-protected servers (those started with the
+      `OPENCODE_SERVER_PASSWORD` environment variable) are not yet
+      supported; run `opencode serve` without that env var for v0.1.0.
 test_queries:
-  - SELECT id, title, agent, model_id FROM opencode.sessions LIMIT 3
+  - SELECT id, title FROM opencode.sessions LIMIT 3
+  - SELECT id, name FROM opencode.providers LIMIT 5
 tables:
   - name: sessions
     description: >-
@@ -215,29 +206,142 @@ tables:
           path:
             - version
       - name: created
-        type: Utf8
+        type: Int64
         nullable: true
-        description: Session creation timestamp (ISO 8601, from epoch ms).
+        description: Session creation timestamp in epoch milliseconds.
         expr:
-          kind: format_timestamp
-          input: milliseconds
-          expr:
-            kind: path
-            path:
-              - time
-              - created
+          kind: path
+          path:
+            - time
+            - created
       - name: updated
+        type: Int64
+        nullable: true
+        description: Last activity timestamp in epoch milliseconds.
+        expr:
+          kind: path
+          path:
+            - time
+            - updated
+  - name: providers
+    description: >-
+      AI providers known to the running opencode server, from
+      `GET /api/provider`. One row per provider.
+    guide: |
+      Lists providers configured for the opencode server's default
+      location. The `request` field, which may carry an `apiKey`, is
+      intentionally excluded.
+    request:
+      method: GET
+      path: /api/provider
+    response:
+      rows_path:
+        - data
+    pagination:
+      mode: none
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Provider id (e.g. `anthropic`, `openai`, `opencode`).
+        expr:
+          kind: path
+          path:
+            - id
+      - name: name
         type: Utf8
         nullable: true
-        description: Last activity timestamp (ISO 8601, from epoch ms).
+        description: Human-readable provider name.
         expr:
-          kind: format_timestamp
-          input: milliseconds
-          expr:
-            kind: path
-            path:
-              - time
-              - updated
+          kind: path
+          path:
+            - name
+      - name: api_type
+        type: Utf8
+        nullable: true
+        description: Provider API type (e.g. `aisdk`, `custom`).
+        expr:
+          kind: path
+          path:
+            - api
+            - type
+      - name: api_package
+        type: Utf8
+        nullable: true
+        description: AI SDK package used to talk to the provider.
+        expr:
+          kind: path
+          path:
+            - api
+            - package
+      - name: api_url
+        type: Utf8
+        nullable: true
+        description: Provider base URL.
+        expr:
+          kind: path
+          path:
+            - api
+            - url
+      - name: api_settings
+        type: Json
+        nullable: true
+        description: Provider-specific settings object.
+        expr:
+          kind: path
+          path:
+            - api
+            - settings
+
+  - name: saved_permissions
+    description: >-
+      Saved permission rules from `GET /api/permission/saved`. One row
+      per rule.
+    guide: |
+      Lists permission rules the opencode server has remembered for a
+      project. May be empty when no rules have been saved.
+    request:
+      method: GET
+      path: /api/permission/saved
+    response:
+      rows_path:
+        - data
+    pagination:
+      mode: none
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Saved permission rule id.
+        expr:
+          kind: path
+          path:
+            - id
+      - name: project_id
+        type: Utf8
+        nullable: true
+        description: Project id the rule applies to.
+        expr:
+          kind: path
+          path:
+            - projectID
+      - name: action
+        type: Utf8
+        nullable: true
+        description: Permission action (`allow`, `deny`, or `ask`).
+        expr:
+          kind: path
+          path:
+            - action
+      - name: resource
+        type: Utf8
+        nullable: true
+        description: Resource glob the rule matches.
+        expr:
+          kind: path
+          path:
+            - resource
+
 functions:
   - name: session
     kind: table
@@ -400,24 +504,18 @@ functions:
           path:
             - version
       - name: created
-        type: Utf8
+        type: Int64
         nullable: true
         expr:
-          kind: format_timestamp
-          input: milliseconds
-          expr:
-            kind: path
-            path:
-              - time
-              - created
+          kind: path
+          path:
+            - time
+            - created
       - name: updated
-        type: Utf8
+        type: Int64
         nullable: true
         expr:
-          kind: format_timestamp
-          input: milliseconds
-          expr:
-            kind: path
-            path:
-              - time
-              - updated
+          kind: path
+          path:
+            - time
+            - updated
