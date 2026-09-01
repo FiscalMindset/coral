@@ -114,6 +114,16 @@ REQUIRED_FIXTURE_COLUMNS = {
     "projects.jsonl": ["id", "worktree", "time_created", "time_updated"],
     "project_directories.jsonl": ["project_id", "directory", "time_created"],
     "workspaces.jsonl": ["id", "project_id", "type", "time_used"],
+    "events.jsonl": ["id", "aggregate_id", "seq", "type", "data"],
+    "event_sequences.jsonl": ["aggregate_id", "seq"],
+    "accounts.jsonl": ["id", "email", "url", "time_created", "time_updated"],
+    "account_states.jsonl": ["id"],
+    "control_accounts.jsonl": ["email", "url", "active"],
+    "credentials.jsonl": ["id", "label"],
+    "data_migrations.jsonl": ["name", "time_completed"],
+    "migrations.jsonl": ["id", "time_completed"],
+    "permissions.jsonl": ["id", "project_id", "action", "resource"],
+    "session_context_epochs.jsonl": ["session_id", "baseline", "snapshot", "baseline_seq"],
 }
 
 
@@ -211,6 +221,53 @@ def test_message_part_consistent(fixture_dir: Path) -> None:
     )
 
 
+def test_event_aggregate_consistent(fixture_dir: Path) -> None:
+    """Every aggregate_id in events.jsonl must exist in event_sequences.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="event_sequences.jsonl",
+        parent_primary_key="aggregate_id",
+        fk_column="aggregate_id",
+        child_files=("events.jsonl",),
+    )
+
+
+def test_permission_project_consistent(fixture_dir: Path) -> None:
+    """Every project_id in permissions.jsonl must exist in projects.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="projects.jsonl",
+        parent_primary_key="id",
+        fk_column="project_id",
+        child_files=("permissions.jsonl",),
+    )
+
+
+def test_account_active_consistent(fixture_dir: Path) -> None:
+    """Every non-null active_account_id in account_states.jsonl must exist in accounts.jsonl."""
+    account_ids = {
+        row["id"] for row in load_jsonl(fixture_dir / "accounts.jsonl")
+    }
+    for row in load_jsonl(fixture_dir / "account_states.jsonl"):
+        if row.get("active_account_id") and row["active_account_id"] not in account_ids:
+            raise AssertionError(
+                f"account_states.jsonl references unknown active_account_id "
+                f"{row['active_account_id']!r}"
+            )
+    print("OK foreign keys: every active_account_id in account_states.jsonl exists in accounts.jsonl")
+
+
+def test_context_epoch_session_consistent(fixture_dir: Path) -> None:
+    """Every session_id in session_context_epochs.jsonl must exist in sessions.jsonl."""
+    foreign_keys_consistent(
+        fixture_dir,
+        parent_file="sessions.jsonl",
+        parent_primary_key="id",
+        fk_column="session_id",
+        child_files=("session_context_epochs.jsonl",),
+    )
+
+
 def test_fk_check_catches_orphans(tmp_path: Path) -> None:
     """Prove the FK check actually fails on broken references.
 
@@ -257,6 +314,10 @@ def main() -> None:
     test_project_ids_consistent(fixture_dir)
     test_workspace_ids_consistent(fixture_dir)
     test_message_part_consistent(fixture_dir)
+    test_event_aggregate_consistent(fixture_dir)
+    test_permission_project_consistent(fixture_dir)
+    test_account_active_consistent(fixture_dir)
+    test_context_epoch_session_consistent(fixture_dir)
     test_fk_check_catches_orphans(Path(tempfile.mkdtemp(prefix="opencode-fk-")))
     print("All opencode converter checks passed")
 

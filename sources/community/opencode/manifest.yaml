@@ -1,13 +1,16 @@
 name: opencode
-version: 0.2.0
+version: 0.3.0
 dsl_version: 3
 backend: file
 description: >-
-  Query local OpenCode session data — sessions, messages, message parts,
-  todos, user prompts, shared sessions, projects, project directories,
-  and workspaces — from JSONL files exported by the included converter
-  script. Reads from `~/.local/share/opencode/opencode.db` on demand.
-  No running server required.
+  Query local OpenCode data from JSONL files exported by the included
+  converter script — sessions, messages, message parts, todos, user
+  prompts, shared sessions, projects, project directories, workspaces,
+  the full domain event log, event sequencing, accounts and control
+  accounts, stored credentials, data/migration history, permissions, and
+  per-session context epochs. Reads from
+  `~/.local/share/opencode/opencode.db` on demand. No running server
+  required.
 test_queries:
   - SELECT id, title, agent, model_provider, cost FROM opencode.sessions LIMIT 3
   - SELECT id, session_id, time_created FROM opencode.messages LIMIT 3
@@ -547,3 +550,358 @@ tables:
         type: Int64
         nullable: false
         description: Counter for time the workspace has been used.
+
+  # --------------------------------------------------------------------------
+  # opencode.events — one row per domain event (the full event log)
+  # --------------------------------------------------------------------------
+  - name: events
+    description: >-
+      The full OpenCode domain event log. This is OpenCode's largest and
+      most granular table: every state change (session created, message
+      appended, todo updated, ...) is recorded here with an aggregate id
+      and per-aggregate sequence number. The `data` blob is typed by
+      `type`.
+    guide: |
+      Count events by type:
+        SELECT type, COUNT(*) AS n
+        FROM opencode.events
+        GROUP BY type
+        ORDER BY n DESC
+      Inspect recent events for a session:
+        SELECT seq, type, data
+        FROM opencode.events
+        WHERE aggregate_id = 'ses_...'
+        ORDER BY seq ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/events.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Event id.
+      - name: aggregate_id
+        type: Utf8
+        nullable: false
+        description: Aggregate id the event belongs to (often a session or project id).
+      - name: seq
+        type: Int64
+        nullable: false
+        description: Per-aggregate sequence number.
+      - name: type
+        type: Utf8
+        nullable: false
+        description: Event type (e.g. `session.created`, `message.appended`).
+      - name: data
+        type: Json
+        nullable: false
+        description: Event payload as JSON; schema varies by `type`.
+
+  # --------------------------------------------------------------------------
+  # opencode.event_sequences — per-aggregate event counters
+  # --------------------------------------------------------------------------
+  - name: event_sequences
+    description: >-
+      Per-aggregate event sequencing counters opencode uses to keep
+      events ordered. Useful for understanding which aggregate owns an
+      event stream and how far it has advanced.
+    guide: |
+      SELECT aggregate_id, seq, owner_id
+      FROM opencode.event_sequences
+      ORDER BY seq DESC
+      LIMIT 10
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/event_sequences.jsonl
+    columns:
+      - name: aggregate_id
+        type: Utf8
+        nullable: false
+        description: Aggregate id.
+      - name: seq
+        type: Int64
+        nullable: false
+        description: Highest sequence number written for this aggregate.
+      - name: owner_id
+        type: Utf8
+        nullable: true
+        description: Owning entity id when recorded.
+
+  # --------------------------------------------------------------------------
+  # opencode.accounts — OpenCode account / OAuth rows
+  # --------------------------------------------------------------------------
+  - name: accounts
+    description: >-
+      OpenCode account rows used for provider authentication. Exposes the
+      account email, url, token expiry, and timestamps. The underlying
+      `access_token` / `refresh_token` are not exposed; they are live
+      secrets.
+    guide: |
+      SELECT id, email, url, token_expiry
+      FROM opencode.accounts
+      ORDER BY time_created DESC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/accounts.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Account id.
+      - name: email
+        type: Utf8
+        nullable: false
+        description: Account email.
+      - name: url
+        type: Utf8
+        nullable: false
+        description: Provider API url.
+      - name: token_expiry
+        type: Int64
+        nullable: true
+        description: Timestamp when the OAuth token expires.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Account creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Account last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.account_states — currently active account / org
+  # --------------------------------------------------------------------------
+  - name: account_states
+    description: >-
+      Records which account and org are currently active in the OpenCode
+      UI.
+    guide: |
+      SELECT id, active_account_id, active_org_id
+      FROM opencode.account_states
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/account_states.jsonl
+    columns:
+      - name: id
+        type: Int64
+        nullable: false
+        description: State row id.
+      - name: active_account_id
+        type: Utf8
+        nullable: true
+        description: Id of the active account, when set.
+      - name: active_org_id
+        type: Utf8
+        nullable: true
+        description: Id of the active org, when set.
+
+  # --------------------------------------------------------------------------
+  # opencode.control_accounts — control-plane auth rows
+  # --------------------------------------------------------------------------
+  - name: control_accounts
+    description: >-
+      Control-plane account rows used for authenticated coordination.
+      Exposes email, url, active flag, and timestamps. The underlying
+      `access_token` / `refresh_token` are live secrets and not exposed.
+    guide: |
+      SELECT email, url, active
+      FROM opencode.control_accounts
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/control_accounts.jsonl
+    columns:
+      - name: email
+        type: Utf8
+        nullable: false
+        description: Account email.
+      - name: url
+        type: Utf8
+        nullable: false
+        description: Provider url.
+      - name: token_expiry
+        type: Int64
+        nullable: true
+        description: Timestamp when the OAuth token expires.
+      - name: active
+        type: Int64
+        nullable: false
+        description: Whether the account is active.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Account creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Account last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.credentials — stored provider credentials
+  # --------------------------------------------------------------------------
+  - name: credentials
+    description: >-
+      Stored provider credential rows (label, connector, method, active
+      flag, timestamps). The underlying `value` is a live secret (API
+      key / token) and is **not** exposed.
+    guide: |
+      SELECT id, label, connector_id, method_id, active
+      FROM opencode.credentials
+      ORDER BY time_created DESC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/credentials.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Credential id.
+      - name: integration_id
+        type: Utf8
+        nullable: true
+        description: Integration id this credential belongs to.
+      - name: label
+        type: Utf8
+        nullable: false
+        description: Human-readable credential label.
+      - name: connector_id
+        type: Utf8
+        nullable: true
+        description: Connector / provider id.
+      - name: method_id
+        type: Utf8
+        nullable: true
+        description: Auth method id.
+      - name: active
+        type: Int64
+        nullable: true
+        description: Whether the credential is active.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Credential creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Credential last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.data_migrations — applied data migrations
+  # --------------------------------------------------------------------------
+  - name: data_migrations
+    description: >-
+      Applied data migrations recorded by opencode, with the timestamp
+      each completed at.
+    guide: |
+      SELECT name, time_completed
+      FROM opencode.data_migrations
+      ORDER BY name ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/data_migrations.jsonl
+    columns:
+      - name: name
+        type: Utf8
+        nullable: false
+        description: Migration name.
+      - name: time_completed
+        type: Int64
+        nullable: false
+        description: Timestamp when the migration completed.
+
+  # --------------------------------------------------------------------------
+  # opencode.migrations — applied schema migrations
+  # --------------------------------------------------------------------------
+  - name: migrations
+    description: >-
+      Applied schema migrations recorded by opencode, with the timestamp
+      each completed at.
+    guide: |
+      SELECT id, time_completed
+      FROM opencode.migrations
+      ORDER BY time_completed ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/migrations.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Migration id.
+      - name: time_completed
+        type: Int64
+        nullable: false
+        description: Timestamp when the migration completed.
+
+  # --------------------------------------------------------------------------
+  # opencode.permissions — per-project permissions
+  # --------------------------------------------------------------------------
+  - name: permissions
+    description: >-
+      Permission rows describing what actions a project grants on a
+      resource (read / write on sessions, projects, etc.).
+    guide: |
+      SELECT project_id, action, resource
+      FROM opencode.permissions
+      ORDER BY project_id ASC, id ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/permissions.jsonl
+    columns:
+      - name: id
+        type: Utf8
+        nullable: false
+        description: Permission id.
+      - name: project_id
+        type: Utf8
+        nullable: false
+        description: Project id this permission applies to.
+      - name: action
+        type: Utf8
+        nullable: false
+        description: Granted action (e.g. `read`, `write`).
+      - name: resource
+        type: Utf8
+        nullable: false
+        description: Resource the action applies to.
+      - name: time_created
+        type: Int64
+        nullable: false
+        description: Permission creation timestamp in epoch milliseconds.
+      - name: time_updated
+        type: Int64
+        nullable: false
+        description: Permission last-updated timestamp in epoch milliseconds.
+
+  # --------------------------------------------------------------------------
+  # opencode.session_context_epochs — per-session context baselines
+  # --------------------------------------------------------------------------
+  - name: session_context_epochs
+    description: >-
+      Per-session context-epoch rows opencode uses to track context
+      compaction / baseline snapshots. Useful for auditing compaction
+      history.
+    guide: |
+      SELECT session_id, baseline, baseline_seq
+      FROM opencode.session_context_epochs
+      ORDER BY session_id ASC
+    format: jsonl
+    source:
+      location: file://~/.coral/opencode/session_context_epochs.jsonl
+    columns:
+      - name: session_id
+        type: Utf8
+        nullable: false
+        description: Session id this epoch belongs to.
+      - name: baseline
+        type: Utf8
+        nullable: false
+        description: Baseline identifier for the epoch.
+      - name: snapshot
+        type: Utf8
+        nullable: false
+        description: Snapshot identifier for the epoch.
+      - name: baseline_seq
+        type: Int64
+        nullable: false
+        description: Sequence number of the baseline.

@@ -1,10 +1,10 @@
 # OpenCode
 
-**Version:** 0.1.0
+**Version:** 0.3.0
 **Backend:** File (JSONL)
-**Tables:** 10
+**Tables:** 20
 
-Query local OpenCode session data — sessions, messages, message parts, todos, user prompts, shared sessions, projects, project directories, and workspaces — through Coral SQL. The included converter script reads OpenCode's local SQLite database (`~/.local/share/opencode/opencode.db`) and writes JSONL files that Coral's `file` backend can serve with no running server.
+Query local OpenCode data — sessions, messages, message parts, todos, user prompts, shared sessions, projects, project directories, workspaces, the full domain event log, event sequencing, accounts and control accounts, stored credentials, data/migration history, permissions, and per-session context epochs — through Coral SQL. The included converter script reads OpenCode's local SQLite database (`~/.local/share/opencode/opencode.db`) and writes JSONL files that Coral's `file` backend can serve with no running server.
 
 ## Installation
 
@@ -112,6 +112,16 @@ Default output directory: `~/.coral/opencode/`.
 | `opencode.projects` | One row per OpenCode project, with worktree, display name, and timestamps. |
 | `opencode.project_directories` | One row per directory attached to a project. |
 | `opencode.workspaces` | One row per workspace. |
+| `opencode.events` | The full OpenCode domain event log — the largest table (~1M rows). Every state change, with per-aggregate sequence and a `type`-typed `data` blob. |
+| `opencode.event_sequences` | Per-aggregate event sequencing counters. |
+| `opencode.accounts` | OpenCode account rows (email, url, token expiry, timestamps). Tokens not exposed. |
+| `opencode.account_states` | Currently active account / org. |
+| `opencode.control_accounts` | Control-plane account rows (auth). Tokens not exposed. |
+| `opencode.credentials` | Stored provider credentials (label, connector, method, active). Secret `value` not exposed. |
+| `opencode.data_migrations` | Applied data migrations. |
+| `opencode.migrations` | Applied schema migrations. |
+| `opencode.permissions` | Per-project permission rows (action, resource). |
+| `opencode.session_context_epochs` | Per-session context-compaction baselines and snapshots. |
 
 ### `opencode.sessions`
 
@@ -191,8 +201,9 @@ Session-scoped todo lists. Composite primary key `(session_id, position)`.
 - The converter uses Python stdlib only (`sqlite3`). No external dependencies.
 - Data is static — re-run the converter script after the on-disk database changes to refresh.
 - `model` columns in OpenCode are JSON objects `{"id","providerID","variant"}`; the converter parses them into `model_id` and `model_provider` flat columns and also keeps the raw `model` JSON for transparency.
-- `parts.jsonl` can be large (hundreds of MB on long-running installs). The source intentionally excludes `parts` from the manifest's `test_queries` so `coral source add` / `coral source test` finish in seconds; query `opencode.parts` after install as needed.
-- 4 declared test queries (`sessions`, `messages`, `todos`, `projects`) cover the most common access patterns without forcing a full parts-table scan during install.
+- `events.jsonl` is the largest export on long-running installs (OpenCode's event log can hold ~1M rows / hundreds of MB). `parts.jsonl` is also large. The source intentionally excludes `events` and `parts` from the manifest's `test_queries` so `coral source add` / `coral source test` finish in seconds; query `opencode.events` / `opencode.parts` after install as needed.
+- 4 declared test queries (`sessions`, `messages`, `todos`, `projects`) cover the most common access patterns without forcing a full events- or parts-table scan during install.
+- Live secrets are intentionally **not** exported at all: the converter drops `accounts.access_token` and `accounts.refresh_token`, `control_accounts.access_token` and `control_accounts.refresh_token`, `credentials.value`, and `session_shares.secret`. The source exposes only non-secret metadata for these rows.
 
 ## Limitations
 

@@ -359,6 +359,216 @@ def fetch_workspaces(conn: sqlite3.Connection):
     return rows
 
 
+def fetch_events(conn: sqlite3.Connection):
+    """All domain events — the largest table (~1M rows). The `data` column
+    is a JSON blob whose schema varies by `type`."""
+    sql = """
+        SELECT id, aggregate_id, seq, type, data
+        FROM event
+        ORDER BY aggregate_id ASC, seq ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        raw = r["data"]
+        try:
+            payload = json.loads(raw) if raw else {}
+        except (TypeError, ValueError):
+            payload = {"_raw": raw}
+        rows.append(
+            {
+                "id": r["id"],
+                "aggregate_id": r["aggregate_id"],
+                "seq": int(r["seq"] or 0),
+                "type": r["type"],
+                "data": payload,
+            }
+        )
+    return rows
+
+
+def fetch_event_sequences(conn: sqlite3.Connection):
+    sql = """
+        SELECT aggregate_id, seq, owner_id
+        FROM event_sequence
+        ORDER BY aggregate_id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "aggregate_id": r["aggregate_id"],
+                "seq": int(r["seq"] or 0),
+                "owner_id": r["owner_id"],
+            }
+        )
+    return rows
+
+
+def fetch_accounts(conn: sqlite3.Connection):
+    """OpenCode account / OAuth rows. The `access_token` and
+    `refresh_token` columns are live secrets and are intentionally **not**
+    exported — same policy as `session_shares.secret`."""
+    sql = """
+        SELECT id, email, url, token_expiry, time_created, time_updated
+        FROM account
+        ORDER BY time_created DESC, id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "id": r["id"],
+                "email": r["email"],
+                "url": r["url"],
+                "token_expiry": int(r["token_expiry"]) if r["token_expiry"] is not None else None,
+                "time_created": int(r["time_created"] or 0),
+                "time_updated": int(r["time_updated"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_account_states(conn: sqlite3.Connection):
+    sql = """
+        SELECT id, active_account_id, active_org_id
+        FROM account_state
+        ORDER BY id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "id": int(r["id"] or 0),
+                "active_account_id": r["active_account_id"],
+                "active_org_id": r["active_org_id"],
+            }
+        )
+    return rows
+
+
+def fetch_control_accounts(conn: sqlite3.Connection):
+    """Control-plane account rows. The `access_token` and `refresh_token`
+    columns are live secrets and are intentionally **not** exported."""
+    sql = """
+        SELECT email, url, token_expiry, active, time_created, time_updated
+        FROM control_account
+        ORDER BY time_created DESC, email ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "email": r["email"],
+                "url": r["url"],
+                "token_expiry": int(r["token_expiry"]) if r["token_expiry"] is not None else None,
+                "active": int(r["active"] or 0),
+                "time_created": int(r["time_created"] or 0),
+                "time_updated": int(r["time_updated"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_credentials(conn: sqlite3.Connection):
+    """Stored credential metadata. The `value` column is a live secret
+    (API key / token) and is intentionally **not** exported."""
+    sql = """
+        SELECT id, integration_id, label, connector_id, method_id,
+               active, time_created, time_updated
+        FROM credential
+        ORDER BY time_created DESC, id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "id": r["id"],
+                "integration_id": r["integration_id"],
+                "label": r["label"],
+                "connector_id": r["connector_id"],
+                "method_id": r["method_id"],
+                "active": int(r["active"]) if r["active"] is not None else None,
+                "time_created": int(r["time_created"] or 0),
+                "time_updated": int(r["time_updated"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_data_migrations(conn: sqlite3.Connection):
+    sql = """
+        SELECT name, time_completed
+        FROM data_migration
+        ORDER BY name ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "name": r["name"],
+                "time_completed": int(r["time_completed"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_migrations(conn: sqlite3.Connection):
+    sql = """
+        SELECT id, time_completed
+        FROM migration
+        ORDER BY time_completed ASC, id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "id": r["id"],
+                "time_completed": int(r["time_completed"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_permissions(conn: sqlite3.Connection):
+    sql = """
+        SELECT id, project_id, action, resource, time_created, time_updated
+        FROM permission
+        ORDER BY project_id ASC, id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "id": r["id"],
+                "project_id": r["project_id"],
+                "action": r["action"],
+                "resource": r["resource"],
+                "time_created": int(r["time_created"] or 0),
+                "time_updated": int(r["time_updated"] or 0),
+            }
+        )
+    return rows
+
+
+def fetch_session_context_epochs(conn: sqlite3.Connection):
+    sql = """
+        SELECT session_id, baseline, snapshot, baseline_seq
+        FROM session_context_epoch
+        ORDER BY session_id ASC
+    """
+    rows = []
+    for r in conn.execute(sql):
+        rows.append(
+            {
+                "session_id": r["session_id"],
+                "baseline": r["baseline"],
+                "snapshot": r["snapshot"],
+                "baseline_seq": int(r["baseline_seq"] or 0),
+            }
+        )
+    return rows
+
+
 def write_jsonl_atomic(path: Path, rows):
     """Write `rows` to `path` as JSONL atomically via a temp file in the same dir."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -381,16 +591,26 @@ def write_jsonl_atomic(path: Path, rows):
 # truth for which JSONL files the converter writes. Each entry maps the
 # table name to its fetch function.
 TABLES = {
-    "sessions":          fetch_sessions,
-    "messages":          fetch_messages,
-    "session_messages":  fetch_session_messages,
-    "parts":             fetch_parts,
-    "todos":             fetch_todos,
-    "session_inputs":    fetch_session_inputs,
-    "session_shares":    fetch_session_shares,
-    "projects":          fetch_projects,
-    "project_directories": fetch_project_directories,
-    "workspaces":        fetch_workspaces,
+    "sessions":               fetch_sessions,
+    "messages":               fetch_messages,
+    "session_messages":       fetch_session_messages,
+    "parts":                  fetch_parts,
+    "todos":                  fetch_todos,
+    "session_inputs":         fetch_session_inputs,
+    "session_shares":         fetch_session_shares,
+    "projects":               fetch_projects,
+    "project_directories":    fetch_project_directories,
+    "workspaces":             fetch_workspaces,
+    "events":                 fetch_events,
+    "event_sequences":        fetch_event_sequences,
+    "accounts":               fetch_accounts,
+    "account_states":         fetch_account_states,
+    "control_accounts":       fetch_control_accounts,
+    "credentials":            fetch_credentials,
+    "data_migrations":        fetch_data_migrations,
+    "migrations":             fetch_migrations,
+    "permissions":            fetch_permissions,
+    "session_context_epochs": fetch_session_context_epochs,
 }
 
 
